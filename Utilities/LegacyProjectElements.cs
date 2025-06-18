@@ -4,7 +4,7 @@ public static class LegacyProjectElements
 {
     public static readonly HashSet<string> PropertiesToRemove = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ProjectGuid",
+        // "ProjectGuid", // Now preserved for solution compatibility
         "ProjectTypeGuids", 
         "TargetFrameworkProfile",
         "FileAlignment",
@@ -30,6 +30,16 @@ public static class LegacyProjectElements
         "ApplicationVersion",
         "UseApplicationTrust",
         "BootstrapperEnabled"
+    };
+    
+    // Properties to preserve (even though not strictly needed in SDK-style)
+    public static readonly HashSet<string> PropertiesToPreserve = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ProjectGuid", // Needed for solution file compatibility
+        "SignAssembly",
+        "AssemblyOriginatorKeyFile",
+        "DelaySign",
+        "StrongNameKeyFile"
     };
 
     // Assembly properties that can be moved to Directory.Build.props
@@ -95,5 +105,31 @@ public static class LegacyProjectElements
         "AppDesigner",
         "VisualStudio",
         "FlavorProperties"
+    };
+    
+    // WPF/WinForms specific item types that need special handling
+    public static readonly HashSet<string> WpfWinFormsItemTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ApplicationDefinition",
+        "Page",
+        "Resource",
+        "XamlAppdef",
+        "DesignData",
+        "DesignDataWithDesignTimeCreatableTypes",
+        "EntityDeploy",
+        "FontDefinition",
+        "SplashScreen"
+    };
+    
+    // File extensions that are implicitly included in SDK-style projects
+    public static readonly HashSet<string> ImplicitlyIncludedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".cs",
+        ".vb",
+        ".resx",
+        ".settings",
+        ".cshtml",
+        ".vbhtml",
+        ".razor"
     };
 }

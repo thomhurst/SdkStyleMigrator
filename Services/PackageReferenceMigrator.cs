@@ -76,15 +76,24 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
                 var id = package.Attribute("id")?.Value;
                 var version = package.Attribute("version")?.Value;
                 var targetFramework = package.Attribute("targetFramework")?.Value;
+                var developmentDependency = package.Attribute("developmentDependency")?.Value;
 
                 if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(version))
                 {
-                    packages.Add(new PackageReference
+                    var packageRef = new PackageReference
                     {
                         PackageId = id,
                         Version = version,
                         TargetFramework = targetFramework
-                    });
+                    };
+                    
+                    // Map developmentDependency to PrivateAssets
+                    if (developmentDependency == "true")
+                    {
+                        packageRef.Metadata["PrivateAssets"] = "all";
+                    }
+                    
+                    packages.Add(packageRef);
                 }
             }
         }

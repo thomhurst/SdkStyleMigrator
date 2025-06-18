@@ -69,6 +69,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     var packageElement = new XElement("PackageReference",
                         new XAttribute("Include", package.PackageId),
                         new XAttribute("Version", package.Version));
+                    
+                    // Add any additional metadata (e.g., PrivateAssets)
+                    foreach (var metadata in package.Metadata)
+                    {
+                        packageElement.Add(new XAttribute(metadata.Key, metadata.Value));
+                    }
+                    
                     packageGroup.Add(packageElement);
                 }
                 projectElement.Add(packageGroup);
@@ -82,12 +89,36 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement.Add(projectReferences);
             }
 
+            // Migrate compile items (handle implicit includes)
+            var compileItems = MigrateCompileItems(legacyProject);
+            if (compileItems.HasElements)
+            {
+                projectElement.Add(compileItems);
+            }
+            
+            // Migrate WPF/WinForms specific items
+            var wpfWinFormsItems = MigrateWpfWinFormsItems(legacyProject);
+            if (wpfWinFormsItems.HasElements)
+            {
+                projectElement.Add(wpfWinFormsItems);
+            }
+
             // Migrate content items if necessary
             var contentItems = MigrateContentItems(legacyProject);
             if (contentItems.HasElements)
             {
                 projectElement.Add(contentItems);
             }
+            
+            // Migrate other items (COM references, etc.)
+            var otherItems = MigrateOtherItems(legacyProject, result);
+            if (otherItems.HasElements)
+            {
+                projectElement.Add(otherItems);
+            }
+            
+            // Migrate custom targets and imports
+            MigrateCustomTargetsAndImports(legacyProject, projectElement, result);
 
             // Save the new project file
             var directory = Path.GetDirectoryName(outputPath);
@@ -179,6 +210,17 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 propertyGroup.Add(new XElement(propName, value));
             }
         }
+        
+        // Preserve important properties for compatibility
+        foreach (var propName in LegacyProjectElements.PropertiesToPreserve)
+        {
+            var value = legacyProject.GetPropertyValue(propName);
+            if (!string.IsNullOrEmpty(value))
+            {
+                propertyGroup.Add(new XElement(propName, value));
+                _logger.LogDebug("Preserved property for compatibility: {PropertyName}", propName);
+            }
+        }
 
         // Log removed properties
         foreach (var property in legacyProject.Properties)
@@ -240,34 +282,247 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return itemGroup;
     }
 
+    private XElement MigrateCompileItems(Project legacyProject)
+    {
+        var itemGroup = new XElement("ItemGroup");
+        var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
+        
+        // Get all compile items from the legacy project
+        var compileItems = legacyProject.Items.Where(i => i.ItemType == "Compile").ToList();
+        
+        foreach (var item in compileItems)
+        {
+            var include = item.EvaluatedInclude;
+            var extension = Path.GetExtension(include);
+            
+            // Skip files that are implicitly included in SDK-style projects
+            if (LegacyProjectElements.ImplicitlyIncludedExtensions.Contains(extension))
+            {
+                // Check if it's in the project directory tree
+                var fullPath = Path.GetFullPath(Path.Combine(projectDir, include));
+                if (fullPath.StartsWith(projectDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Only include if it has special metadata or is explicitly excluded
+                    if (item.HasMetadata("Link") || 
+                        item.HasMetadata("DependentUpon") || 
+                        item.HasMetadata("AutoGen") ||
+                        item.HasMetadata("DesignTime") ||
+                        item.GetMetadataValue("Visible") == "false")
+                    {
+                        var element = new XElement("Compile", new XAttribute("Update", include));
+                        CopyMetadata(item, element);
+                        itemGroup.Add(element);
+                    }
+                    // Skip regular files that will be implicitly included
+                    continue;
+                }
+            }
+            
+            // Include files outside project directory or with non-standard extensions
+            var compileElement = new XElement("Compile", new XAttribute("Include", include));
+            CopyMetadata(item, compileElement);
+            itemGroup.Add(compileElement);
+        }
+        
+        // Handle removed/excluded files
+        var removedFiles = legacyProject.Items
+            .Where(i => i.ItemType == "Compile" && i.GetMetadataValue("Exclude") == "true")
+            .ToList();
+            
+        foreach (var item in removedFiles)
+        {
+            itemGroup.Add(new XElement("Compile", 
+                new XAttribute("Remove", item.EvaluatedInclude)));
+        }
+        
+        return itemGroup;
+    }
+    
+    private XElement MigrateWpfWinFormsItems(Project legacyProject)
+    {
+        var itemGroup = new XElement("ItemGroup");
+        
+        // Migrate WPF/WinForms specific items
+        foreach (var itemType in LegacyProjectElements.WpfWinFormsItemTypes)
+        {
+            var items = legacyProject.Items.Where(i => i.ItemType == itemType);
+            
+            foreach (var item in items)
+            {
+                var element = new XElement(itemType, 
+                    new XAttribute("Include", item.EvaluatedInclude));
+                CopyMetadata(item, element);
+                itemGroup.Add(element);
+            }
+        }
+        
+        return itemGroup;
+    }
+
     private XElement MigrateContentItems(Project legacyProject)
     {
         var itemGroup = new XElement("ItemGroup");
         
-        // In SDK-style projects, most content is included automatically
-        // Only migrate items that need special handling
+        // Convert Content items to None with CopyToOutputDirectory
         var contentItems = legacyProject.Items
-            .Where(i => i.ItemType == "Content" || i.ItemType == "None")
+            .Where(i => i.ItemType == "Content");
+
+        foreach (var item in contentItems)
+        {
+            var copyToOutput = item.GetMetadataValue("CopyToOutputDirectory");
+            
+            // Only include if it needs to be copied to output
+            if (!string.IsNullOrEmpty(copyToOutput) && copyToOutput != "Never")
+            {
+                var element = new XElement("None",
+                    new XAttribute("Include", item.EvaluatedInclude));
+                
+                element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
+                CopyMetadata(item, element, "CopyToOutputDirectory");
+                
+                itemGroup.Add(element);
+            }
+        }
+        
+        // Also migrate None items that have CopyToOutputDirectory
+        var noneItems = legacyProject.Items
+            .Where(i => i.ItemType == "None")
             .Where(i => 
             {
                 var copyToOutput = i.GetMetadataValue("CopyToOutputDirectory");
                 return !string.IsNullOrEmpty(copyToOutput) && copyToOutput != "Never";
             });
 
-        foreach (var item in contentItems)
+        foreach (var item in noneItems)
         {
-            var element = new XElement(item.ItemType,
+            var element = new XElement("None",
                 new XAttribute("Include", item.EvaluatedInclude));
 
             var copyToOutput = item.GetMetadataValue("CopyToOutputDirectory");
-            if (!string.IsNullOrEmpty(copyToOutput))
-            {
-                element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
-            }
+            element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
+            CopyMetadata(item, element, "CopyToOutputDirectory");
 
             itemGroup.Add(element);
         }
 
         return itemGroup;
+    }
+    
+    private XElement MigrateOtherItems(Project legacyProject, MigrationResult result)
+    {
+        var itemGroup = new XElement("ItemGroup");
+        
+        // Handle COM references
+        var comReferences = legacyProject.Items.Where(i => i.ItemType == "COMReference");
+        foreach (var comRef in comReferences)
+        {
+            var element = new XElement("COMReference",
+                new XAttribute("Include", comRef.EvaluatedInclude));
+            CopyMetadata(comRef, element);
+            itemGroup.Add(element);
+            
+            // Add warning for manual review
+            result.Warnings.Add($"COM Reference '{comRef.EvaluatedInclude}' needs manual review - COM references can be problematic in SDK-style projects");
+        }
+        
+        // Handle EmbeddedResource items with special metadata
+        var embeddedResources = legacyProject.Items
+            .Where(i => i.ItemType == "EmbeddedResource")
+            .Where(i => i.HasMetadata("Generator") || 
+                       i.HasMetadata("LastGenOutput") ||
+                       i.HasMetadata("SubType"));
+                       
+        foreach (var resource in embeddedResources)
+        {
+            var element = new XElement("EmbeddedResource",
+                new XAttribute("Update", resource.EvaluatedInclude));
+            CopyMetadata(resource, element);
+            itemGroup.Add(element);
+        }
+        
+        return itemGroup;
+    }
+    
+    private void CopyMetadata(ProjectItem source, XElement target, params string[] excludeMetadata)
+    {
+        var metadataToSkip = new HashSet<string>(excludeMetadata, StringComparer.OrdinalIgnoreCase);
+        metadataToSkip.Add("Include"); // Always skip Include as it's an attribute
+        
+        foreach (var metadata in source.Metadata)
+        {
+            if (!metadataToSkip.Contains(metadata.Name))
+            {
+                target.Add(new XElement(metadata.Name, metadata.EvaluatedValue));
+            }
+        }
+    }
+    
+    private void MigrateCustomTargetsAndImports(Project legacyProject, XElement projectElement, MigrationResult result)
+    {
+        // Migrate custom imports (exclude standard ones)
+        foreach (var import in legacyProject.Xml.Imports)
+        {
+            if (!LegacyProjectElements.ImportsToRemove.Contains(import.Project))
+            {
+                var importElement = new XElement("Import",
+                    new XAttribute("Project", import.Project));
+                    
+                if (!string.IsNullOrEmpty(import.Condition))
+                {
+                    importElement.Add(new XAttribute("Condition", import.Condition));
+                }
+                
+                projectElement.Add(importElement);
+                _logger.LogDebug("Preserved custom import: {Import}", import.Project);
+            }
+        }
+        
+        // Migrate custom targets
+        foreach (var target in legacyProject.Xml.Targets)
+        {
+            // Skip problematic targets unless they have complex logic
+            if (LegacyProjectElements.ProblematicTargets.Contains(target.Name) && 
+                !target.Children.Any())
+            {
+                result.Warnings.Add($"Removed empty '{target.Name}' target - consider using MSBuild SDK hooks instead");
+                continue;
+            }
+            
+            // For BeforeBuild/AfterBuild with content, add a warning
+            if (LegacyProjectElements.ProblematicTargets.Contains(target.Name))
+            {
+                result.Warnings.Add($"Target '{target.Name}' was migrated but should be reviewed - consider using BeforeTargets/AfterTargets instead");
+            }
+            
+            var targetElement = new XElement("Target", new XAttribute("Name", target.Name));
+            
+            // Copy target attributes
+            if (!string.IsNullOrEmpty(target.BeforeTargets))
+                targetElement.Add(new XAttribute("BeforeTargets", target.BeforeTargets));
+            if (!string.IsNullOrEmpty(target.AfterTargets))
+                targetElement.Add(new XAttribute("AfterTargets", target.AfterTargets));
+            if (!string.IsNullOrEmpty(target.DependsOnTargets))
+                targetElement.Add(new XAttribute("DependsOnTargets", target.DependsOnTargets));
+            if (!string.IsNullOrEmpty(target.Condition))
+                targetElement.Add(new XAttribute("Condition", target.Condition));
+            
+            // Copy target content (simplified - real implementation would need to handle all task types)
+            foreach (var child in target.Children)
+            {
+                // This is a simplified approach - in reality, we'd need to handle various task types
+                result.Warnings.Add($"Target '{target.Name}' contains custom tasks that need manual review");
+            }
+            
+            if (targetElement.HasAttributes || targetElement.HasElements)
+            {
+                projectElement.Add(targetElement);
+            }
+        }
+        
+        // Migrate PropertyGroups and ItemGroups with conditions
+        foreach (var propertyGroup in legacyProject.Xml.PropertyGroups.Where(pg => !string.IsNullOrEmpty(pg.Condition)))
+        {
+            result.Warnings.Add($"Conditional PropertyGroup with condition '{propertyGroup.Condition}' needs manual review");
+        }
     }
 }

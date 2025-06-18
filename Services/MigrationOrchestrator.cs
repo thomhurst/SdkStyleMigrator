@@ -215,5 +215,96 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     string.Join(", ", failed.Errors));
             }
         }
+        
+        // Log warnings that need manual review
+        var projectsWithWarnings = report.Results.Where(r => r.Warnings.Any()).ToList();
+        if (projectsWithWarnings.Any())
+        {
+            _logger.LogWarning("");
+            _logger.LogWarning("Projects with warnings that need manual review:");
+            foreach (var project in projectsWithWarnings)
+            {
+                _logger.LogWarning("  {ProjectPath}:", project.ProjectPath);
+                foreach (var warning in project.Warnings)
+                {
+                    _logger.LogWarning("    - {Warning}", warning);
+                }
+            }
+        }
+        
+        // Summary of items removed
+        var totalRemovedElements = report.Results.Sum(r => r.RemovedElements.Count);
+        if (totalRemovedElements > 0)
+        {
+            _logger.LogInformation("");
+            _logger.LogInformation("Total legacy elements removed: {Count}", totalRemovedElements);
+        }
+        
+        // Write detailed report to file
+        var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".", 
+            $"migration-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
+        WriteDetailedReport(report, reportPath);
+        _logger.LogInformation("");
+        _logger.LogInformation("Detailed migration report written to: {Path}", reportPath);
+    }
+    
+    private void WriteDetailedReport(MigrationReport report, string reportPath)
+    {
+        using var writer = new StreamWriter(reportPath);
+        
+        writer.WriteLine("SDK Migration Report");
+        writer.WriteLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        writer.WriteLine($"Duration: {report.Duration}");
+        writer.WriteLine();
+        
+        writer.WriteLine("Summary:");
+        writer.WriteLine($"  Total projects found: {report.TotalProjectsFound}");
+        writer.WriteLine($"  Successfully migrated: {report.TotalProjectsMigrated}");
+        writer.WriteLine($"  Failed: {report.TotalProjectsFailed}");
+        writer.WriteLine();
+        
+        foreach (var result in report.Results)
+        {
+            writer.WriteLine($"Project: {result.ProjectPath}");
+            writer.WriteLine($"  Status: {(result.Success ? "Success" : "Failed")}");
+            
+            if (result.Errors.Any())
+            {
+                writer.WriteLine("  Errors:");
+                foreach (var error in result.Errors)
+                {
+                    writer.WriteLine($"    - {error}");
+                }
+            }
+            
+            if (result.Warnings.Any())
+            {
+                writer.WriteLine("  Warnings (require manual review):");
+                foreach (var warning in result.Warnings)
+                {
+                    writer.WriteLine($"    - {warning}");
+                }
+            }
+            
+            if (result.RemovedElements.Any())
+            {
+                writer.WriteLine("  Removed elements:");
+                foreach (var element in result.RemovedElements)
+                {
+                    writer.WriteLine($"    - {element}");
+                }
+            }
+            
+            if (result.MigratedPackages.Any())
+            {
+                writer.WriteLine("  Migrated packages:");
+                foreach (var package in result.MigratedPackages)
+                {
+                    writer.WriteLine($"    - {package.PackageId} {package.Version}");
+                }
+            }
+            
+            writer.WriteLine();
+        }
     }
 }

@@ -1,0 +1,42 @@
+# Changelog
+
+## [0.2.0] - 2025-01-18
+
+### Added
+- **ProjectGuid Preservation**: Now preserves ProjectGuid for solution file compatibility
+- **Implicit File Include Handling**: Properly handles SDK-style implicit includes for .cs, .vb, .resx files
+  - Only includes files with special metadata (Link, DependentUpon, etc.)
+  - Handles files outside project directory
+  - Supports file exclusions with Remove attribute
+- **WPF/WinForms Support**: Handles special item types (ApplicationDefinition, Page, Resource, etc.)
+- **Content to None Conversion**: Converts Content items to None with CopyToOutputDirectory
+- **Development Dependencies**: Maps packages.config developmentDependency="true" to PrivateAssets="all"
+- **Assembly Signing**: Preserves assembly signing properties (SignAssembly, AssemblyOriginatorKeyFile, etc.)
+- **Custom MSBuild Logic**: Preserves custom imports and targets with warnings for manual review
+- **COM Reference Handling**: Preserves COM references with warnings about compatibility issues
+- **Detailed Migration Report**: Generates comprehensive text file report with:
+  - All warnings that need manual review
+  - Removed elements list
+  - Migrated packages
+  - Error details for failed projects
+
+### Changed
+- Assembly properties now extracted to Directory.Build.props (from v0.1.0)
+- Improved warning system for items requiring manual review
+
+### Migration Warnings Added For
+- COM references (compatibility issues with SDK-style projects)
+- Custom MSBuild targets (especially BeforeBuild/AfterBuild)
+- Conditional PropertyGroups
+- EmbeddedResource items with generators
+
+## [0.1.0] - Initial Release
+
+### Features
+- Scans directories recursively for legacy project files
+- Removes unnecessary legacy properties
+- Converts packages.config to PackageReference
+- Detects and removes transitive dependencies
+- Extracts assembly properties to Directory.Build.props
+- Removes AssemblyInfo files with backups
+- Creates .legacy backup files
