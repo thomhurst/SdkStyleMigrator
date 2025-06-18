@@ -32,6 +32,40 @@ public static class LegacyProjectElements
         "BootstrapperEnabled"
     };
 
+    // Assembly properties that can be moved to Directory.Build.props
+    public static readonly HashSet<string> AssemblyPropertiesToExtract = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Company",
+        "Product",
+        "Copyright",
+        "Trademark",
+        "AssemblyVersion",
+        "FileVersion",
+        "AssemblyTitle",
+        "AssemblyDescription",
+        "AssemblyConfiguration",
+        "AssemblyCompany",
+        "AssemblyProduct",
+        "AssemblyCopyright",
+        "AssemblyTrademark",
+        "ComVisible",
+        "Guid",
+        "NeutralResourcesLanguage"
+    };
+
+    // Common assembly info file patterns
+    public static readonly string[] AssemblyInfoFilePatterns = new[]
+    {
+        "AssemblyInfo.cs",
+        "AssemblyInfo.vb",
+        "GlobalAssemblyInfo.cs",
+        "GlobalAssemblyInfo.vb",
+        "SharedAssemblyInfo.cs",
+        "SharedAssemblyInfo.vb",
+        "CommonAssemblyInfo.cs",
+        "CommonAssemblyInfo.vb"
+    };
+
     public static readonly HashSet<string> ImportsToRemove = new(StringComparer.OrdinalIgnoreCase)
     {
         "$(MSBuildToolsPath)\\Microsoft.CSharp.targets",

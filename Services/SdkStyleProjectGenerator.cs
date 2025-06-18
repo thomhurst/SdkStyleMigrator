@@ -161,7 +161,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             "LangVersion",
             "Nullable",
-            "GenerateAssemblyInfo",
             "GenerateDocumentationFile",
             "NoWarn",
             "TreatWarningsAsErrors",
@@ -184,7 +183,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Log removed properties
         foreach (var property in legacyProject.Properties)
         {
-            if (LegacyProjectElements.PropertiesToRemove.Contains(property.Name))
+            if (LegacyProjectElements.PropertiesToRemove.Contains(property.Name) || 
+                LegacyProjectElements.AssemblyPropertiesToExtract.Contains(property.Name))
             {
                 result.RemovedElements.Add($"Property: {property.Name}");
                 _logger.LogDebug("Removed legacy property: {PropertyName}", property.Name);

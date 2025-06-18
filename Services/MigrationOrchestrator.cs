@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
+using SdkMigrator.Utilities;
 
 namespace SdkMigrator.Services;
 
@@ -10,17 +11,23 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IProjectFileScanner _projectFileScanner;
     private readonly IProjectParser _projectParser;
     private readonly ISdkStyleProjectGenerator _sdkStyleProjectGenerator;
+    private readonly IAssemblyInfoExtractor _assemblyInfoExtractor;
+    private readonly IDirectoryBuildPropsGenerator _directoryBuildPropsGenerator;
 
     public MigrationOrchestrator(
         ILogger<MigrationOrchestrator> logger,
         IProjectFileScanner projectFileScanner,
         IProjectParser projectParser,
-        ISdkStyleProjectGenerator sdkStyleProjectGenerator)
+        ISdkStyleProjectGenerator sdkStyleProjectGenerator,
+        IAssemblyInfoExtractor assemblyInfoExtractor,
+        IDirectoryBuildPropsGenerator directoryBuildPropsGenerator)
     {
         _logger = logger;
         _projectFileScanner = projectFileScanner;
         _projectParser = projectParser;
         _sdkStyleProjectGenerator = sdkStyleProjectGenerator;
+        _assemblyInfoExtractor = assemblyInfoExtractor;
+        _directoryBuildPropsGenerator = directoryBuildPropsGenerator;
     }
 
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
@@ -40,6 +47,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             report.TotalProjectsFound = projectFilesList.Count;
 
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
+
+            // Collect assembly properties from all projects
+            var projectAssemblyProperties = new Dictionary<string, AssemblyProperties>();
 
             foreach (var projectFile in projectFilesList)
             {
@@ -61,12 +71,35 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         continue;
                     }
 
+                    // Extract assembly properties from AssemblyInfo files and project
+                    var projectDir = Path.GetDirectoryName(projectFile)!;
+                    var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
+                    var projectProps = await _assemblyInfoExtractor.ExtractFromProjectAsync(project, cancellationToken);
+                    
+                    // Merge properties (project properties take precedence)
+                    foreach (var prop in typeof(AssemblyProperties).GetProperties())
+                    {
+                        var projectValue = prop.GetValue(projectProps);
+                        if (projectValue != null && (projectValue is not string str || !string.IsNullOrEmpty(str)))
+                        {
+                            prop.SetValue(assemblyProps, projectValue);
+                        }
+                    }
+                    
+                    projectAssemblyProperties[projectFile] = assemblyProps;
+
                     // Generate output path
                     var outputPath = GenerateOutputPath(projectFile);
 
                     // Migrate to SDK-style
                     var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                         project, outputPath, cancellationToken);
+
+                    // Remove AssemblyInfo files after successful migration
+                    if (result.Success)
+                    {
+                        await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
+                    }
 
                     report.Results.Add(result);
 
@@ -96,6 +129,13 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     report.TotalProjectsFailed++;
                 }
             }
+            
+            // Generate Directory.Build.props with common assembly properties
+            if (projectAssemblyProperties.Any())
+            {
+                await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
+                    directoryPath, projectAssemblyProperties, cancellationToken);
+            }
         }
         catch (Exception ex)
         {
@@ -109,6 +149,35 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
 
         return report;
+    }
+
+    private Task RemoveAssemblyInfoFilesAsync(string projectDirectory, CancellationToken cancellationToken)
+    {
+        foreach (var pattern in LegacyProjectElements.AssemblyInfoFilePatterns)
+        {
+            var files = Directory.GetFiles(projectDirectory, pattern, SearchOption.AllDirectories);
+            foreach (var file in files)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    break;
+                    
+                try
+                {
+                    // Create backup before deletion
+                    var backupPath = $"{file}.backup";
+                    File.Copy(file, backupPath, overwrite: true);
+                    File.Delete(file);
+                    
+                    _logger.LogInformation("Removed AssemblyInfo file: {File} (backup: {BackupPath})", file, backupPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to remove AssemblyInfo file: {File}", file);
+                }
+            }
+        }
+        
+        return Task.CompletedTask;
     }
 
     private string GenerateOutputPath(string projectFile)

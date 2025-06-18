@@ -82,6 +82,8 @@ class Program
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();
         services.AddSingleton<ITransitiveDependencyDetector, TransitiveDependencyDetector>();
         services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
+        services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
+        services.AddSingleton<IDirectoryBuildPropsGenerator, DirectoryBuildPropsGenerator>();
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }
 
@@ -106,6 +108,8 @@ class Program
         Console.WriteLine("  - Remove unnecessary legacy properties and imports");
         Console.WriteLine("  - Convert packages.config to PackageReference");
         Console.WriteLine("  - Detect and remove transitive package dependencies");
+        Console.WriteLine("  - Extract assembly properties to Directory.Build.props");
+        Console.WriteLine("  - Remove AssemblyInfo files and enable SDK auto-generation");
         Console.WriteLine("  - Create backup files with .legacy extension");
         Console.WriteLine("  - Maintain feature parity with the original project");
     }
