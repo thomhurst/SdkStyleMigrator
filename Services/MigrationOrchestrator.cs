@@ -41,14 +41,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         {
             _logger.LogInformation("Starting migration process for directory: {DirectoryPath}", directoryPath);
 
-            // Scan for project files
             var projectFiles = await _projectFileScanner.ScanForProjectFilesAsync(directoryPath, cancellationToken);
             var projectFilesList = projectFiles.ToList();
             report.TotalProjectsFound = projectFilesList.Count;
 
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
 
-            // Collect assembly properties from all projects
             var projectAssemblyProperties = new Dictionary<string, AssemblyProperties>();
 
             foreach (var projectFile in projectFilesList)
@@ -61,22 +59,18 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                 try
                 {
-                    // Parse the project
                     var project = await _projectParser.ParseProjectAsync(projectFile, cancellationToken);
 
-                    // Check if it's a legacy project
                     if (!_projectParser.IsLegacyProject(project))
                     {
                         _logger.LogInformation("Skipping {ProjectPath} - already SDK-style", projectFile);
                         continue;
                     }
 
-                    // Extract assembly properties from AssemblyInfo files and project
                     var projectDir = Path.GetDirectoryName(projectFile)!;
                     var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
                     var projectProps = await _assemblyInfoExtractor.ExtractFromProjectAsync(project, cancellationToken);
                     
-                    // Merge properties (project properties take precedence)
                     foreach (var prop in typeof(AssemblyProperties).GetProperties())
                     {
                         var projectValue = prop.GetValue(projectProps);
@@ -88,14 +82,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     
                     projectAssemblyProperties[projectFile] = assemblyProps;
 
-                    // Generate output path
                     var outputPath = GenerateOutputPath(projectFile);
 
-                    // Migrate to SDK-style
                     var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                         project, outputPath, cancellationToken);
 
-                    // Remove AssemblyInfo files after successful migration
                     if (result.Success)
                     {
                         await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
@@ -130,7 +121,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
             }
             
-            // Generate Directory.Build.props with common assembly properties
             if (projectAssemblyProperties.Any())
             {
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
@@ -163,7 +153,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     
                 try
                 {
-                    // Create backup before deletion
                     var backupPath = $"{file}.backup";
                     File.Copy(file, backupPath, overwrite: true);
                     File.Delete(file);
@@ -182,12 +171,10 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
     private string GenerateOutputPath(string projectFile)
     {
-        // Create a backup of the original and use the same filename
         var directory = Path.GetDirectoryName(projectFile)!;
         var filename = Path.GetFileName(projectFile);
         var backupPath = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(filename)}.legacy{Path.GetExtension(filename)}");
         
-        // Backup the original file
         if (File.Exists(projectFile))
         {
             File.Copy(projectFile, backupPath, overwrite: true);
@@ -216,7 +203,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
         }
         
-        // Log warnings that need manual review
         var projectsWithWarnings = report.Results.Where(r => r.Warnings.Any()).ToList();
         if (projectsWithWarnings.Any())
         {
@@ -232,7 +218,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
         }
         
-        // Summary of items removed
         var totalRemovedElements = report.Results.Sum(r => r.RemovedElements.Count);
         if (totalRemovedElements > 0)
         {
@@ -240,7 +225,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("Total legacy elements removed: {Count}", totalRemovedElements);
         }
         
-        // Write detailed report to file
         var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".", 
             $"migration-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
         WriteDetailedReport(report, reportPath);

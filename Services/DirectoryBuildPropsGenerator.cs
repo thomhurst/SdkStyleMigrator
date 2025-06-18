@@ -18,7 +18,6 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
     {
         var filePath = Path.Combine(rootDirectory, "Directory.Build.props");
         
-        // Find common properties across all projects
         var commonProperties = ExtractCommonProperties(projectProperties);
         
         if (!commonProperties.HasProperties())
@@ -27,7 +26,6 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
             return Task.CompletedTask;
         }
 
-        // Create or update Directory.Build.props
         XDocument doc;
         XElement projectElement;
 
@@ -45,7 +43,6 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
             doc.Add(projectElement);
         }
 
-        // Find or create PropertyGroup
         var propertyGroup = projectElement.Elements("PropertyGroup").FirstOrDefault();
         if (propertyGroup == null)
         {
@@ -53,7 +50,6 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
             projectElement.AddFirst(propertyGroup);
         }
 
-        // Add common properties
         AddOrUpdateProperty(propertyGroup, "GenerateAssemblyInfo", "true");
         
         if (!string.IsNullOrEmpty(commonProperties.Company))
@@ -80,7 +76,6 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         if (commonProperties.ComVisible.HasValue)
             AddOrUpdateProperty(propertyGroup, "ComVisible", commonProperties.ComVisible.Value.ToString().ToLower());
 
-        // Save the file
         doc.Save(filePath);
         
         _logger.LogInformation("Successfully created/updated Directory.Build.props with common assembly properties");
@@ -95,7 +90,6 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         var common = new AssemblyProperties();
         var allProps = projectProperties.Values.ToList();
 
-        // Extract properties that are the same across all projects
         var firstProps = allProps.First();
         
         if (allProps.All(p => p.Company == firstProps.Company))

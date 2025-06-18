@@ -19,7 +19,6 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
     {
         var packageReferences = new List<PackageReference>();
 
-        // Migrate packages.config if exists
         var packagesConfigPath = Path.Combine(Path.GetDirectoryName(project.FullPath)!, "packages.config");
         if (File.Exists(packagesConfigPath))
         {
@@ -27,7 +26,6 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
             packageReferences.AddRange(ParsePackagesConfig(packagesConfigPath));
         }
 
-        // Migrate Reference items with HintPath that point to packages
         var referenceItems = project.Items.Where(i => i.ItemType == "Reference" && i.HasMetadata("HintPath"));
         foreach (var reference in referenceItems)
         {
@@ -42,7 +40,6 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
             }
         }
 
-        // Include existing PackageReference items
         var existingPackageRefs = project.Items.Where(i => i.ItemType == "PackageReference");
         foreach (var item in existingPackageRefs)
         {
@@ -87,7 +84,6 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
                         TargetFramework = targetFramework
                     };
                     
-                    // Map developmentDependency to PrivateAssets
                     if (developmentDependency == "true")
                     {
                         packageRef.Metadata["PrivateAssets"] = "all";
@@ -109,7 +105,6 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
     {
         try
         {
-            // Extract package info from paths like: ..\packages\Newtonsoft.Json.12.0.3\lib\net45\Newtonsoft.Json.dll
             var parts = hintPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var packagesIndex = Array.FindIndex(parts, p => p.Equals("packages", StringComparison.OrdinalIgnoreCase));
             
@@ -120,7 +115,6 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
                 
                 if (lastDotIndex > 0)
                 {
-                    // Try to split package id and version
                     var possibleVersion = packageFolder.Substring(lastDotIndex + 1);
                     if (char.IsDigit(possibleVersion[0]))
                     {

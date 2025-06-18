@@ -4,7 +4,6 @@ public static class LegacyProjectElements
 {
     public static readonly HashSet<string> PropertiesToRemove = new(StringComparer.OrdinalIgnoreCase)
     {
-        // "ProjectGuid", // Now preserved for solution compatibility
         "ProjectTypeGuids", 
         "TargetFrameworkProfile",
         "FileAlignment",
@@ -32,17 +31,15 @@ public static class LegacyProjectElements
         "BootstrapperEnabled"
     };
     
-    // Properties to preserve (even though not strictly needed in SDK-style)
     public static readonly HashSet<string> PropertiesToPreserve = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ProjectGuid", // Needed for solution file compatibility
+        "ProjectGuid",
         "SignAssembly",
         "AssemblyOriginatorKeyFile",
         "DelaySign",
         "StrongNameKeyFile"
     };
 
-    // Assembly properties that can be moved to Directory.Build.props
     public static readonly HashSet<string> AssemblyPropertiesToExtract = new(StringComparer.OrdinalIgnoreCase)
     {
         "Company",
@@ -63,7 +60,6 @@ public static class LegacyProjectElements
         "NeutralResourcesLanguage"
     };
 
-    // Common assembly info file patterns
     public static readonly string[] AssemblyInfoFilePatterns = new[]
     {
         "AssemblyInfo.cs",
@@ -107,7 +103,6 @@ public static class LegacyProjectElements
         "FlavorProperties"
     };
     
-    // WPF/WinForms specific item types that need special handling
     public static readonly HashSet<string> WpfWinFormsItemTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "ApplicationDefinition",
@@ -121,7 +116,6 @@ public static class LegacyProjectElements
         "SplashScreen"
     };
     
-    // File extensions that are implicitly included in SDK-style projects
     public static readonly HashSet<string> ImplicitlyIncludedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".cs",

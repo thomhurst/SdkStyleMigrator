@@ -8,10 +8,8 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 {
     private readonly ILogger<TransitiveDependencyDetector> _logger;
     
-    // Common packages that are often transitive dependencies
     private readonly HashSet<string> _commonTransitiveDependencies = new(StringComparer.OrdinalIgnoreCase)
     {
-        // System packages that are often included transitively
         "System.Runtime",
         "System.Collections",
         "System.Linq",
@@ -24,17 +22,11 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "System.Diagnostics.Debug",
         "System.Globalization",
         "System.Resources.ResourceManager",
-        
-        // Common Microsoft.Extensions dependencies
         "Microsoft.Extensions.DependencyInjection.Abstractions",
         "Microsoft.Extensions.Logging.Abstractions",
         "Microsoft.Extensions.Options",
         "Microsoft.Extensions.Primitives",
-        
-        // Common Newtonsoft.Json dependencies
         "Newtonsoft.Json",
-        
-        // Common dependencies of popular packages
         "System.Memory",
         "System.Buffers",
         "System.Numerics.Vectors",
@@ -43,7 +35,6 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "System.ValueTuple"
     };
 
-    // Map of packages to their common dependencies
     private readonly Dictionary<string, HashSet<string>> _knownDependencies = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Microsoft.AspNetCore.App"] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -90,7 +81,6 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 
         foreach (var package in packages)
         {
-            // Check if this package is a common transitive dependency
             if (_commonTransitiveDependencies.Contains(package.PackageId))
             {
                 package.IsTransitive = true;
@@ -99,7 +89,6 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
                 continue;
             }
 
-            // Check if this package is a known dependency of another package
             foreach (var kvp in _knownDependencies)
             {
                 if (packages.Any(p => p.PackageId.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase)) &&
@@ -113,10 +102,8 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
                 }
             }
 
-            // Additional heuristics for detecting transitive dependencies
             if (!package.IsTransitive)
             {
-                // Check for version-specific system packages
                 if (package.PackageId.StartsWith("System.", StringComparison.OrdinalIgnoreCase) &&
                     packages.Any(p => p.PackageId.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase)))
                 {

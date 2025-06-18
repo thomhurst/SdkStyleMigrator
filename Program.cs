@@ -23,10 +23,8 @@ class Program
             return 1;
         }
 
-        // Convert to absolute path
         directoryPath = Path.GetFullPath(directoryPath);
 
-        // Setup dependency injection
         var services = new ServiceCollection();
         ConfigureServices(services);
         
@@ -49,7 +47,6 @@ class Program
 
             var report = await orchestrator.MigrateProjectsAsync(directoryPath, cancellationTokenSource.Token);
             
-            // Display summary
             Console.WriteLine();
             Console.WriteLine("Migration Summary:");
             Console.WriteLine($"  Total projects found: {report.TotalProjectsFound}");
@@ -69,14 +66,12 @@ class Program
 
     static void ConfigureServices(IServiceCollection services)
     {
-        // Configure logging
         services.AddLogging(builder =>
         {
             builder.AddConsole();
             builder.SetMinimumLevel(LogLevel.Information);
         });
 
-        // Register services
         services.AddSingleton<IProjectFileScanner, ProjectFileScanner>();
         services.AddSingleton<IProjectParser, ProjectParser>();
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();

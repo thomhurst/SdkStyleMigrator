@@ -24,7 +24,6 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
     {
         var properties = new AssemblyProperties();
         
-        // Look for AssemblyInfo files
         foreach (var pattern in LegacyProjectElements.AssemblyInfoFilePatterns)
         {
             var assemblyInfoFiles = Directory.GetFiles(projectDirectory, pattern, SearchOption.AllDirectories);
@@ -46,7 +45,6 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
     {
         var properties = new AssemblyProperties();
         
-        // Extract assembly properties from project file
         foreach (var prop in project.Properties)
         {
             switch (prop.Name)

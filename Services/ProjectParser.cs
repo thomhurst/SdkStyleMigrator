@@ -59,16 +59,13 @@ public class ProjectParser : IProjectParser
         if (project == null)
             throw new ArgumentNullException(nameof(project));
 
-        // SDK-style projects have the Sdk attribute
         var hasSdkAttribute = project.Xml.Sdk != null;
         
-        // Legacy projects typically have these imports
         var hasLegacyImports = project.Imports.Any(import => 
             import.ImportedProject.FullPath.Contains("Microsoft.CSharp.targets") ||
             import.ImportedProject.FullPath.Contains("Microsoft.VisualBasic.targets") ||
             import.ImportedProject.FullPath.Contains("Microsoft.Common.props"));
 
-        // Legacy projects often have ProjectGuid
         var hasProjectGuid = project.Properties.Any(p => p.Name == "ProjectGuid");
 
         var isLegacy = !hasSdkAttribute && (hasLegacyImports || hasProjectGuid);
