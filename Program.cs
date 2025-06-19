@@ -50,6 +50,7 @@ class Program
             getDefaultValue: () => "Information",
             description: "Set log level (Trace|Debug|Information|Warning|Error)");
             
+        // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
         rootCommand.AddOption(dryRunOption);
         rootCommand.AddOption(outputDirectoryOption);
@@ -58,6 +59,37 @@ class Program
         rootCommand.AddOption(noBackupOption);
         rootCommand.AddOption(parallelOption);
         rootCommand.AddOption(logLevelOption);
+        
+        // Rollback command
+        var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
+        var sessionIdOption = new Option<string?>(
+            aliases: new[] { "--session-id", "-s" },
+            description: "Backup session ID to rollback (defaults to latest)");
+        var rollbackDirectoryArgument = new Argument<string>(
+            name: "directory",
+            description: "The directory containing the backup to rollback");
+        
+        rollbackCommand.AddArgument(rollbackDirectoryArgument);
+        rollbackCommand.AddOption(sessionIdOption);
+        rollbackCommand.AddOption(logLevelOption);
+        
+        rollbackCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var directory = context.ParseResult.GetValueForArgument(rollbackDirectoryArgument);
+            var sessionId = context.ParseResult.GetValueForOption(sessionIdOption);
+            var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
+            
+            var options = new MigrationOptions
+            {
+                DirectoryPath = Path.GetFullPath(directory),
+                LogLevel = logLevel
+            };
+            
+            var exitCode = await RunRollback(options, sessionId);
+            context.ExitCode = exitCode;
+        });
+        
+        rootCommand.AddCommand(rollbackCommand);
         
         rootCommand.SetHandler(async (InvocationContext context) =>
         {
@@ -108,16 +140,110 @@ The tool will:
 - Detect and remove transitive package dependencies
 - Extract assembly properties to Directory.Build.props
 - Remove AssemblyInfo files and enable SDK auto-generation
-- Create backup files with .legacy extension (default, use --no-backup to skip)
+- Create centralized backup with manifest for safe rollback
 - Maintain feature parity with the original project
+
+Commands:
+  migrate (default)  Migrate legacy projects to SDK-style format
+  rollback          Rollback a previous migration using backup session
 
 Examples:
   SdkMigrator ./src
   SdkMigrator ./src --dry-run
   SdkMigrator ./src -o ./src-migrated -t net8.0
-  SdkMigrator ./src --parallel 4 --log-level Debug";
+  SdkMigrator ./src --parallel 4 --log-level Debug
+  SdkMigrator rollback ./src
+  SdkMigrator rollback ./src --session-id 20250119_120000";
         
         return await rootCommand.InvokeAsync(args);
+    }
+    
+    static async Task<int> RunRollback(MigrationOptions options, string? sessionId)
+    {
+        var services = new ServiceCollection();
+        ConfigureServices(services, options);
+        
+        using var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var backupService = serviceProvider.GetRequiredService<IBackupService>();
+        var auditService = serviceProvider.GetRequiredService<IAuditService>();
+        
+        try
+        {
+            logger.LogInformation("Starting rollback process for directory: {Directory}", options.DirectoryPath);
+            
+            BackupSession backupSession;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                // Find the latest backup session
+                var sessions = await backupService.ListBackupsAsync(options.DirectoryPath);
+                var sessionsList = sessions.ToList();
+                if (!sessionsList.Any())
+                {
+                    logger.LogError("No backup sessions found in {Directory}", options.DirectoryPath);
+                    return 1;
+                }
+                
+                backupSession = sessionsList.OrderByDescending(s => s.StartTime).First();
+                logger.LogInformation("Using latest backup session: {SessionId} from {Timestamp}", 
+                    backupSession.SessionId, backupSession.StartTime);
+            }
+            else
+            {
+                // Load specific session
+                var session = await backupService.GetBackupSessionAsync(options.DirectoryPath, sessionId);
+                if (session == null)
+                {
+                    logger.LogError("Backup session {SessionId} not found", sessionId);
+                    return 1;
+                }
+                backupSession = session;
+            }
+            
+            // Log rollback start
+            await auditService.LogMigrationStartAsync(new MigrationOptions 
+            { 
+                DirectoryPath = options.DirectoryPath,
+                LogLevel = options.LogLevel,
+                // Mark as rollback operation
+                DryRun = false,
+                CreateBackup = false
+            }, CancellationToken.None);
+            
+            logger.LogInformation("Rolling back {Count} files from session {SessionId}",
+                backupSession.BackedUpFiles.Count, backupSession.SessionId);
+            
+            var rollbackResult = await backupService.RollbackAsync(backupSession.BackupDirectory, CancellationToken.None);
+            var success = rollbackResult.Success;
+            
+            if (success)
+            {
+                logger.LogInformation("Rollback completed successfully");
+                
+                // Log successful rollback
+                await auditService.LogMigrationEndAsync(new MigrationReport
+                {
+                    StartTime = DateTime.UtcNow,
+                    EndTime = DateTime.UtcNow,
+                    TotalProjectsFound = backupSession.BackedUpFiles.Count,
+                    TotalProjectsMigrated = backupSession.BackedUpFiles.Count,
+                    TotalProjectsFailed = 0
+                }, CancellationToken.None);
+                
+                return 0;
+            }
+            else
+            {
+                logger.LogError("Rollback failed");
+                return 1;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during rollback");
+            await auditService.LogErrorAsync("Rollback", ex, CancellationToken.None);
+            return 1;
+        }
     }
     
     static async Task<int> RunMigration(MigrationOptions options)
@@ -166,6 +292,30 @@ Examples:
             Console.WriteLine($"  Failed: {report.TotalProjectsFailed}");
             Console.WriteLine($"  Duration: {report.Duration:mm\\:ss}");
 
+            // Enhanced exit codes for dry-run mode
+            if (options.DryRun)
+            {
+                // Check for errors that would cause failure
+                if (report.Results.Any(r => r.Errors.Any()))
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("DRY RUN: Migration would FAIL due to errors");
+                    return 1;
+                }
+                
+                // Check for warnings that need review
+                if (report.Results.Any(r => r.Warnings.Any()))
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("DRY RUN: Migration would succeed with WARNINGS requiring review");
+                    return 2;
+                }
+                
+                Console.WriteLine();
+                Console.WriteLine("DRY RUN: Migration would succeed without issues");
+                return 0;
+            }
+
             return report.TotalProjectsFailed > 0 ? 1 : 0;
         }
         catch (Exception ex)
@@ -205,8 +355,20 @@ Examples:
         services.AddSingleton<ITransitiveDependencyDetector, NuGetTransitiveDependencyDetector>();
         services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
         services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
-        services.AddSingleton<IDirectoryBuildPropsGenerator, DirectoryBuildPropsGenerator>();
-        services.AddSingleton<ISolutionFileUpdater, SolutionFileUpdater>();
+        services.AddSingleton<IDirectoryBuildPropsGenerator>(provider => 
+            new DirectoryBuildPropsGenerator(
+                provider.GetRequiredService<ILogger<DirectoryBuildPropsGenerator>>(),
+                provider.GetRequiredService<IAuditService>(),
+                provider.GetRequiredService<MigrationOptions>()));
+        services.AddSingleton<ISolutionFileUpdater>(provider => 
+            new SolutionFileUpdater(
+                provider.GetRequiredService<ILogger<SolutionFileUpdater>>(),
+                provider.GetRequiredService<IAuditService>(),
+                provider.GetRequiredService<IBackupService>(),
+                provider.GetRequiredService<MigrationOptions>()));
+        services.AddSingleton<IBackupService, BackupService>();
+        services.AddSingleton<ILockService, LockService>();
+        services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }
     

@@ -42,6 +42,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             _logger.LogInformation("Starting migration for {ProjectPath}", legacyProject.FullPath);
 
+            // Check if the output file already exists and has SDK attribute (idempotent check)
+            if (File.Exists(outputPath) && outputPath == legacyProject.FullPath)
+            {
+                var existingDoc = XDocument.Load(outputPath);
+                if (existingDoc.Root?.Attribute("Sdk") != null)
+                {
+                    _logger.LogInformation("Project {ProjectPath} already has SDK attribute, skipping migration", outputPath);
+                    result.Success = true;
+                    result.Warnings.Add("Project already migrated to SDK-style format");
+                    return result;
+                }
+            }
+
             var sdkProject = new XDocument();
             var projectElement = new XElement("Project");
             
@@ -130,6 +143,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     Directory.CreateDirectory(directory);
                 }
+
+                // Add migration metadata comment for tracking
+                sdkProject.Root?.AddFirst(new XComment($"Migrated by SdkMigrator on {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"));
 
                 sdkProject.Save(outputPath);
                 _logger.LogInformation("Successfully migrated project to {OutputPath}", outputPath);

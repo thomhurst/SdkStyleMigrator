@@ -29,7 +29,14 @@ public class ProjectFileScanner : IProjectFileScanner
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            var files = Directory.GetFiles(directoryPath, extension, SearchOption.AllDirectories);
+            var files = Directory.GetFiles(directoryPath, extension, SearchOption.AllDirectories)
+                .Where(f => !f.Contains(".legacy.") && // Skip backup files
+                           !f.Contains("_sdkmigrator_backup_") && // Skip backup directories
+                           !f.Contains(".sdkmigrator.lock") && // Skip lock files
+                           !f.EndsWith(".legacy.csproj", StringComparison.OrdinalIgnoreCase) &&
+                           !f.EndsWith(".legacy.vbproj", StringComparison.OrdinalIgnoreCase) &&
+                           !f.EndsWith(".legacy.fsproj", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             projectFiles.AddRange(files);
             
             _logger.LogDebug("Found {Count} {Extension} files", files.Length, extension);

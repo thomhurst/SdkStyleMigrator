@@ -9,14 +9,16 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
 {
     private readonly ILogger<DirectoryBuildPropsGenerator> _logger;
     private readonly MigrationOptions _options;
+    private readonly IAuditService _auditService;
 
-    public DirectoryBuildPropsGenerator(ILogger<DirectoryBuildPropsGenerator> logger, MigrationOptions options)
+    public DirectoryBuildPropsGenerator(ILogger<DirectoryBuildPropsGenerator> logger, IAuditService auditService, MigrationOptions options)
     {
         _logger = logger;
+        _auditService = auditService;
         _options = options;
     }
 
-    public Task GenerateDirectoryBuildPropsAsync(string rootDirectory, Dictionary<string, AssemblyProperties> projectProperties, CancellationToken cancellationToken = default)
+    public async Task GenerateDirectoryBuildPropsAsync(string rootDirectory, Dictionary<string, AssemblyProperties> projectProperties, CancellationToken cancellationToken = default)
     {
         var filePath = Path.Combine(rootDirectory, "Directory.Build.props");
         
@@ -120,16 +122,41 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
 
         if (!_options.DryRun)
         {
+            var isNewFile = !File.Exists(filePath);
+            var beforeHash = isNewFile ? string.Empty : await FileHashCalculator.CalculateHashAsync(filePath, cancellationToken);
+            var beforeSize = isNewFile ? 0 : new FileInfo(filePath).Length;
+
             doc.Save(filePath);
             _logger.LogInformation("Successfully created/updated Directory.Build.props at {Path}", filePath);
+
+            if (isNewFile)
+            {
+                await _auditService.LogFileCreationAsync(new FileCreationAudit
+                {
+                    FilePath = filePath,
+                    FileHash = await FileHashCalculator.CalculateHashAsync(filePath, cancellationToken),
+                    FileSize = new FileInfo(filePath).Length,
+                    CreationType = "Directory.Build.props generation"
+                }, cancellationToken);
+            }
+            else
+            {
+                await _auditService.LogFileModificationAsync(new FileModificationAudit
+                {
+                    FilePath = filePath,
+                    BeforeHash = beforeHash,
+                    AfterHash = await FileHashCalculator.CalculateHashAsync(filePath, cancellationToken),
+                    BeforeSize = beforeSize,
+                    AfterSize = new FileInfo(filePath).Length,
+                    ModificationType = "Directory.Build.props update"
+                }, cancellationToken);
+            }
         }
         else
         {
             _logger.LogInformation("[DRY RUN] Would create/update Directory.Build.props at {Path}", filePath);
             _logger.LogDebug("[DRY RUN] Directory.Build.props content:\n{Content}", doc.ToString());
         }
-        
-        return Task.CompletedTask;
     }
 
     private AssemblyProperties ExtractCommonProperties(Dictionary<string, AssemblyProperties> projectProperties)

@@ -238,6 +238,66 @@ public class ProjectParser : IProjectParser, IDisposable
             return false;
         }
         
+        // Check if this is a .NET project type
+        var projectTypeGuids = project.GetPropertyValue("ProjectTypeGuids");
+        if (!string.IsNullOrEmpty(projectTypeGuids))
+        {
+            // Known .NET project type GUIDs
+            var dotNetProjectGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}", // C#
+                "{F184B08F-C81C-45F6-A57F-5ABD9991F28F}", // VB.NET
+                "{F2A71F9B-5D33-465A-A702-920D77279786}", // F#
+                "{349C5851-65DF-11DA-9384-00065B846F21}", // Web Application
+                "{E24C65DC-7377-472B-9ABA-BC803B73C61A}", // Web Site
+                "{603C0E0B-DB56-11DC-BE95-000D561079B0}", // ASP.NET MVC 1
+                "{F85E285D-A4E0-4152-9332-AB1D724D3325}", // ASP.NET MVC 2
+                "{E53F8FEA-EAE0-44A6-8774-FFD645390401}", // ASP.NET MVC 3
+                "{E3E379DF-F4C6-4180-9B81-6769533ABE47}", // ASP.NET MVC 4
+                "{349C5853-65DF-11DA-9384-00065B846F21}", // ASP.NET MVC 5
+                "{9A19103F-16F7-4668-BE54-9A1E7A4F7556}", // .NET Core/5+
+                "{60DC8134-EBA5-43B8-BCC9-BB4BC16C2548}", // WPF
+                "{C252FEB5-A946-4202-B1D4-9916A0590387}", // Windows Service
+                "{786C830F-07A1-408B-BD7F-6EE04809D6DB}", // Portable Class Library
+                "{A1591282-1198-4647-A2B1-27E5FF5F6F3B}", // Silverlight
+                "{BC8A1FFA-BEE3-4634-8014-F334798102B3}", // Windows Store App
+                "{14822709-B5A1-4724-98CA-57A101D1B079}", // Windows Phone
+            };
+            
+            // Known non-.NET project type GUIDs to skip
+            var nonDotNetProjectGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}", // C++
+                "{00D1A9C2-B5F0-4AF3-8072-F6C62B433612}", // SQL Server Database Project
+                "{A9ACE9BB-CECE-4E62-9AA4-C7E7C5BD2124}", // Database Project
+                "{4F174C21-8C12-11D0-8340-0000F80270F8}", // Database (other)
+                "{3AC096D0-A1C2-E12C-1390-A8335801FDAB}", // Test Project (old)
+                "{930C7802-8A8C-48F9-8165-68863BCCD9DD}", // WiX Installer
+                "{54435603-DBB4-11D2-8724-00A0C9A8B90C}", // Visual Studio Installer
+                "{978C614F-708E-4E1A-B201-565925725DBA}", // Deployment Merge Module
+                "{AB322303-2255-48EF-A496-5904EB18DA55}", // Deployment Smart Device CAB
+                "{F135691A-BF7E-435D-8960-F99683D2D49C}", // Distributed System
+                "{BF6F8E12-879D-49E7-ADF0-5503146B24B8}", // Dynamics 2012 AX C# Project
+                "{82B43B9B-A64C-4715-B499-D71E9CA2BD60}", // Extensibility Project
+                "{6BC8ED88-2882-458C-8E55-DFD12B67127B}", // MonoTouch Project
+                "{EFBA0AD7-5A72-4C68-AF49-83D382785DCF}", // Android Project
+                "{F5B4F3BC-B597-4E2B-B552-EF5D8A32436F}", // MonoTouch Binding Project
+                "{E097FAD1-6243-4DAD-9C02-E9B9EFC3FFC1}", // Xamarin.iOS
+                "{1E72D84B-E16E-4A2F-BE2F-88C25B3E33D9}", // Xamarin.Android
+            };
+            
+            // Check if any of the project type GUIDs are .NET types
+            var guids = projectTypeGuids.Split(';').Select(g => g.Trim());
+            var hasDotNetGuid = guids.Any(g => dotNetProjectGuids.Contains(g));
+            var hasNonDotNetGuid = guids.Any(g => nonDotNetProjectGuids.Contains(g));
+            
+            if (hasNonDotNetGuid && !hasDotNetGuid)
+            {
+                _logger.LogInformation("Skipping non-.NET project with type GUIDs: {ProjectTypeGuids}", projectTypeGuids);
+                return false;
+            }
+        }
+        
         var hasProjectGuid = project.Properties.Any(p => p.Name == "ProjectGuid");
         var hasToolsVersion = !string.IsNullOrEmpty(project.Xml.ToolsVersion);
         var hasExplicitImports = project.Xml.Imports.Any(import => 

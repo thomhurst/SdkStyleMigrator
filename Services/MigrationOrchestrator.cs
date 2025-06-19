@@ -15,6 +15,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IAssemblyInfoExtractor _assemblyInfoExtractor;
     private readonly IDirectoryBuildPropsGenerator _directoryBuildPropsGenerator;
     private readonly ISolutionFileUpdater _solutionFileUpdater;
+    private readonly IBackupService _backupService;
+    private readonly ILockService _lockService;
+    private readonly IAuditService _auditService;
     private readonly MigrationOptions _options;
 
     public MigrationOrchestrator(
@@ -25,6 +28,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         IAssemblyInfoExtractor assemblyInfoExtractor,
         IDirectoryBuildPropsGenerator directoryBuildPropsGenerator,
         ISolutionFileUpdater solutionFileUpdater,
+        IBackupService backupService,
+        ILockService lockService,
+        IAuditService auditService,
         MigrationOptions options)
     {
         _logger = logger;
@@ -34,6 +40,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _assemblyInfoExtractor = assemblyInfoExtractor;
         _directoryBuildPropsGenerator = directoryBuildPropsGenerator;
         _solutionFileUpdater = solutionFileUpdater;
+        _backupService = backupService;
+        _lockService = lockService;
+        _auditService = auditService;
         _options = options;
     }
 
@@ -44,8 +53,28 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             StartTime = DateTime.UtcNow
         };
 
+        BackupSession? backupSession = null;
+        var lockAcquired = false;
+
         try
         {
+            // Try to acquire lock first
+            if (!await _lockService.TryAcquireLockAsync(directoryPath, cancellationToken))
+            {
+                throw new InvalidOperationException("Could not acquire migration lock. Another migration may be in progress.");
+            }
+            lockAcquired = true;
+
+            // Log migration start
+            await _auditService.LogMigrationStartAsync(_options, cancellationToken);
+
+            // Initialize backup if enabled
+            if (_options.CreateBackup && !_options.DryRun)
+            {
+                backupSession = await _backupService.InitializeBackupAsync(directoryPath, cancellationToken);
+                _logger.LogInformation("Backup initialized with session ID: {SessionId}", backupSession.SessionId);
+            }
+
             _logger.LogInformation("Starting migration process for directory: {DirectoryPath}", directoryPath);
 
             var projectFiles = await _projectFileScanner.ScanForProjectFilesAsync(directoryPath, cancellationToken);
@@ -85,7 +114,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         }
                         
                         var progress = $"[{currentIndex}/{totalProjects}]";
-                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, cancellationToken);
+                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, cancellationToken);
                     }
                     finally
                     {
@@ -108,7 +137,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     projectIndex++;
                     var progress = $"[{projectIndex}/{projectFilesList.Count}]";
                     
-                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, cancellationToken);
+                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, cancellationToken);
                 }
             }
             
@@ -147,12 +176,28 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         catch (Exception ex)
         {
             _logger.LogError(ex, "Fatal error during migration process");
+            await _auditService.LogErrorAsync("MigrationOrchestrator.MigrateProjectsAsync", ex, cancellationToken);
             throw;
         }
         finally
         {
             report.EndTime = DateTime.UtcNow;
             LogReport(report);
+
+            // Log migration end
+            await _auditService.LogMigrationEndAsync(report, cancellationToken);
+
+            // Finalize backup session
+            if (backupSession != null)
+            {
+                await _backupService.FinalizeBackupAsync(backupSession, cancellationToken);
+            }
+
+            // Release lock
+            if (lockAcquired)
+            {
+                await _lockService.ReleaseLockAsync(cancellationToken);
+            }
         }
 
         return report;
@@ -164,6 +209,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyProperties> projectAssemblyProperties,
         System.Collections.Concurrent.ConcurrentDictionary<string, string> projectMappings,
         MigrationReport report,
+        BackupSession? backupSession,
         CancellationToken cancellationToken)
     {
         try
@@ -194,7 +240,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             
             projectAssemblyProperties[projectFile] = assemblyProps;
 
-            var outputPath = GenerateOutputPath(projectFile);
+            var outputPath = await GenerateOutputPathAsync(projectFile, cancellationToken);
 
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);
@@ -211,8 +257,20 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             if (result.Success && !_options.DryRun)
             {
-                await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
+                await RemoveAssemblyInfoFilesAsync(projectDir, backupSession, cancellationToken);
                 await HandleAppConfigFileAsync(projectDir, result, cancellationToken);
+
+                // Audit the file modification
+                var fileInfo = new FileInfo(outputPath);
+                await _auditService.LogFileModificationAsync(new FileModificationAudit
+                {
+                    FilePath = outputPath,
+                    BeforeHash = await FileHashCalculator.CalculateHashAsync(projectFile, cancellationToken),
+                    AfterHash = await FileHashCalculator.CalculateHashAsync(outputPath, cancellationToken),
+                    BeforeSize = new FileInfo(projectFile).Length,
+                    AfterSize = fileInfo.Length,
+                    ModificationType = "SDK-style migration"
+                }, cancellationToken);
             }
             
             if (result.Success && outputPath != projectFile)
@@ -255,7 +313,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private Task RemoveAssemblyInfoFilesAsync(string projectDirectory, CancellationToken cancellationToken)
+    private async Task RemoveAssemblyInfoFilesAsync(string projectDirectory, BackupSession? backupSession, CancellationToken cancellationToken)
     {
         foreach (var pattern in LegacyProjectElements.AssemblyInfoFilePatterns)
         {
@@ -269,12 +327,24 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     if (!_options.DryRun)
                     {
-                        if (_options.CreateBackup)
+                        var beforeHash = await FileHashCalculator.CalculateHashAsync(file, cancellationToken);
+                        var fileSize = new FileInfo(file).Length;
+
+                        if (_options.CreateBackup && backupSession != null)
                         {
-                            var backupPath = $"{file}.legacy";
-                            File.Copy(file, backupPath, overwrite: true);
+                            await _backupService.BackupFileAsync(backupSession, file, cancellationToken);
                         }
+                        
                         File.Delete(file);
+
+                        // Audit the file deletion
+                        await _auditService.LogFileDeletionAsync(new FileDeletionAudit
+                        {
+                            FilePath = file,
+                            BeforeHash = beforeHash,
+                            FileSize = fileSize,
+                            DeletionReason = "AssemblyInfo auto-generated by SDK"
+                        }, cancellationToken);
                         
                         _logger.LogInformation("Removed AssemblyInfo file: {File}{BackupInfo}", 
                             file, 
@@ -291,8 +361,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
             }
         }
-        
-        return Task.CompletedTask;
     }
     
     private async Task HandleAppConfigFileAsync(string projectDirectory, MigrationResult result, CancellationToken cancellationToken)
@@ -356,7 +424,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private string GenerateOutputPath(string projectFile)
+    private async Task<string> GenerateOutputPathAsync(string projectFile, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrEmpty(_options.OutputDirectory))
         {
@@ -377,14 +445,14 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         
         if (_options.CreateBackup && !_options.DryRun)
         {
-            var directory = Path.GetDirectoryName(projectFile)!;
-            var filename = Path.GetFileName(projectFile);
-            var backupPath = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(filename)}.legacy{Path.GetExtension(filename)}");
-            
             if (File.Exists(projectFile))
             {
-                File.Copy(projectFile, backupPath, overwrite: true);
-                _logger.LogDebug("Created backup at {BackupPath}", backupPath);
+                var backupSession = await _backupService.GetCurrentSessionAsync();
+                if (backupSession != null)
+                {
+                    await _backupService.BackupFileAsync(backupSession, projectFile, cancellationToken);
+                    _logger.LogDebug("Created backup for {ProjectFile}", projectFile);
+                }
             }
         }
 
