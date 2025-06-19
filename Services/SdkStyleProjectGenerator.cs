@@ -523,48 +523,30 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 continue;
             }
             
-            // Check if this is a Visual Studio-specific import that should be removed
-            if (LegacyProjectElements.ImportsToRemove.Contains(importPath) ||
-                IsVisualStudioSpecificImport(importPath))
-            {
-                result.RemovedElements.Add($"Import: {importPath}");
-                _logger.LogDebug("Removed Visual Studio-specific import: {Import}", importPath);
-            }
-            else
-            {
-                // For custom imports, add a warning if they reference Visual Studio paths
-                if (ContainsVisualStudioPath(importPath))
-                {
-                    result.Warnings.Add($"Import '{importPath}' references Visual Studio-specific paths and may not work in all environments");
-                }
-                
-                var importElement = new XElement("Import",
-                    new XAttribute("Project", importPath));
-                    
-                if (!string.IsNullOrEmpty(import.Condition))
-                {
-                    importElement.Add(new XAttribute("Condition", import.Condition));
-                }
-                
-                projectElement.Add(importElement);
-                _logger.LogDebug("Preserved custom import: {Import}", importPath);
-            }
+            // Remove all other imports - SDK-style projects handle most things automatically
+            result.RemovedElements.Add($"Import: {importPath}");
+            _logger.LogDebug("Removed import: {Import}", importPath);
         }
         
         foreach (var target in legacyProject.Xml.Targets)
         {
-            if (LegacyProjectElements.ProblematicTargets.Contains(target.Name) && 
-                !target.Children.Any())
+            // Check if this is a common MSBuild target that should be removed
+            var commonTargets = new[] 
+            { 
+                "BeforeBuild", "AfterBuild", "BeforeCompile", "AfterCompile",
+                "BeforePublish", "AfterPublish", "BeforeResolveReferences", "AfterResolveReferences",
+                "EnsureNuGetPackageBuildImports", "BuildPackage", "BeforeClean", "AfterClean"
+            };
+            
+            if (commonTargets.Contains(target.Name, StringComparer.OrdinalIgnoreCase))
             {
-                result.Warnings.Add($"Removed empty '{target.Name}' target - consider using MSBuild SDK hooks instead");
+                result.RemovedElements.Add($"Target: {target.Name}");
+                result.Warnings.Add($"Removed '{target.Name}' target - use SDK extensibility points instead (e.g., BeforeTargets/AfterTargets attributes)");
+                _logger.LogDebug("Removed MSBuild target: {Target}", target.Name);
                 continue;
             }
             
-            if (LegacyProjectElements.ProblematicTargets.Contains(target.Name))
-            {
-                result.Warnings.Add($"Target '{target.Name}' was migrated but should be reviewed - consider using BeforeTargets/AfterTargets instead");
-            }
-            
+            // For any other targets, add a strong warning but preserve them
             var targetElement = new XElement("Target", new XAttribute("Name", target.Name));
             
             if (!string.IsNullOrEmpty(target.BeforeTargets))
@@ -576,15 +558,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             if (!string.IsNullOrEmpty(target.Condition))
                 targetElement.Add(new XAttribute("Condition", target.Condition));
             
-            foreach (var child in target.Children)
-            {
-                result.Warnings.Add($"Target '{target.Name}' contains custom tasks that need manual review");
-            }
-            
-            if (targetElement.HasAttributes || targetElement.HasElements)
-            {
-                projectElement.Add(targetElement);
-            }
+            projectElement.Add(targetElement);
+            result.Warnings.Add($"Target '{target.Name}' was preserved but should be reviewed for SDK-style compatibility");
         }
         
         foreach (var propertyGroup in legacyProject.Xml.PropertyGroups.Where(pg => !string.IsNullOrEmpty(pg.Condition)))
@@ -605,21 +580,18 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (string.IsNullOrEmpty(importPath))
             return false;
             
-        // Preserve relative paths that are project-specific
-        if (importPath.StartsWith("..\\") || importPath.StartsWith("../") || 
-            importPath.StartsWith(".\\") || importPath.StartsWith("./"))
+        // Only preserve very specific project-local imports
+        // Check if it's a relative path to a project-specific file
+        if ((importPath.StartsWith("..\\") || importPath.StartsWith("../") || 
+             importPath.StartsWith(".\\") || importPath.StartsWith("./")) &&
+            !importPath.EndsWith(".targets", StringComparison.OrdinalIgnoreCase) &&
+            !importPath.EndsWith(".props", StringComparison.OrdinalIgnoreCase))
         {
-            // Unless they contain Visual Studio keywords
-            return !IsVisualStudioSpecificImport(importPath);
+            // Only preserve if it's not a .targets or .props file
+            return true;
         }
         
-        // Preserve imports that are just filenames (no path)
-        if (!importPath.Contains("\\") && !importPath.Contains("/") && 
-            !importPath.Contains("$(") && importPath.EndsWith(".targets", StringComparison.OrdinalIgnoreCase))
-        {
-            return !IsVisualStudioSpecificImport(importPath);
-        }
-        
+        // Everything else should be removed, especially anything with .targets or .props
         return false;
     }
     
@@ -628,14 +600,17 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (string.IsNullOrEmpty(importPath))
             return false;
             
-        // Check for keywords that indicate Visual Studio-specific imports
+        // Check for keywords that indicate Visual Studio or MSBuild-specific imports
         var keywords = new[]
         {
             "VisualStudio",
             "VSTools",
             "VSToolsPath",
+            "MSBuild",
             "MSBuildExtensions",
             "MSBuildExtensionsPath",
+            "MSBuildToolsPath",
+            "MSBuildBinPath",
             "Microsoft.WebApplication",
             "Microsoft.TypeScript",
             "Microsoft.TestTools",
@@ -645,6 +620,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "Microsoft.Common.targets",
             "Microsoft.CSharp.targets",
             "Microsoft.VisualBasic.targets",
+            "Microsoft.Common.props",
             "TeamTest",
             "SqlServer.targets",
             "Microsoft.Data.Tools",
@@ -655,7 +631,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "CodeAnalysis",
             "FxCop",
             "PostSharp",
-            "Microsoft.Build.Tasks"
+            "Microsoft.Build",
+            "Microsoft.Build.Tasks",
+            ".targets",
+            ".props"
         };
         
         // Check if the import path contains any of these keywords (case-insensitive)

@@ -9,11 +9,12 @@
 - **Package Version Extraction**: Fixed issue extracting version from packages with names ending in numbers
   - Previously failed on packages like `MyPackage2.1.0.0` or `System.Data.SQLite.Core.1.0.118.0`
   - Now uses regex pattern matching to correctly identify package name and version boundaries
-- **Visual Studio Import Removal**: Enhanced detection and removal of Visual Studio-specific imports
-  - Now uses keyword-based detection to catch any import containing Visual Studio-related terms
-  - Removes imports containing: VisualStudio, VSTools, MSBuildExtensions, WebApplication, TypeScript, TeamTest, NuGet.targets, and many more
-  - Intelligently preserves project-specific relative imports unless they contain VS keywords
-  - Adds warnings for custom imports that reference Visual Studio paths
+- **Visual Studio Import Removal**: Aggressive removal of all Visual Studio and MSBuild imports
+  - Removes ALL .targets and .props imports by default
+  - Only preserves relative paths that are NOT .targets or .props files
+  - Removes common MSBuild targets (BeforeBuild, AfterBuild, etc.)
+  - Removes any import containing MSBuild, VisualStudio, VSTools, or related keywords
+  - SDK-style projects handle most build logic automatically without these imports
 
 ### Added
 - **Automatic Binding Redirects**: Directory.Build.props now includes AutoGenerateBindingRedirects
