@@ -507,6 +507,22 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             var importPath = import.Project;
             
+            // Skip if this is a project-specific import that should be preserved
+            if (ShouldPreserveImport(importPath))
+            {
+                var importElement = new XElement("Import",
+                    new XAttribute("Project", importPath));
+                    
+                if (!string.IsNullOrEmpty(import.Condition))
+                {
+                    importElement.Add(new XAttribute("Condition", import.Condition));
+                }
+                
+                projectElement.Add(importElement);
+                _logger.LogDebug("Preserved project-specific import: {Import}", importPath);
+                continue;
+            }
+            
             // Check if this is a Visual Studio-specific import that should be removed
             if (LegacyProjectElements.ImportsToRemove.Contains(importPath) ||
                 IsVisualStudioSpecificImport(importPath))
@@ -584,26 +600,67 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
     }
     
+    private bool ShouldPreserveImport(string importPath)
+    {
+        if (string.IsNullOrEmpty(importPath))
+            return false;
+            
+        // Preserve relative paths that are project-specific
+        if (importPath.StartsWith("..\\") || importPath.StartsWith("../") || 
+            importPath.StartsWith(".\\") || importPath.StartsWith("./"))
+        {
+            // Unless they contain Visual Studio keywords
+            return !IsVisualStudioSpecificImport(importPath);
+        }
+        
+        // Preserve imports that are just filenames (no path)
+        if (!importPath.Contains("\\") && !importPath.Contains("/") && 
+            !importPath.Contains("$(") && importPath.EndsWith(".targets", StringComparison.OrdinalIgnoreCase))
+        {
+            return !IsVisualStudioSpecificImport(importPath);
+        }
+        
+        return false;
+    }
+    
     private bool IsVisualStudioSpecificImport(string importPath)
     {
         if (string.IsNullOrEmpty(importPath))
             return false;
             
-        // Check for common patterns of Visual Studio-specific imports
-        var patterns = new[]
+        // Check for keywords that indicate Visual Studio-specific imports
+        var keywords = new[]
         {
-            @"\$\(VSToolsPath\)",
-            @"\$\(MSBuildExtensionsPath32\)\\Microsoft\\VisualStudio",
-            @"\$\(MSBuildExtensionsPath\)\\Microsoft\\VisualStudio",
-            @"Microsoft\.WebApplication\.targets",
-            @"Microsoft\.TypeScript\.targets",
-            @"Microsoft\.TestTools\.targets",
-            @"\.nuget\\NuGet\.targets",
-            @"WebApplications\\Microsoft\.WebApplication\.targets"
+            "VisualStudio",
+            "VSTools",
+            "VSToolsPath",
+            "MSBuildExtensions",
+            "MSBuildExtensionsPath",
+            "Microsoft.WebApplication",
+            "Microsoft.TypeScript",
+            "Microsoft.TestTools",
+            ".nuget",
+            "NuGet.targets",
+            "WebApplications",
+            "Microsoft.Common.targets",
+            "Microsoft.CSharp.targets",
+            "Microsoft.VisualBasic.targets",
+            "TeamTest",
+            "SqlServer.targets",
+            "Microsoft.Data.Tools",
+            "EntityFramework.targets",
+            "Microsoft.Bcl.Build",
+            "Microsoft.Net.Compilers",
+            "StyleCop",
+            "CodeAnalysis",
+            "FxCop",
+            "PostSharp",
+            "Microsoft.Build.Tasks"
         };
         
-        return patterns.Any(pattern => 
-            Regex.IsMatch(importPath, pattern, RegexOptions.IgnoreCase));
+        // Check if the import path contains any of these keywords (case-insensitive)
+        return keywords.Any(keyword => 
+            importPath.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
     
     private bool ContainsVisualStudioPath(string importPath)

@@ -10,8 +10,9 @@
   - Previously failed on packages like `MyPackage2.1.0.0` or `System.Data.SQLite.Core.1.0.118.0`
   - Now uses regex pattern matching to correctly identify package name and version boundaries
 - **Visual Studio Import Removal**: Enhanced detection and removal of Visual Studio-specific imports
-  - Removes imports for WebApplication.targets, TypeScript.targets, and NuGet.targets
-  - Detects and removes version-specific Visual Studio imports (v10.0 through v17.0)
+  - Now uses keyword-based detection to catch any import containing Visual Studio-related terms
+  - Removes imports containing: VisualStudio, VSTools, MSBuildExtensions, WebApplication, TypeScript, TeamTest, NuGet.targets, and many more
+  - Intelligently preserves project-specific relative imports unless they contain VS keywords
   - Adds warnings for custom imports that reference Visual Studio paths
 
 ### Added

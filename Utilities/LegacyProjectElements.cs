@@ -72,26 +72,16 @@ public static class LegacyProjectElements
         "CommonAssemblyInfo.vb"
     };
 
+    // Specific imports that should always be removed (exact matches)
+    // The IsVisualStudioSpecificImport method in SdkStyleProjectGenerator provides
+    // additional keyword-based detection for more comprehensive removal
     public static readonly HashSet<string> ImportsToRemove = new(StringComparer.OrdinalIgnoreCase)
     {
         "$(MSBuildToolsPath)\\Microsoft.CSharp.targets",
         "$(MSBuildToolsPath)\\Microsoft.VisualBasic.targets",
         "$(MSBuildBinPath)\\Microsoft.CSharp.targets",
         "$(MSBuildBinPath)\\Microsoft.VisualBasic.targets",
-        "$(VSToolsPath)\\TeamTest\\Microsoft.TestTools.targets",
-        "$(MSBuildExtensionsPath)\\$(MSBuildToolsVersion)\\Microsoft.Common.props",
-        "$(VSToolsPath)\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(SolutionDir)\\.nuget\\NuGet.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v$(VisualStudioVersion)\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath)\\Microsoft\\VisualStudio\\v$(VisualStudioVersion)\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v10.0\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v11.0\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v12.0\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v14.0\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v15.0\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v16.0\\WebApplications\\Microsoft.WebApplication.targets",
-        "$(VSToolsPath)\\TypeScript\\Microsoft.TypeScript.targets",
-        "$(MSBuildExtensionsPath32)\\Microsoft\\VisualStudio\\v$(VisualStudioVersion)\\TypeScript\\Microsoft.TypeScript.targets"
+        "$(MSBuildExtensionsPath)\\$(MSBuildToolsVersion)\\Microsoft.Common.props"
     };
 
     public static readonly HashSet<string> ProblematicTargets = new(StringComparer.OrdinalIgnoreCase)
