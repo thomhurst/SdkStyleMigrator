@@ -37,9 +37,9 @@ class Program
             aliases: new[] { "--force", "-f" },
             description: "Force migration without prompts");
             
-        var backupOption = new Option<bool>(
-            aliases: new[] { "--backup", "-b" },
-            description: "Create backup files (*.legacy.csproj)");
+        var noBackupOption = new Option<bool>(
+            aliases: new[] { "--no-backup" },
+            description: "Skip creating backup files (not recommended)");
             
         var parallelOption = new Option<int?>(
             aliases: new[] { "--parallel", "-p" },
@@ -55,7 +55,7 @@ class Program
         rootCommand.AddOption(outputDirectoryOption);
         rootCommand.AddOption(targetFrameworkOption);
         rootCommand.AddOption(forceOption);
-        rootCommand.AddOption(backupOption);
+        rootCommand.AddOption(noBackupOption);
         rootCommand.AddOption(parallelOption);
         rootCommand.AddOption(logLevelOption);
         
@@ -68,7 +68,7 @@ class Program
                 OutputDirectory = context.ParseResult.GetValueForOption(outputDirectoryOption),
                 TargetFramework = context.ParseResult.GetValueForOption(targetFrameworkOption),
                 Force = context.ParseResult.GetValueForOption(forceOption),
-                CreateBackup = context.ParseResult.GetValueForOption(backupOption),
+                CreateBackup = !context.ParseResult.GetValueForOption(noBackupOption),
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
                 LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information"
             };
@@ -108,7 +108,7 @@ The tool will:
 - Detect and remove transitive package dependencies
 - Extract assembly properties to Directory.Build.props
 - Remove AssemblyInfo files and enable SDK auto-generation
-- Create backup files with .legacy extension (when --backup is used)
+- Create backup files with .legacy extension (default, use --no-backup to skip)
 - Maintain feature parity with the original project
 
 Examples:
@@ -134,6 +134,15 @@ Examples:
             {
                 logger.LogWarning("DRY RUN MODE - No files will be modified");
                 Console.WriteLine();
+            }
+            
+            if (!options.DryRun && options.CreateBackup && string.IsNullOrEmpty(options.OutputDirectory))
+            {
+                logger.LogInformation("Backup files will be created with .legacy extension");
+            }
+            else if (!options.DryRun && !options.CreateBackup && string.IsNullOrEmpty(options.OutputDirectory))
+            {
+                logger.LogWarning("WARNING: Backup creation is disabled. Original files will be overwritten!");
             }
             
             logger.LogInformation("SDK Migrator - Starting migration process");

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0] - 2025-01-19
+
+### Changed
+- **BREAKING CHANGE**: Backup creation is now enabled by default for in-place migrations
+  - Use `--no-backup` flag to disable backup creation (not recommended)
+  - This change prioritizes data safety and prevents accidental loss of original project files
+  - Backup files are created with `.legacy` extension (e.g., `MyProject.legacy.csproj`)
+
 ## [0.2.2] - 2025-01-19
 
 ### Added
