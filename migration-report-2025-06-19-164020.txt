@@ -1,9 +1,0 @@
-SDK Migration Report
-Generated: 2025-06-19 16:40:20
-Duration: 00:00:00.0398562
-
-Summary:
-  Total projects found: 0
-  Successfully migrated: 0
-  Failed: 0
-

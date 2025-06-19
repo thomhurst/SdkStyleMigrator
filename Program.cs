@@ -704,7 +704,6 @@ Examples:
         // Edge case detectors
         services.AddSingleton<ProjectTypeDetector>();
         services.AddSingleton<BuildEventMigrator>();
-        services.AddSingleton<DeploymentDetector>();
         services.AddSingleton<NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
         

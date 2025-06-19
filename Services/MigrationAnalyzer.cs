@@ -15,7 +15,6 @@ public class MigrationAnalyzer : IMigrationAnalyzer
     private readonly ProjectTypeDetector _projectTypeDetector;
     private readonly ServiceReferenceDetector _serviceReferenceDetector;
     private readonly NativeDependencyHandler _nativeDependencyHandler;
-    private readonly DeploymentDetector _deploymentDetector;
 
     public MigrationAnalyzer(
         ILogger<MigrationAnalyzer> logger,
@@ -24,8 +23,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         CustomTargetAnalyzer customTargetAnalyzer,
         ProjectTypeDetector projectTypeDetector,
         ServiceReferenceDetector serviceReferenceDetector,
-        NativeDependencyHandler nativeDependencyHandler,
-        DeploymentDetector deploymentDetector)
+        NativeDependencyHandler nativeDependencyHandler)
     {
         _logger = logger;
         _projectFileScanner = projectFileScanner;
@@ -34,7 +32,6 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         _projectTypeDetector = projectTypeDetector;
         _serviceReferenceDetector = serviceReferenceDetector;
         _nativeDependencyHandler = nativeDependencyHandler;
-        _deploymentDetector = deploymentDetector;
     }
 
     public async Task<MigrationAnalysis> AnalyzeProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
@@ -198,20 +195,6 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                     Severity = MigrationIssueSeverity.Warning,
                     Resolution = "Ensure native dependencies are correctly deployed with the application"
                 });
-            }
-
-            // Check deployment method
-            var deploymentInfo = _deploymentDetector.DetectDeploymentMethod(project);
-            if (deploymentInfo.UsesClickOnce)
-            {
-                analysis.Issues.Add(new MigrationIssue
-                {
-                    Category = "Deployment",
-                    Description = "ClickOnce deployment detected",
-                    Severity = MigrationIssueSeverity.Warning,
-                    Resolution = "ClickOnce properties will be migrated but require testing"
-                });
-                analysis.EstimatedManualEffortHours += 2;
             }
 
             // Calculate risk level

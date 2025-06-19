@@ -18,7 +18,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly INuSpecExtractor _nuspecExtractor;
     private readonly ProjectTypeDetector _projectTypeDetector;
     private readonly BuildEventMigrator _buildEventMigrator;
-    private readonly DeploymentDetector _deploymentDetector;
     private readonly NativeDependencyHandler _nativeDependencyHandler;
     private readonly ServiceReferenceDetector _serviceReferenceDetector;
     private readonly MigrationOptions _options;
@@ -35,7 +34,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         INuSpecExtractor nuspecExtractor,
         ProjectTypeDetector projectTypeDetector,
         BuildEventMigrator buildEventMigrator,
-        DeploymentDetector deploymentDetector,
         NativeDependencyHandler nativeDependencyHandler,
         ServiceReferenceDetector serviceReferenceDetector,
         CustomTargetAnalyzer customTargetAnalyzer,
@@ -51,7 +49,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _nuspecExtractor = nuspecExtractor;
         _projectTypeDetector = projectTypeDetector;
         _buildEventMigrator = buildEventMigrator;
-        _deploymentDetector = deploymentDetector;
         _nativeDependencyHandler = nativeDependencyHandler;
         _serviceReferenceDetector = serviceReferenceDetector;
         _customTargetAnalyzer = customTargetAnalyzer;
@@ -99,12 +96,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 return result;
             }
 
-            // 2. Check deployment method
-            var deploymentInfo = _deploymentDetector.DetectDeploymentMethod(legacyProject);
-            result.DeploymentInfo = deploymentInfo;
-            _deploymentDetector.AddDeploymentWarnings(deploymentInfo, result);
-
-            // 3. Detect service references
+            // 2. Detect service references
             var serviceRefInfo = _serviceReferenceDetector.DetectServiceReferences(legacyProject);
             result.ServiceReferences = serviceRefInfo;
             _serviceReferenceDetector.AddServiceReferenceWarnings(serviceRefInfo, result);
@@ -455,46 +447,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Removed "Prefer32Bit" - irrelevant for libraries, only matters for .exe with AnyCPU
         };
         
-        // ClickOnce properties
-        var clickOnceProperties = new[]
-        {
-            "PublishUrl",
-            "InstallUrl",
-            "UpdateUrl",
-            "SupportUrl",
-            "ProductName",
-            "PublisherName",
-            "ApplicationRevision",
-            "ApplicationVersion",
-            "UseApplicationTrust",
-            "CreateDesktopShortcut",
-            "PublishWizardCompleted",
-            "BootstrapperEnabled",
-            "IsWebBootstrapper",
-            "Install",
-            "InstallFrom",
-            "UpdateEnabled",
-            "UpdateMode",
-            "UpdateInterval",
-            "UpdateIntervalUnits",
-            "UpdatePeriodically",
-            "UpdateRequired",
-            "MapFileExtensions",
-            "MinimumRequiredVersion",
-            "CreateWebPageOnPublish",
-            "WebPage",
-            "TrustUrlParameters",
-            "ErrorReportUrl",
-            "TargetCulture",
-            "SignManifests",
-            "ManifestCertificateThumbprint",
-            "ManifestKeyFile",
-            "GenerateManifests",
-            "SignAssembly",
-            "AssemblyOriginatorKeyFile",
-            "DelaySign"
-        };
-
         foreach (var propName in importantProperties)
         {
             var value = legacyProject.GetPropertyValue(propName);
@@ -502,34 +454,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 propertyGroup.Add(new XElement(propName, value));
             }
-        }
-        
-        // Check if project uses ClickOnce
-        var hasClickOnce = false;
-        foreach (var propName in clickOnceProperties)
-        {
-            var value = legacyProject.GetPropertyValue(propName);
-            if (!string.IsNullOrEmpty(value))
-            {
-                propertyGroup.Add(new XElement(propName, value));
-                hasClickOnce = true;
-                _logger.LogDebug("Migrated ClickOnce property: {PropertyName} = {Value}", propName, value);
-            }
-        }
-        
-        if (hasClickOnce)
-        {
-            // Ensure IsPublishable is set for ClickOnce
-            if (propertyGroup.Element("IsPublishable") == null)
-            {
-                propertyGroup.Add(new XElement("IsPublishable", "true"));
-            }
-            
-            result.Warnings.Add("ClickOnce deployment properties migrated. Important notes:");
-            result.Warnings.Add("- Test publish functionality thoroughly after migration");
-            result.Warnings.Add("- Ensure certificate files are accessible at the specified paths");
-            result.Warnings.Add("- Update PublishUrl and InstallUrl if using relative paths");
-            result.Warnings.Add("- Run 'dotnet publish -p:PublishProfile=ClickOnceProfile' to test");
         }
         
         // Handle special properties that might be needed
@@ -559,17 +483,16 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
         }
         
-        // IsPublishable - only add for libraries if explicitly set to true (or if ClickOnce is used)
+        // IsPublishable - only add for libraries if explicitly set to true
         // (default is true for exe, false for library)
         var isPublishable = legacyProject.GetPropertyValue("IsPublishable");
         bool isLibrary = string.IsNullOrEmpty(projectOutputType) || projectOutputType.Equals("Library", StringComparison.OrdinalIgnoreCase);
-        bool needsIsPublishable = hasClickOnce || 
-            (!string.IsNullOrEmpty(isPublishable) && isPublishable.Equals("true", StringComparison.OrdinalIgnoreCase) && isLibrary);
+        bool needsIsPublishable = !string.IsNullOrEmpty(isPublishable) && isPublishable.Equals("true", StringComparison.OrdinalIgnoreCase) && isLibrary;
         
         if (needsIsPublishable && propertyGroup.Element("IsPublishable") == null)
         {
             propertyGroup.Add(new XElement("IsPublishable", "true"));
-            _logger.LogDebug("Added IsPublishable: true (library project with explicit publish support or ClickOnce)");
+            _logger.LogDebug("Added IsPublishable: true (library project with explicit publish support)");
         }
 
         return propertyGroup;
@@ -1657,6 +1580,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         try
         {
+            // Normalize the reference path first
+            referencePath = referencePath.Replace('\\', Path.DirectorySeparatorChar);
+            
             // First try the path as-is
             var fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, referencePath));
             if (File.Exists(fullPath))
@@ -1667,27 +1593,53 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Get the filename to search for
             var fileName = Path.GetFileName(referencePath);
             
+            // If filename is empty or just an extension, the path is malformed
+            if (string.IsNullOrWhiteSpace(fileName) || fileName.StartsWith("."))
+            {
+                _logger.LogWarning("Invalid project reference path: {Path}", referencePath);
+                result.Warnings.Add($"Invalid project reference path: '{referencePath}'");
+                return referencePath;
+            }
+            
+            // Check if this is an MSBuild variable-based path
+            if (referencePath.Contains("$(") || referencePath.Contains("%"))
+            {
+                // Try to expand common MSBuild variables
+                var expandedPath = TryExpandMSBuildVariables(referencePath, currentProjectDir);
+                if (expandedPath != referencePath)
+                {
+                    fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, expandedPath));
+                    if (File.Exists(fullPath))
+                    {
+                        _logger.LogInformation("Resolved MSBuild variable path: {OldPath} -> {NewPath}", referencePath, expandedPath);
+                        return expandedPath;
+                    }
+                }
+                
+                result.Warnings.Add($"Project reference '{referencePath}' contains MSBuild variables that cannot be fully resolved");
+                _logger.LogWarning("Project reference contains unresolved MSBuild variables: {Path}", referencePath);
+            }
+            
             // Try common patterns for fixing paths
             
-            // 1. Try looking in parent directories (up to 3 levels)
+            // 1. Try looking in parent directories (up to 5 levels)
             var parentDir = currentProjectDir;
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 5; i++)
             {
                 parentDir = Path.GetDirectoryName(parentDir);
                 if (string.IsNullOrEmpty(parentDir))
                     break;
                     
                 var foundFiles = Directory.GetFiles(parentDir, fileName, SearchOption.AllDirectories)
-                    .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                    .Where(f => IsProjectFile(f))
+                    .Where(f => !IsInExcludedDirectory(f))
                     .ToList();
                     
                 if (foundFiles.Count == 1)
                 {
                     var relativePath = Path.GetRelativePath(currentProjectDir, foundFiles[0]);
                     _logger.LogDebug("Found project reference in parent directory: {Path}", relativePath);
-                    return relativePath.Replace('\\', Path.DirectorySeparatorChar);
+                    return NormalizePath(relativePath);
                 }
             }
             
@@ -1712,11 +1664,16 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
             }
             
-            // 3. If the reference contains solution folder paths, try to resolve without them
-            if (referencePath.Contains("$(") || referencePath.Contains("%"))
+            // 3. Try common directory restructuring patterns
+            var commonPatterns = GetCommonPathPatterns(referencePath, fileName);
+            foreach (var pattern in commonPatterns)
             {
-                result.Warnings.Add($"Project reference '{referencePath}' contains variables that cannot be resolved");
-                _logger.LogWarning("Project reference contains variables that cannot be resolved: {Path}", referencePath);
+                fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, pattern));
+                if (File.Exists(fullPath))
+                {
+                    _logger.LogInformation("Fixed project reference using common pattern: {OldPath} -> {NewPath}", referencePath, pattern);
+                    return NormalizePath(pattern);
+                }
             }
             
             // 4. Last resort - search the entire repository for the project file
@@ -1753,16 +1710,31 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 _logger.LogDebug("Searching for project files in: {Root}", repoRoot);
                 
-                // Directories to exclude from search
-                var excludedDirs = new[] { "bin", "obj", "packages", "node_modules", ".git", ".vs", "artifacts", "publish" };
+                // Get project name without extension for better matching
+                var projectNameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
                 
                 // First try exact filename match
                 var allProjectFiles = Directory.GetFiles(repoRoot, fileName, SearchOption.AllDirectories)
-                    .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
-                    .Where(f => !excludedDirs.Any(dir => f.Contains($"{Path.DirectorySeparatorChar}{dir}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
+                    .Where(f => IsProjectFile(f))
+                    .Where(f => !IsInExcludedDirectory(f))
                     .ToList();
+                
+                // If the original path had a specific project type but wasn't found, try other project types
+                if (!allProjectFiles.Any() && IsProjectFile(fileName))
+                {
+                    var alternativeExtensions = new[] { ".csproj", ".vbproj", ".fsproj" };
+                    foreach (var ext in alternativeExtensions)
+                    {
+                        var alternativeName = projectNameWithoutExt + ext;
+                        if (alternativeName != fileName)
+                        {
+                            var alternativeFiles = Directory.GetFiles(repoRoot, alternativeName, SearchOption.AllDirectories)
+                                .Where(f => !IsInExcludedDirectory(f))
+                                .ToList();
+                            allProjectFiles.AddRange(alternativeFiles);
+                        }
+                    }
+                }
                 
                 // If no exact match, try with wildcards for common patterns
                 if (!allProjectFiles.Any() && !fileName.Contains("*"))
@@ -1782,10 +1754,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     {
                         _logger.LogDebug("Trying pattern: {Pattern}", pattern);
                         var foundFiles = Directory.GetFiles(repoRoot, pattern, SearchOption.AllDirectories)
-                            .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
-                                       f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
-                                       f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
-                            .Where(f => !excludedDirs.Any(dir => f.Contains($"{Path.DirectorySeparatorChar}{dir}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
+                            .Where(f => IsProjectFile(f))
+                            .Where(f => !IsInExcludedDirectory(f))
                             .ToList();
                             
                         if (foundFiles.Any())
@@ -1805,30 +1775,34 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     var relativePath = Path.GetRelativePath(currentProjectDir, allProjectFiles[0]);
                     _logger.LogInformation("Found project reference in repository: {OldPath} -> {NewPath}", referencePath, relativePath);
                     result.Warnings.Add($"Fixed project reference path: '{referencePath}' -> '{relativePath}'");
-                    return relativePath.Replace('\\', Path.DirectorySeparatorChar);
+                    return NormalizePath(relativePath);
                 }
                 else if (allProjectFiles.Count > 1)
                 {
                     // Multiple matches - try to find the best match based on the original path segments
                     var originalSegments = referencePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries)
-                        .Where(s => !s.Equals("..", StringComparison.OrdinalIgnoreCase))
+                        .Where(s => !s.Equals("..", StringComparison.OrdinalIgnoreCase) && !s.Equals(".", StringComparison.OrdinalIgnoreCase))
                         .ToList();
                     
                     var bestMatch = allProjectFiles
                         .Select(f => new
                         {
                             Path = f,
-                            Score = CalculatePathSimilarity(f, originalSegments)
+                            Score = CalculatePathSimilarity(f, originalSegments),
+                            Distance = GetPathDistance(currentProjectDir, f)
                         })
+                        .Where(x => x.Score > 0)
                         .OrderByDescending(x => x.Score)
+                        .ThenBy(x => x.Distance)  // Prefer closer projects when scores are equal
                         .FirstOrDefault();
                     
-                    if (bestMatch != null && bestMatch.Score > 0)
+                    if (bestMatch != null && bestMatch.Score >= originalSegments.Count / 2) // At least half the segments match
                     {
                         var relativePath = Path.GetRelativePath(currentProjectDir, bestMatch.Path);
-                        _logger.LogInformation("Found best matching project reference in repository: {OldPath} -> {NewPath}", referencePath, relativePath);
+                        _logger.LogInformation("Found best matching project reference in repository: {OldPath} -> {NewPath} (score: {Score})", 
+                            referencePath, relativePath, bestMatch.Score);
                         result.Warnings.Add($"Fixed project reference path (best match): '{referencePath}' -> '{relativePath}'");
-                        return relativePath.Replace('\\', Path.DirectorySeparatorChar);
+                        return NormalizePath(relativePath);
                     }
                     
                     result.Warnings.Add($"Multiple projects named '{fileName}' found in repository - could not determine correct reference");
@@ -2121,5 +2095,105 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                normalizedPath.Contains("\\packagesrestore\\") ||
                normalizedPath.EndsWith("/packages") ||
                normalizedPath.EndsWith("\\packages");
+    }
+    
+    private bool IsProjectFile(string path)
+    {
+        return path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase);
+    }
+    
+    private bool IsInExcludedDirectory(string path)
+    {
+        var excludedDirs = new[] { "bin", "obj", "packages", "node_modules", ".git", ".vs", "artifacts", "publish", "TestResults", ".nuget", "backup", "_backup", ".sonarqube" };
+        var normalizedPath = path.Replace('\\', '/').ToLowerInvariant();
+        
+        return excludedDirs.Any(dir => 
+            normalizedPath.Contains($"/{dir}/") || 
+            normalizedPath.Contains($"/{dir}\\") ||
+            normalizedPath.EndsWith($"/{dir}"));
+    }
+    
+    private string NormalizePath(string path)
+    {
+        return path.Replace('\\', Path.DirectorySeparatorChar)
+                   .Replace('/', Path.DirectorySeparatorChar);
+    }
+    
+    private int GetPathDistance(string fromPath, string toPath)
+    {
+        var fromParts = fromPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+        var toParts = toPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+        
+        // Find common ancestor
+        int commonCount = 0;
+        for (int i = 0; i < Math.Min(fromParts.Length, toParts.Length); i++)
+        {
+            if (fromParts[i].Equals(toParts[i], StringComparison.OrdinalIgnoreCase))
+                commonCount++;
+            else
+                break;
+        }
+        
+        // Distance = steps up from source + steps down to target
+        return (fromParts.Length - commonCount) + (toParts.Length - commonCount);
+    }
+    
+    private string TryExpandMSBuildVariables(string path, string projectDir)
+    {
+        // Common MSBuild variables that might appear in project references
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "$(SolutionDir)", ".." }, // Assume solution is one level up
+            { "$(ProjectDir)", "." },
+            { "$(MSBuildProjectDirectory)", "." },
+            { "$(MSBuildThisFileDirectory)", "." }
+        };
+        
+        var expandedPath = path;
+        foreach (var replacement in replacements)
+        {
+            expandedPath = expandedPath.Replace(replacement.Key, replacement.Value);
+        }
+        
+        // Handle relative solution directory patterns like $(SolutionDir)..\
+        expandedPath = System.Text.RegularExpressions.Regex.Replace(
+            expandedPath, 
+            @"\$\(SolutionDir\)(\\|/)?\.\.(\1)?", 
+            @"..\..\");
+            
+        return expandedPath;
+    }
+    
+    private List<string> GetCommonPathPatterns(string originalPath, string fileName)
+    {
+        var patterns = new List<string>();
+        var projectName = Path.GetFileNameWithoutExtension(fileName);
+        
+        // Common patterns for project organization
+        patterns.Add($@"..\{projectName}\{fileName}");
+        patterns.Add($@"..\..\{projectName}\{fileName}");
+        patterns.Add($@"..\src\{projectName}\{fileName}");
+        patterns.Add($@"..\..\src\{projectName}\{fileName}");
+        patterns.Add($@"..\Source\{projectName}\{fileName}");
+        patterns.Add($@"..\..\Source\{projectName}\{fileName}");
+        
+        // If the original path contains "test" or "tests", try test-specific patterns
+        if (originalPath.ToLowerInvariant().Contains("test"))
+        {
+            patterns.Add($@"..\tests\{projectName}\{fileName}");
+            patterns.Add($@"..\..\tests\{projectName}\{fileName}");
+            patterns.Add($@"..\test\{projectName}\{fileName}");
+            patterns.Add($@"..\..\test\{projectName}\{fileName}");
+        }
+        
+        // Try without nested folder (project might have been moved up a level)
+        if (originalPath.Contains($@"\{projectName}\{projectName}"))
+        {
+            patterns.Add(originalPath.Replace($@"\{projectName}\{projectName}", $@"\{projectName}"));
+        }
+        
+        return patterns.Distinct().ToList();
     }
 }

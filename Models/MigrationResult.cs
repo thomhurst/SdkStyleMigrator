@@ -17,7 +17,6 @@ public class MigrationResult
     
     // Edge case tracking
     public ProjectTypeInfo? DetectedProjectType { get; set; }
-    public DeploymentInfo? DeploymentInfo { get; set; }
     public List<NativeDependency> NativeDependencies { get; set; } = new();
     public ServiceReferenceInfo? ServiceReferences { get; set; }
     public bool HasCriticalBlockers { get; set; }
