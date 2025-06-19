@@ -8,6 +8,35 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 {
     private readonly ILogger<TransitiveDependencyDetector> _logger;
     
+    // Essential packages that should never be marked as transitive
+    private readonly HashSet<string> _essentialPackages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Test framework packages
+        "Microsoft.NET.Test.Sdk",
+        "xunit.runner.visualstudio",
+        "NUnit3TestAdapter",
+        "MSTest.TestAdapter",
+        "coverlet.collector",
+        
+        // Build/Development packages
+        "Microsoft.SourceLink.GitHub",
+        "Microsoft.SourceLink.AzureRepos.Git",
+        "Microsoft.SourceLink.GitLab",
+        "Microsoft.SourceLink.Bitbucket.Git",
+        
+        // Analyzer packages
+        "StyleCop.Analyzers",
+        "SonarAnalyzer.CSharp",
+        "Microsoft.CodeAnalysis.NetAnalyzers",
+        "Microsoft.CodeAnalysis.FxCopAnalyzers",
+        "Roslynator.Analyzers",
+        
+        // Other essential packages
+        "Microsoft.AspNetCore.App",
+        "Microsoft.NETCore.App",
+        "NETStandard.Library"
+    };
+    
     private readonly HashSet<string> _commonTransitiveDependencies = new(StringComparer.OrdinalIgnoreCase)
     {
         "System.Runtime",
@@ -89,6 +118,13 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 
         foreach (var package in packages)
         {
+            // Skip essential packages - they should never be marked as transitive
+            if (_essentialPackages.Contains(package.PackageId))
+            {
+                _logger.LogDebug("Keeping {Package} as it's an essential package", package.PackageId);
+                continue;
+            }
+            
             if (_commonTransitiveDependencies.Contains(package.PackageId))
             {
                 package.IsTransitive = true;

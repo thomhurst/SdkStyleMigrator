@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
@@ -987,8 +988,19 @@ Examples:
             
             if (!options.DryRun && removedCount > 0)
             {
-                // Save the modified project file
-                doc.Save(projectPath);
+                // Save the modified project file without XML declaration
+                var settings = new XmlWriterSettings
+                {
+                    OmitXmlDeclaration = true,
+                    Indent = true,
+                    NewLineChars = Environment.NewLine,
+                    NewLineHandling = NewLineHandling.Replace
+                };
+                
+                using (var writer = XmlWriter.Create(projectPath, settings))
+                {
+                    doc.Save(writer);
+                }
             }
             
             return new CleanDepsResult { Success = true, RemovedCount = removedCount };

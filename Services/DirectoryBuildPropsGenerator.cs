@@ -1,3 +1,4 @@
+using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
@@ -126,7 +127,19 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
             var beforeHash = isNewFile ? string.Empty : await FileHashCalculator.CalculateHashAsync(filePath, cancellationToken);
             var beforeSize = isNewFile ? 0 : new FileInfo(filePath).Length;
 
-            doc.Save(filePath);
+            // Save without XML declaration
+            var settings = new XmlWriterSettings
+            {
+                OmitXmlDeclaration = true,
+                Indent = true,
+                NewLineChars = Environment.NewLine,
+                NewLineHandling = NewLineHandling.Replace
+            };
+            
+            using (var writer = XmlWriter.Create(filePath, settings))
+            {
+                doc.Save(writer);
+            }
             _logger.LogInformation("Successfully created/updated Directory.Build.props at {Path}", filePath);
 
             if (isNewFile)

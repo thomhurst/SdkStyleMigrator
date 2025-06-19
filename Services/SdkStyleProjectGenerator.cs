@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
@@ -304,7 +305,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 // Add migration metadata comment for tracking
                 sdkProject.Root?.AddFirst(new XComment($"Migrated by SdkMigrator on {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"));
 
-                sdkProject.Save(outputPath);
+                // Save without XML declaration
+                var settings = new XmlWriterSettings
+                {
+                    OmitXmlDeclaration = true,
+                    Indent = true,
+                    NewLineChars = Environment.NewLine,
+                    NewLineHandling = NewLineHandling.Replace
+                };
+                
+                using (var writer = XmlWriter.Create(outputPath, settings))
+                {
+                    sdkProject.Save(writer);
+                }
                 _logger.LogInformation("Successfully migrated project to {OutputPath}", outputPath);
             }
             else

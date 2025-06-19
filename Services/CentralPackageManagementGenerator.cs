@@ -1,3 +1,4 @@
+using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
@@ -121,7 +122,19 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                     File.Copy(outputPath, $"{outputPath}.backup", overwrite: true);
                 }
                 
-                directoryPackagesProps.Save(outputPath);
+                // Save without XML declaration
+                var settings = new XmlWriterSettings
+                {
+                    OmitXmlDeclaration = true,
+                    Indent = true,
+                    NewLineChars = Environment.NewLine,
+                    NewLineHandling = NewLineHandling.Replace
+                };
+                
+                using (var writer = XmlWriter.Create(outputPath, settings))
+                {
+                    directoryPackagesProps.Save(writer);
+                }
                 _logger.LogInformation("Created Directory.Packages.props at {Path}", outputPath);
                 
                 // Audit the creation
@@ -194,7 +207,19 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 {
                     if (!_options.DryRun)
                     {
-                        doc.Save(projectFile);
+                        // Save without XML declaration
+                        var settings = new XmlWriterSettings
+                        {
+                            OmitXmlDeclaration = true,
+                            Indent = true,
+                            NewLineChars = Environment.NewLine,
+                            NewLineHandling = NewLineHandling.Replace
+                        };
+                        
+                        using (var writer = XmlWriter.Create(projectFile, settings))
+                        {
+                            doc.Save(writer);
+                        }
                         updatedCount++;
                         _logger.LogInformation("Updated {ProjectFile} to use Central Package Management", projectFile);
                     }
@@ -506,7 +531,19 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 }
                 
                 // Save the cleaned file
-                packagesDoc.Save(packagesPropsPath);
+                // Save without XML declaration
+                var saveSettings = new XmlWriterSettings
+                {
+                    OmitXmlDeclaration = true,
+                    Indent = true,
+                    NewLineChars = Environment.NewLine,
+                    NewLineHandling = NewLineHandling.Replace
+                };
+                
+                using (var writer = XmlWriter.Create(packagesPropsPath, saveSettings))
+                {
+                    packagesDoc.Save(writer);
+                }
                 _logger.LogInformation("Updated Directory.Packages.props - removed {Count} unused packages", unusedPackageElements.Count);
             }
             
