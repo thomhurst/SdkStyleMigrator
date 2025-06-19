@@ -76,6 +76,14 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         IEnumerable<PackageReference> packageReferences,
         CancellationToken cancellationToken = default)
     {
+        return DetectTransitiveDependenciesAsync(packageReferences, null, cancellationToken);
+    }
+    
+    public Task<IEnumerable<PackageReference>> DetectTransitiveDependenciesAsync(
+        IEnumerable<PackageReference> packageReferences,
+        string? projectDirectory,
+        CancellationToken cancellationToken = default)
+    {
         var packages = packageReferences.ToList();
         var transitivePackages = new List<PackageReference>();
 

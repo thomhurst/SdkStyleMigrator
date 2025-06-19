@@ -932,7 +932,8 @@ Examples:
             }
             
             // Detect transitive dependencies
-            var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, CancellationToken.None);
+            var projectDirectory = Path.GetDirectoryName(projectPath);
+            var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, projectDirectory, CancellationToken.None);
             
             // Filter out packages that are transitive but also directly used by project references
             var transitiveDeps = analyzedPackages

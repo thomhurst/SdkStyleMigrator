@@ -167,7 +167,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
 
             var packages = await _packageReferenceMigrator.MigratePackagesAsync(legacyProject, cancellationToken);
-            packages = await _transitiveDependencyDetector.DetectTransitiveDependenciesAsync(packages, cancellationToken);
+            var projectDirectory = Path.GetDirectoryName(legacyProject.FullPath);
+            packages = await _transitiveDependencyDetector.DetectTransitiveDependenciesAsync(packages, projectDirectory, cancellationToken);
             
             var packagesToInclude = packages.Where(p => !p.IsTransitive).ToList();
             

@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using NuGet.Common;
 using NuGet.Configuration;
@@ -36,15 +37,36 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         }
     }
     
-    private NuGetVersion? TryParseVersion(string? version)
+    private async Task<NuGetVersion?> TryParseVersionAsync(string? version, string packageId, string? projectDirectory = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(version))
             return null;
             
-        // Handle special cases
+        // Handle wildcard versions
         if (version == "*" || version.Contains("*"))
         {
-            _logger.LogDebug("Skipping wildcard version: {Version}", version);
+            _logger.LogDebug("Found wildcard version for {PackageId}: {Version}", packageId, version);
+            
+            // First try to find version in central package management files
+            if (!string.IsNullOrEmpty(projectDirectory))
+            {
+                var centralVersion = await GetVersionFromCentralPackageManagementAsync(packageId, projectDirectory);
+                if (centralVersion != null)
+                {
+                    _logger.LogInformation("Resolved wildcard version for {PackageId} from central package management: {Version}", packageId, centralVersion);
+                    return centralVersion;
+                }
+            }
+            
+            // If not found, get latest version from NuGet
+            var latestVersion = await GetLatestVersionFromNuGetAsync(packageId, cancellationToken);
+            if (latestVersion != null)
+            {
+                _logger.LogInformation("Resolved wildcard version for {PackageId} from NuGet (latest): {Version}", packageId, latestVersion);
+                return latestVersion;
+            }
+            
+            _logger.LogWarning("Could not resolve wildcard version for {PackageId}", packageId);
             return null;
         }
         
@@ -63,9 +85,93 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         _logger.LogDebug("Could not parse version: {Version}", version);
         return null;
     }
+    
+    private Task<NuGetVersion?> GetVersionFromCentralPackageManagementAsync(string packageId, string projectDirectory)
+    {
+        try
+        {
+            var currentDir = projectDirectory;
+            // Search up to 5 levels for Directory.Packages.props
+            for (int i = 0; i < 5; i++)
+            {
+                if (string.IsNullOrEmpty(currentDir))
+                    break;
+                    
+                var packagesPropsPath = Path.Combine(currentDir, "Directory.Packages.props");
+                if (File.Exists(packagesPropsPath))
+                {
+                    var doc = XDocument.Load(packagesPropsPath);
+                    var packageVersion = doc.Descendants("PackageVersion")
+                        .FirstOrDefault(pv => string.Equals(pv.Attribute("Include")?.Value, packageId, StringComparison.OrdinalIgnoreCase));
+                        
+                    if (packageVersion != null)
+                    {
+                        var versionStr = packageVersion.Attribute("Version")?.Value;
+                        if (!string.IsNullOrEmpty(versionStr) && NuGetVersion.TryParse(versionStr, out var version))
+                        {
+                            return Task.FromResult<NuGetVersion?>(version);
+                        }
+                    }
+                }
+                
+                var parent = Directory.GetParent(currentDir);
+                if (parent == null)
+                    break;
+                currentDir = parent.FullName;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error searching for central package management version for {PackageId}", packageId);
+        }
+        
+        return Task.FromResult<NuGetVersion?>(null);
+    }
+    
+    private async Task<NuGetVersion?> GetLatestVersionFromNuGetAsync(string packageId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var repository in _repositories)
+            {
+                try
+                {
+                    var findPackageResource = await repository.GetResourceAsync<FindPackageByIdResource>(cancellationToken);
+                    if (findPackageResource == null) continue;
+                    
+                    var versions = await findPackageResource.GetAllVersionsAsync(packageId, _cache, NullLogger.Instance, cancellationToken);
+                    if (versions != null && versions.Any())
+                    {
+                        // Get the latest stable version, or latest pre-release if no stable versions
+                        var latestStable = versions.Where(v => !v.IsPrerelease).OrderByDescending(v => v).FirstOrDefault();
+                        return latestStable ?? versions.OrderByDescending(v => v).First();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to get versions from repository {Repository} for package {PackageId}", 
+                        repository.PackageSource.Name, packageId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting latest version for {PackageId} from NuGet", packageId);
+        }
+        
+        return null;
+    }
 
     public async Task<IEnumerable<PackageReference>> DetectTransitiveDependenciesAsync(
         IEnumerable<PackageReference> packageReferences, 
+        CancellationToken cancellationToken = default)
+    {
+        return await DetectTransitiveDependenciesAsync(packageReferences, null, cancellationToken);
+    }
+    
+    public async Task<IEnumerable<PackageReference>> DetectTransitiveDependenciesAsync(
+        IEnumerable<PackageReference> packageReferences,
+        string? projectDirectory,
         CancellationToken cancellationToken = default)
     {
         var packages = packageReferences.ToList();
@@ -86,12 +192,19 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             
             foreach (var package in packages)
             {
-                var version = TryParseVersion(package.Version);
+                var version = await TryParseVersionAsync(package.Version, package.PackageId, projectDirectory, cancellationToken);
                 if (version == null)
                 {
-                    _logger.LogWarning("Skipping package {PackageId} with unparseable version: {Version}", 
+                    _logger.LogWarning("Could not resolve version for package {PackageId}: {Version}", 
                         package.PackageId, package.Version);
                     continue;
+                }
+                
+                // Update the package version if it was resolved from wildcard
+                if (package.Version == "*" || (package.Version?.Contains("*") ?? false))
+                {
+                    package.Version = version.ToString();
+                    _logger.LogDebug("Updated package {PackageId} version from wildcard to {Version}", package.PackageId, version);
                 }
                 
                 var identity = new PackageIdentity(package.PackageId, version);
@@ -105,17 +218,17 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             {
                 try
                 {
-                    var version = TryParseVersion(package.Version);
+                    var version = await TryParseVersionAsync(package.Version, package.PackageId, projectDirectory, cancellationToken);
                     if (version == null)
                     {
-                        _logger.LogWarning("Skipping dependency analysis for {PackageId} with unparseable version: {Version}", 
+                        _logger.LogWarning("Skipping dependency analysis for {PackageId} - could not resolve version: {Version}", 
                             package.PackageId, package.Version);
                         continue;
                     }
                     
                     var dependencies = await GetPackageDependenciesAsync(
                         package.PackageId, 
-                        package.Version, 
+                        version.ToString(), 
                         framework, 
                         cancellationToken);
                     
@@ -137,7 +250,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             var transitiveCount = 0;
             foreach (var package in packages)
             {
-                var version = TryParseVersion(package.Version);
+                var version = await TryParseVersionAsync(package.Version, package.PackageId, projectDirectory, cancellationToken);
                 if (version == null)
                 {
                     // Can't determine transitivity without valid version
@@ -186,8 +299,12 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         CancellationToken cancellationToken)
     {
         var dependencies = new HashSet<PackageIdentity>();
-        var nugetVersion = TryParseVersion(version);
-        if (nugetVersion == null)
+        NuGetVersion? nugetVersion;
+        if (NuGetVersion.TryParse(version, out var parsed))
+        {
+            nugetVersion = parsed;
+        }
+        else
         {
             _logger.LogWarning("Cannot get dependencies for {PackageId} with unparseable version: {Version}", 
                 packageId, version);
