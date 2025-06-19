@@ -542,6 +542,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var itemGroup = new XElement("ItemGroup");
         var packageItemGroup = new XElement("ItemGroup");
         var addedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var convertedAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         
         // Migrate assembly references that are not part of the implicit framework references
         var assemblyReferences = legacyProject.Items.Where(i => i.ItemType == "Reference");
@@ -564,6 +565,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         new XAttribute("Version", packageResolution.Version));
                     packageItemGroup.Add(packageElement);
                     addedPackages.Add(packageResolution.PackageId);
+                    convertedAssemblies.Add(assemblyName); // Track that this assembly was converted
+                    // Also track the full reference name in case it includes version info
+                    convertedAssemblies.Add(referenceName);
                     _logger.LogInformation("Converted assembly reference '{AssemblyName}' to package reference '{PackageName}' version {Version}", 
                         assemblyName, packageResolution.PackageId, packageResolution.Version);
                     
@@ -602,16 +606,18 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 continue;
             }
             
-            // Skip references that are implicitly included in the framework
+            // Skip references that are implicitly included in the framework or were already converted to packages
             var implicitFrameworkReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "System", "System.Core", "System.Data", "System.Xml", "System.Xml.Linq",
                 "Microsoft.CSharp", "System.Net.Http", "System.IO.Compression.FileSystem"
             };
             
-            if (implicitFrameworkReferences.Contains(assemblyName))
+            if (implicitFrameworkReferences.Contains(assemblyName) || convertedAssemblies.Contains(assemblyName))
             {
-                _logger.LogDebug("Skipping implicit framework reference: {Reference}", assemblyName);
+                _logger.LogDebug("Skipping {Reason} reference: {Reference}", 
+                    convertedAssemblies.Contains(assemblyName) ? "already converted to package" : "implicit framework", 
+                    assemblyName);
                 continue;
             }
             
@@ -623,13 +629,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 "System.ComponentModel.DataAnnotations"
             };
             
-            if (frameworkExtensions.Contains(assemblyName) || 
+            if ((frameworkExtensions.Contains(assemblyName) || 
                 assemblyName.StartsWith("Microsoft.VisualStudio", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Windows", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.ServiceModel", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Runtime", StringComparison.OrdinalIgnoreCase) ||
-                assemblyName.StartsWith("System.ComponentModel", StringComparison.OrdinalIgnoreCase))
+                assemblyName.StartsWith("System.ComponentModel", StringComparison.OrdinalIgnoreCase)) &&
+                !convertedAssemblies.Contains(assemblyName))
             {
                 var element = new XElement("Reference",
                     new XAttribute("Include", assemblyName));

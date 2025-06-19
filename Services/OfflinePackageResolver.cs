@@ -76,7 +76,9 @@ public class OfflinePackageResolver : INuGetPackageResolver
         ["System.Net.Http.Formatting"] = ("Microsoft.AspNet.WebApi.Client", null),
         ["System.Web.Mvc"] = ("Microsoft.AspNet.Mvc", null),
         ["System.Web.Http"] = ("Microsoft.AspNet.WebApi.Core", null),
-        ["System.Web.Http.WebHost"] = ("Microsoft.AspNet.WebApi.WebHost", null)
+        ["System.Web.Http.WebHost"] = ("Microsoft.AspNet.WebApi.WebHost", null),
+        ["System.Windows.Forms"] = ("System.Windows.Forms", "For .NET Core/5+ projects"),
+        ["System.Configuration.ConfigurationManager"] = ("System.Configuration.ConfigurationManager", null)
     };
 
     public OfflinePackageResolver(ILogger<OfflinePackageResolver> logger)
