@@ -10,4 +10,5 @@ public class MigrationOptions
     public bool Force { get; set; }
     public int MaxDegreeOfParallelism { get; set; } = 1;
     public string LogLevel { get; set; } = "Information";
+    public bool UseOfflineMode { get; set; }
 }

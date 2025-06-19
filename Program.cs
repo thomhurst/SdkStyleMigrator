@@ -50,6 +50,10 @@ class Program
             getDefaultValue: () => "Information",
             description: "Set log level (Trace|Debug|Information|Warning|Error)");
             
+        var offlineOption = new Option<bool>(
+            aliases: new[] { "--offline" },
+            description: "Use hardcoded package versions instead of querying NuGet (for offline scenarios)");
+            
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
         rootCommand.AddOption(dryRunOption);
@@ -59,6 +63,7 @@ class Program
         rootCommand.AddOption(noBackupOption);
         rootCommand.AddOption(parallelOption);
         rootCommand.AddOption(logLevelOption);
+        rootCommand.AddOption(offlineOption);
         
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
@@ -102,7 +107,8 @@ class Program
                 Force = context.ParseResult.GetValueForOption(forceOption),
                 CreateBackup = !context.ParseResult.GetValueForOption(noBackupOption),
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
-                LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information"
+                LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information",
+                UseOfflineMode = context.ParseResult.GetValueForOption(offlineOption)
             };
             
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
@@ -353,6 +359,17 @@ Examples:
         services.AddSingleton<IProjectParser>(provider => provider.GetRequiredService<ProjectParser>());
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();
         services.AddSingleton<ITransitiveDependencyDetector, NuGetTransitiveDependencyDetector>();
+        
+        // Register package resolver based on offline mode
+        if (options.UseOfflineMode)
+        {
+            services.AddSingleton<INuGetPackageResolver, OfflinePackageResolver>();
+        }
+        else
+        {
+            services.AddSingleton<INuGetPackageResolver, NuGetPackageResolver>();
+        }
+        
         services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
         services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
         services.AddSingleton<IDirectoryBuildPropsGenerator>(provider => 
