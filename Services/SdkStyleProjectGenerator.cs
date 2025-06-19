@@ -85,7 +85,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement.Add(projectReferences);
             }
 
-            var compileItems = MigrateCompileItems(legacyProject);
+            var compileItems = MigrateCompileItems(legacyProject, result);
             if (compileItems.HasElements)
             {
                 projectElement.Add(compileItems);
@@ -330,7 +330,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return itemGroup;
     }
 
-    private XElement MigrateCompileItems(Project legacyProject)
+    private XElement MigrateCompileItems(Project legacyProject, MigrationResult result)
     {
         var itemGroup = new XElement("ItemGroup");
         var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
@@ -341,6 +341,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             var include = item.EvaluatedInclude;
             var extension = Path.GetExtension(include);
+            
+            // Skip AssemblyInfo files as they will be auto-generated or moved to Directory.Build.props
+            if (IsAssemblyInfoFile(include))
+            {
+                _logger.LogDebug("Skipping AssemblyInfo file from migration: {File}", include);
+                result.RemovedElements.Add($"Compile item: {include} (AssemblyInfo file)");
+                continue;
+            }
             
             if (LegacyProjectElements.ImplicitlyIncludedExtensions.Contains(extension))
             {
@@ -555,5 +563,12 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             result.Warnings.Add($"Conditional PropertyGroup with condition '{propertyGroup.Condition}' needs manual review");
         }
+    }
+    
+    private bool IsAssemblyInfoFile(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        return LegacyProjectElements.AssemblyInfoFilePatterns.Any(pattern => 
+            fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
     }
 }

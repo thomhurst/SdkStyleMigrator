@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2025-01-19
+
+### Fixed
+- **AssemblyInfo Compile Items**: Now properly removes AssemblyInfo.cs compile items from the project file during migration
+  - Previously only removed the physical files but left dangling references in the project
+  - Now excludes these files during SDK-style project generation
+
 ## [0.2.0] - 2025-01-18
 
 ### Added
