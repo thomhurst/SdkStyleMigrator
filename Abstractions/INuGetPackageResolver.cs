@@ -31,4 +31,5 @@ public class PackageResolutionResult
     public string Version { get; set; } = string.Empty;
     public List<string> AdditionalPackages { get; set; } = new();
     public string? Notes { get; set; }
+    public List<string> IncludedAssemblies { get; set; } = new();
 }

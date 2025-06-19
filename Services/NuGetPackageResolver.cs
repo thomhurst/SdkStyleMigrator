@@ -59,6 +59,35 @@ public class NuGetPackageResolver : INuGetPackageResolver
         ["StructureMap"] = ("StructureMap", "No longer maintained, consider alternatives"),
         ["CommonServiceLocator"] = ("CommonServiceLocator", null)
     };
+    
+    // Known packages that include multiple assemblies
+    private readonly Dictionary<string, List<string>> _packageAssemblyMappings = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Newtonsoft.Json"] = new() { "Newtonsoft.Json" },
+        ["EntityFramework"] = new() { "EntityFramework", "EntityFramework.SqlServer" },
+        ["Microsoft.EntityFrameworkCore"] = new() { "Microsoft.EntityFrameworkCore", "Microsoft.EntityFrameworkCore.Relational", "Microsoft.EntityFrameworkCore.Abstractions" },
+        ["Microsoft.EntityFrameworkCore.SqlServer"] = new() { "Microsoft.EntityFrameworkCore.SqlServer" },
+        ["NUnit"] = new() { "nunit.framework" },
+        ["xunit"] = new() { "xunit.core", "xunit.assert", "xunit.abstractions" },
+        ["MSTest.TestFramework"] = new() { "Microsoft.VisualStudio.TestPlatform.TestFramework", "Microsoft.VisualStudio.TestPlatform.TestFramework.Extensions" },
+        ["Moq"] = new() { "Moq", "Castle.Core" }, // Moq includes Castle.Core
+        ["AutoMapper"] = new() { "AutoMapper" },
+        ["log4net"] = new() { "log4net" },
+        ["NLog"] = new() { "NLog" },
+        ["Serilog"] = new() { "Serilog" },
+        ["Microsoft.AspNet.WebApi.Core"] = new() { "System.Web.Http", "System.Net.Http.Formatting" },
+        ["Microsoft.AspNet.WebApi.WebHost"] = new() { "System.Web.Http.WebHost" },
+        ["Microsoft.AspNet.Mvc"] = new() { "System.Web.Mvc" },
+        ["System.Data.SqlClient"] = new() { "System.Data.SqlClient" },
+        ["Microsoft.Data.SqlClient"] = new() { "Microsoft.Data.SqlClient" },
+        ["System.Configuration.ConfigurationManager"] = new() { "System.Configuration.ConfigurationManager" },
+        ["AWSSDK.Core"] = new() { "AWSSDK.Core" },
+        ["RabbitMQ.Client"] = new() { "RabbitMQ.Client" },
+        ["StackExchange.Redis"] = new() { "StackExchange.Redis", "StackExchange.Redis.StrongName" },
+        ["protobuf-net"] = new() { "protobuf-net" },
+        ["Grpc.Core"] = new() { "Grpc.Core" },
+        ["Azure.Storage.Blobs"] = new() { "Azure.Storage.Blobs", "Azure.Storage.Common", "Azure.Core" }
+    };
 
     public NuGetPackageResolver(ILogger<NuGetPackageResolver> logger, MigrationOptions options)
     {
@@ -251,6 +280,12 @@ public class NuGetPackageResolver : INuGetPackageResolver
                     Version = version,
                     Notes = knownMapping.Notes
                 };
+                
+                // Add included assemblies if known
+                if (_packageAssemblyMappings.TryGetValue(knownMapping.PackageId, out var includedAssemblies))
+                {
+                    result.IncludedAssemblies.AddRange(includedAssemblies);
+                }
 
                 // Add additional packages for test frameworks
                 if (assemblyName.Equals("Microsoft.VisualStudio.QualityTools.UnitTestFramework", StringComparison.OrdinalIgnoreCase) ||
@@ -285,6 +320,12 @@ public class NuGetPackageResolver : INuGetPackageResolver
                     PackageId = candidateId,
                     Version = version
                 };
+                
+                // Add included assemblies if known
+                if (_packageAssemblyMappings.TryGetValue(candidateId, out var includedAssemblies))
+                {
+                    result.IncludedAssemblies.AddRange(includedAssemblies);
+                }
 
                 _assemblyCache.TryAdd(cacheKey, result);
                 return result;

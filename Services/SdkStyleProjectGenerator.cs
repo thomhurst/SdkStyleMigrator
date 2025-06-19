@@ -591,6 +591,15 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     convertedAssemblies.Add(assemblyName); // Track that this assembly was converted
                     // Also track the full reference name in case it includes version info
                     convertedAssemblies.Add(referenceName);
+                    
+                    // Track all assemblies included in this package
+                    foreach (var includedAssembly in packageResolution.IncludedAssemblies)
+                    {
+                        convertedAssemblies.Add(includedAssembly);
+                        _logger.LogDebug("Package '{PackageName}' includes assembly '{AssemblyName}'", 
+                            packageResolution.PackageId, includedAssembly);
+                    }
+                    
                     _logger.LogInformation("Converted assembly reference '{AssemblyName}' to package reference '{PackageName}' version {Version}", 
                         assemblyName, packageResolution.PackageId, packageResolution.Version);
                     
