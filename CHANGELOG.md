@@ -7,6 +7,12 @@
   - Previously only removed the physical files but left dangling references in the project
   - Now excludes these files during SDK-style project generation
 
+### Changed
+- **Backup Files**: Legacy backup files (*.legacy.csproj) are now opt-in instead of default
+  - Use `--backup` or `-b` flag to create backup files
+  - Reduces file clutter in projects by default
+  - Applies to both project files and AssemblyInfo files
+
 ## [0.2.0] - 2025-01-18
 
 ### Added

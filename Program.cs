@@ -37,9 +37,9 @@ class Program
             aliases: new[] { "--force", "-f" },
             description: "Force migration without prompts");
             
-        var noBackupOption = new Option<bool>(
-            aliases: new[] { "--no-backup" },
-            description: "Skip creating backup files");
+        var backupOption = new Option<bool>(
+            aliases: new[] { "--backup", "-b" },
+            description: "Create backup files (*.legacy.csproj)");
             
         var parallelOption = new Option<int?>(
             aliases: new[] { "--parallel", "-p" },
@@ -55,7 +55,7 @@ class Program
         rootCommand.AddOption(outputDirectoryOption);
         rootCommand.AddOption(targetFrameworkOption);
         rootCommand.AddOption(forceOption);
-        rootCommand.AddOption(noBackupOption);
+        rootCommand.AddOption(backupOption);
         rootCommand.AddOption(parallelOption);
         rootCommand.AddOption(logLevelOption);
         
@@ -68,7 +68,7 @@ class Program
                 OutputDirectory = context.ParseResult.GetValueForOption(outputDirectoryOption),
                 TargetFramework = context.ParseResult.GetValueForOption(targetFrameworkOption),
                 Force = context.ParseResult.GetValueForOption(forceOption),
-                NoBackup = context.ParseResult.GetValueForOption(noBackupOption),
+                CreateBackup = context.ParseResult.GetValueForOption(backupOption),
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
                 LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information"
             };
@@ -108,7 +108,7 @@ The tool will:
 - Detect and remove transitive package dependencies
 - Extract assembly properties to Directory.Build.props
 - Remove AssemblyInfo files and enable SDK auto-generation
-- Create backup files with .legacy extension
+- Create backup files with .legacy extension (when --backup is used)
 - Maintain feature parity with the original project
 
 Examples:

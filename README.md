@@ -8,7 +8,7 @@ A .NET 9 console application that migrates legacy MSBuild project files to the m
 - **Legacy Property Removal**: Removes unnecessary and problematic legacy MSBuild properties
 - **Package Migration**: Converts packages.config to PackageReference format
 - **Transitive Dependency Detection**: Identifies and removes transitive package dependencies to keep projects clean
-- **Backup Creation**: Creates .legacy backup files before migration
+- **Optional Backup Creation**: Can create .legacy backup files before migration (use --backup flag)
 - **Feature Parity**: Maintains all functionality while modernizing the project format
 
 ## Architecture
@@ -38,6 +38,12 @@ dotnet build
 # Run the migrator on a directory
 dotnet run -- /path/to/your/solution
 
+# Run with backup files
+dotnet run -- /path/to/your/solution --backup
+
+# Dry run mode (preview changes)
+dotnet run -- /path/to/your/solution --dry-run
+
 # Get help
 dotnet run -- --help
 ```
@@ -61,7 +67,7 @@ dotnet run -- --help
 - Detects and removes common transitive dependencies
 - Preserves only necessary properties
 - Maintains minimal project file structure
-- Creates backups with .legacy extension
+- Creates backups with .legacy extension (when --backup flag is used)
 
 ## Requirements
 

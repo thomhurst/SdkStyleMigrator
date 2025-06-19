@@ -267,11 +267,16 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     if (!_options.DryRun)
                     {
-                        var backupPath = $"{file}.legacy";
-                        File.Copy(file, backupPath, overwrite: true);
+                        if (_options.CreateBackup)
+                        {
+                            var backupPath = $"{file}.legacy";
+                            File.Copy(file, backupPath, overwrite: true);
+                        }
                         File.Delete(file);
                         
-                        _logger.LogInformation("Removed AssemblyInfo file: {File} (backup: {BackupPath})", file, backupPath);
+                        _logger.LogInformation("Removed AssemblyInfo file: {File}{BackupInfo}", 
+                            file, 
+                            _options.CreateBackup ? $" (backup: {file}.legacy)" : "");
                     }
                     else
                     {
@@ -307,7 +312,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             return outputPath;
         }
         
-        if (!_options.NoBackup && !_options.DryRun)
+        if (_options.CreateBackup && !_options.DryRun)
         {
             var directory = Path.GetDirectoryName(projectFile)!;
             var filename = Path.GetFileName(projectFile);
