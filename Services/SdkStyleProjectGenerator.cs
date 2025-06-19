@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
@@ -504,10 +505,25 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         foreach (var import in legacyProject.Xml.Imports)
         {
-            if (!LegacyProjectElements.ImportsToRemove.Contains(import.Project))
+            var importPath = import.Project;
+            
+            // Check if this is a Visual Studio-specific import that should be removed
+            if (LegacyProjectElements.ImportsToRemove.Contains(importPath) ||
+                IsVisualStudioSpecificImport(importPath))
             {
+                result.RemovedElements.Add($"Import: {importPath}");
+                _logger.LogDebug("Removed Visual Studio-specific import: {Import}", importPath);
+            }
+            else
+            {
+                // For custom imports, add a warning if they reference Visual Studio paths
+                if (ContainsVisualStudioPath(importPath))
+                {
+                    result.Warnings.Add($"Import '{importPath}' references Visual Studio-specific paths and may not work in all environments");
+                }
+                
                 var importElement = new XElement("Import",
-                    new XAttribute("Project", import.Project));
+                    new XAttribute("Project", importPath));
                     
                 if (!string.IsNullOrEmpty(import.Condition))
                 {
@@ -515,11 +531,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
                 
                 projectElement.Add(importElement);
-                _logger.LogDebug("Preserved custom import: {Import}", import.Project);
-            }
-            else
-            {
-                result.RemovedElements.Add($"Import: {import.Project}");
+                _logger.LogDebug("Preserved custom import: {Import}", importPath);
             }
         }
         
@@ -570,5 +582,50 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var fileName = Path.GetFileName(filePath);
         return LegacyProjectElements.AssemblyInfoFilePatterns.Any(pattern => 
             fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
+    }
+    
+    private bool IsVisualStudioSpecificImport(string importPath)
+    {
+        if (string.IsNullOrEmpty(importPath))
+            return false;
+            
+        // Check for common patterns of Visual Studio-specific imports
+        var patterns = new[]
+        {
+            @"\$\(VSToolsPath\)",
+            @"\$\(MSBuildExtensionsPath32\)\\Microsoft\\VisualStudio",
+            @"\$\(MSBuildExtensionsPath\)\\Microsoft\\VisualStudio",
+            @"Microsoft\.WebApplication\.targets",
+            @"Microsoft\.TypeScript\.targets",
+            @"Microsoft\.TestTools\.targets",
+            @"\.nuget\\NuGet\.targets",
+            @"WebApplications\\Microsoft\.WebApplication\.targets"
+        };
+        
+        return patterns.Any(pattern => 
+            Regex.IsMatch(importPath, pattern, RegexOptions.IgnoreCase));
+    }
+    
+    private bool ContainsVisualStudioPath(string importPath)
+    {
+        if (string.IsNullOrEmpty(importPath))
+            return false;
+            
+        var vsPathIndicators = new[]
+        {
+            "$(VSToolsPath)",
+            "$(VisualStudioVersion)",
+            "\\VisualStudio\\",
+            "\\v10.0\\",
+            "\\v11.0\\",
+            "\\v12.0\\",
+            "\\v14.0\\",
+            "\\v15.0\\",
+            "\\v16.0\\",
+            "\\v17.0\\"
+        };
+        
+        return vsPathIndicators.Any(indicator => 
+            importPath.Contains(indicator, StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -9,6 +9,10 @@
 - **Package Version Extraction**: Fixed issue extracting version from packages with names ending in numbers
   - Previously failed on packages like `MyPackage2.1.0.0` or `System.Data.SQLite.Core.1.0.118.0`
   - Now uses regex pattern matching to correctly identify package name and version boundaries
+- **Visual Studio Import Removal**: Enhanced detection and removal of Visual Studio-specific imports
+  - Removes imports for WebApplication.targets, TypeScript.targets, and NuGet.targets
+  - Detects and removes version-specific Visual Studio imports (v10.0 through v17.0)
+  - Adds warnings for custom imports that reference Visual Studio paths
 
 ### Changed
 - **Backup Files**: Legacy backup files (*.legacy.csproj) are now opt-in instead of default
