@@ -80,7 +80,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 result.MigratedPackages.AddRange(packagesToInclude);
             }
 
-            var projectReferences = MigrateProjectReferences(legacyProject);
+            var projectReferences = MigrateProjectReferences(legacyProject, result);
             if (projectReferences.HasElements)
             {
                 projectElement.Add(projectReferences);
@@ -304,16 +304,24 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return targetFrameworkVersion;
     }
 
-    private XElement MigrateProjectReferences(Project legacyProject)
+    private XElement MigrateProjectReferences(Project legacyProject, MigrationResult result)
     {
         var itemGroup = new XElement("ItemGroup");
         var projectReferences = legacyProject.Items.Where(i => i.ItemType == "ProjectReference");
+        var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
 
         foreach (var reference in projectReferences)
         {
             var includeValue = reference.EvaluatedInclude;
+            var resolvedPath = ResolveProjectReferencePath(projectDir, includeValue, result);
+            
+            if (resolvedPath != includeValue)
+            {
+                _logger.LogInformation("Fixed project reference path: {OldPath} -> {NewPath}", includeValue, resolvedPath);
+            }
+            
             var element = new XElement("ProjectReference",
-                new XAttribute("Include", includeValue));
+                new XAttribute("Include", resolvedPath));
 
             var metadataToPreserve = new[] { "Name", "Private", "SpecificVersion" };
             foreach (var metadata in metadataToPreserve)
@@ -503,6 +511,90 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var itemGroup = new XElement("ItemGroup");
         
+        // Migrate assembly references that are not part of the implicit framework references
+        var assemblyReferences = legacyProject.Items.Where(i => i.ItemType == "Reference");
+        foreach (var reference in assemblyReferences)
+        {
+            var referenceName = reference.EvaluatedInclude;
+            
+            // Extract just the assembly name without version info
+            var assemblyName = referenceName.Split(',')[0].Trim();
+            
+            // Skip references that are implicitly included in the framework
+            var implicitFrameworkReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "System", "System.Core", "System.Data", "System.Xml", "System.Xml.Linq",
+                "Microsoft.CSharp", "System.Net.Http", "System.IO.Compression.FileSystem"
+            };
+            
+            if (implicitFrameworkReferences.Contains(assemblyName))
+            {
+                _logger.LogDebug("Skipping implicit framework reference: {Reference}", assemblyName);
+                continue;
+            }
+            
+            // Framework extensions and special references that need to be preserved
+            var frameworkExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "System.Windows.Forms", "System.Drawing", "System.Web", "System.Web.Extensions",
+                "Microsoft.VisualStudio.QualityTools.UnitTestFramework", "Microsoft.VisualStudio.TestTools.UnitTesting",
+                "System.Configuration", "System.ServiceModel", "System.Runtime.Serialization",
+                "System.ComponentModel.DataAnnotations", "System.Web.Http", "System.Web.Mvc"
+            };
+            
+            if (frameworkExtensions.Contains(assemblyName) || 
+                assemblyName.StartsWith("Microsoft.VisualStudio", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("System.Windows", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("System.ServiceModel", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("System.Runtime", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("System.ComponentModel", StringComparison.OrdinalIgnoreCase))
+            {
+                var element = new XElement("Reference",
+                    new XAttribute("Include", assemblyName));
+                
+                // Copy important metadata
+                var hintPath = reference.GetMetadataValue("HintPath");
+                if (!string.IsNullOrEmpty(hintPath))
+                {
+                    element.Add(new XElement("HintPath", hintPath));
+                }
+                
+                var privateValue = reference.GetMetadataValue("Private");
+                if (!string.IsNullOrEmpty(privateValue))
+                {
+                    element.Add(new XElement("Private", privateValue));
+                }
+                
+                var specificVersion = reference.GetMetadataValue("SpecificVersion");
+                if (!string.IsNullOrEmpty(specificVersion))
+                {
+                    element.Add(new XElement("SpecificVersion", specificVersion));
+                }
+                
+                itemGroup.Add(element);
+                _logger.LogInformation("Preserved framework extension reference: {Reference}", assemblyName);
+            }
+            else if (!string.IsNullOrEmpty(reference.GetMetadataValue("HintPath")))
+            {
+                // This is likely a third-party assembly with a HintPath - preserve it
+                var element = new XElement("Reference",
+                    new XAttribute("Include", assemblyName));
+                
+                var hintPath = reference.GetMetadataValue("HintPath");
+                element.Add(new XElement("HintPath", hintPath));
+                
+                var privateValue = reference.GetMetadataValue("Private");
+                if (!string.IsNullOrEmpty(privateValue))
+                {
+                    element.Add(new XElement("Private", privateValue));
+                }
+                
+                itemGroup.Add(element);
+                _logger.LogInformation("Preserved assembly reference with HintPath: {Reference}", assemblyName);
+            }
+        }
+        
         var comReferences = legacyProject.Items.Where(i => i.ItemType == "COMReference");
         foreach (var comRef in comReferences)
         {
@@ -610,6 +702,83 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var fileName = Path.GetFileName(filePath);
         return LegacyProjectElements.AssemblyInfoFilePatterns.Any(pattern => 
             fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
+    }
+    
+    private string ResolveProjectReferencePath(string currentProjectDir, string referencePath, MigrationResult result)
+    {
+        try
+        {
+            // First try the path as-is
+            var fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, referencePath));
+            if (File.Exists(fullPath))
+            {
+                return referencePath;
+            }
+            
+            // Get the filename to search for
+            var fileName = Path.GetFileName(referencePath);
+            
+            // Try common patterns for fixing paths
+            
+            // 1. Try looking in parent directories (up to 3 levels)
+            var parentDir = currentProjectDir;
+            for (int i = 0; i < 3; i++)
+            {
+                parentDir = Path.GetDirectoryName(parentDir);
+                if (string.IsNullOrEmpty(parentDir))
+                    break;
+                    
+                var foundFiles = Directory.GetFiles(parentDir, fileName, SearchOption.AllDirectories)
+                    .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                    
+                if (foundFiles.Count == 1)
+                {
+                    var relativePath = Path.GetRelativePath(currentProjectDir, foundFiles[0]);
+                    _logger.LogDebug("Found project reference in parent directory: {Path}", relativePath);
+                    return relativePath.Replace('\\', Path.DirectorySeparatorChar);
+                }
+            }
+            
+            // 2. Try removing extra path segments (e.g., "..\..\src\Project\Project.csproj" -> "..\Project\Project.csproj")
+            var pathParts = referencePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (pathParts.Length > 2)
+            {
+                // Try removing intermediate directories
+                for (int skip = 1; skip < pathParts.Length - 1; skip++)
+                {
+                    var testPath = Path.Combine(
+                        string.Join(Path.DirectorySeparatorChar.ToString(), pathParts.Take(pathParts.Length - skip - 1)),
+                        pathParts.Last()
+                    );
+                    
+                    fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, testPath));
+                    if (File.Exists(fullPath))
+                    {
+                        _logger.LogDebug("Fixed project reference by simplifying path: {OldPath} -> {NewPath}", referencePath, testPath);
+                        return testPath;
+                    }
+                }
+            }
+            
+            // 3. If the reference contains solution folder paths, try to resolve without them
+            if (referencePath.Contains("$(") || referencePath.Contains("%"))
+            {
+                result.Warnings.Add($"Project reference '{referencePath}' contains variables that cannot be resolved");
+                _logger.LogWarning("Project reference contains variables that cannot be resolved: {Path}", referencePath);
+            }
+            
+            result.Warnings.Add($"Could not resolve project reference path: '{referencePath}' - please verify manually");
+            _logger.LogWarning("Could not resolve project reference path: {Path}", referencePath);
+            return referencePath; // Return original if we can't fix it
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving project reference path: {Path}", referencePath);
+            return referencePath;
+        }
     }
     
 }

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.2] - 2025-01-19
+
+### Added
+- **Project Reference Path Resolution**: Automatically fixes broken project reference paths during migration
+  - Searches parent directories for referenced projects
+  - Simplifies overly complex relative paths
+  - Provides warnings for references that cannot be resolved
+  - Logs all path corrections for transparency
+
+### Fixed
+- **Assembly Reference Migration**: Fixed missing assembly references in migrated projects
+  - Now properly preserves framework extension references like System.Windows.Forms and Microsoft.VisualStudio.QualityTools.UnitTestFramework
+  - Preserves third-party assembly references with HintPath
+  - Skips implicit framework references that are automatically included
+  - Preserves important metadata (HintPath, Private, SpecificVersion)
+
 ## [0.2.1] - 2025-01-19
 
 ### Fixed
