@@ -33,6 +33,17 @@ class Program
             aliases: new[] { "--target-framework", "-t" },
             description: "Override target framework (e.g., net8.0)");
             
+        var targetFrameworksOption = new Option<string[]?>(
+            aliases: new[] { "--target-frameworks", "-tf" },
+            description: "Multi-targeting frameworks (e.g., net8.0 net472)")
+        {
+            AllowMultipleArgumentsPerToken = true
+        };
+            
+        var centralPackageManagementOption = new Option<bool>(
+            aliases: new[] { "--central-package-management", "-cpm" },
+            description: "Enable Central Package Management (Directory.Packages.props)");
+            
         var forceOption = new Option<bool>(
             aliases: new[] { "--force", "-f" },
             description: "Force migration without prompts");
@@ -63,6 +74,8 @@ class Program
         rootCommand.AddOption(dryRunOption);
         rootCommand.AddOption(outputDirectoryOption);
         rootCommand.AddOption(targetFrameworkOption);
+        rootCommand.AddOption(targetFrameworksOption);
+        rootCommand.AddOption(centralPackageManagementOption);
         rootCommand.AddOption(forceOption);
         rootCommand.AddOption(noBackupOption);
         rootCommand.AddOption(parallelOption);
@@ -109,6 +122,8 @@ class Program
                 DryRun = context.ParseResult.GetValueForOption(dryRunOption),
                 OutputDirectory = context.ParseResult.GetValueForOption(outputDirectoryOption),
                 TargetFramework = context.ParseResult.GetValueForOption(targetFrameworkOption),
+                TargetFrameworks = context.ParseResult.GetValueForOption(targetFrameworksOption),
+                EnableCentralPackageManagement = context.ParseResult.GetValueForOption(centralPackageManagementOption),
                 Force = context.ParseResult.GetValueForOption(forceOption),
                 CreateBackup = !context.ParseResult.GetValueForOption(noBackupOption),
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
@@ -406,6 +421,16 @@ Examples:
         services.AddSingleton<ILockService, LockService>();
         services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<ILocalPackageFilesCleaner, LocalPackageFilesCleaner>();
+        services.AddSingleton<ICentralPackageManagementGenerator, CentralPackageManagementGenerator>();
+        services.AddSingleton<IPostMigrationValidator, PostMigrationValidator>();
+        
+        // Edge case detectors
+        services.AddSingleton<ProjectTypeDetector>();
+        services.AddSingleton<BuildEventMigrator>();
+        services.AddSingleton<DeploymentDetector>();
+        services.AddSingleton<NativeDependencyHandler>();
+        services.AddSingleton<ServiceReferenceDetector>();
+        
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }
     

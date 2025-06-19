@@ -15,6 +15,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly ITransitiveDependencyDetector _transitiveDependencyDetector;
     private readonly INuGetPackageResolver _nugetResolver;
     private readonly INuSpecExtractor _nuspecExtractor;
+    private readonly ProjectTypeDetector _projectTypeDetector;
+    private readonly BuildEventMigrator _buildEventMigrator;
+    private readonly DeploymentDetector _deploymentDetector;
+    private readonly NativeDependencyHandler _nativeDependencyHandler;
+    private readonly ServiceReferenceDetector _serviceReferenceDetector;
     private readonly MigrationOptions _options;
 
     public SdkStyleProjectGenerator(
@@ -23,6 +28,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         ITransitiveDependencyDetector transitiveDependencyDetector,
         INuGetPackageResolver nugetResolver,
         INuSpecExtractor nuspecExtractor,
+        ProjectTypeDetector projectTypeDetector,
+        BuildEventMigrator buildEventMigrator,
+        DeploymentDetector deploymentDetector,
+        NativeDependencyHandler nativeDependencyHandler,
+        ServiceReferenceDetector serviceReferenceDetector,
         MigrationOptions options)
     {
         _logger = logger;
@@ -30,6 +40,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _transitiveDependencyDetector = transitiveDependencyDetector;
         _nugetResolver = nugetResolver;
         _nuspecExtractor = nuspecExtractor;
+        _projectTypeDetector = projectTypeDetector;
+        _buildEventMigrator = buildEventMigrator;
+        _deploymentDetector = deploymentDetector;
+        _nativeDependencyHandler = nativeDependencyHandler;
+        _serviceReferenceDetector = serviceReferenceDetector;
         _options = options;
     }
 
@@ -48,6 +63,33 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             _logger.LogInformation("Starting migration for {ProjectPath}", legacyProject.FullPath);
 
+            // 1. Detect project type first
+            var projectTypeInfo = _projectTypeDetector.DetectProjectType(legacyProject);
+            result.DetectedProjectType = projectTypeInfo;
+            
+            if (!projectTypeInfo.CanMigrate)
+            {
+                result.Success = false;
+                result.HasCriticalBlockers = true;
+                result.Errors.Add(projectTypeInfo.MigrationBlocker!);
+                _logger.LogError("Project cannot be migrated: {Reason}", projectTypeInfo.MigrationBlocker);
+                return result;
+            }
+
+            // 2. Check deployment method
+            var deploymentInfo = _deploymentDetector.DetectDeploymentMethod(legacyProject);
+            result.DeploymentInfo = deploymentInfo;
+            _deploymentDetector.AddDeploymentWarnings(deploymentInfo, result);
+
+            // 3. Detect service references
+            var serviceRefInfo = _serviceReferenceDetector.DetectServiceReferences(legacyProject);
+            result.ServiceReferences = serviceRefInfo;
+            _serviceReferenceDetector.AddServiceReferenceWarnings(serviceRefInfo, result);
+
+            // 4. Detect native dependencies
+            var nativeDeps = _nativeDependencyHandler.DetectNativeDependencies(legacyProject);
+            result.NativeDependencies = nativeDeps;
+
             // Check if the output file already exists and has SDK attribute (idempotent check)
             if (File.Exists(outputPath) && outputPath == legacyProject.FullPath)
             {
@@ -64,12 +106,26 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var sdkProject = new XDocument();
             var projectElement = new XElement("Project");
             
-            var sdk = DetermineSdk(legacyProject);
+            // Use detected SDK or fall back to heuristics
+            var sdk = projectTypeInfo.SuggestedSdk ?? DetermineSdk(legacyProject);
             projectElement.Add(new XAttribute("Sdk", sdk));
             
             sdkProject.Add(projectElement);
 
             var propertyGroup = MigrateProperties(legacyProject, result);
+            
+            // Add required properties from project type detection
+            if (projectTypeInfo.RequiredProperties.Any())
+            {
+                foreach (var prop in projectTypeInfo.RequiredProperties)
+                {
+                    if (!string.IsNullOrEmpty(prop.Value))
+                    {
+                        propertyGroup.Add(new XElement(prop.Key, prop.Value));
+                        _logger.LogInformation("Added required property {Property} = {Value}", prop.Key, prop.Value);
+                    }
+                }
+            }
             
             // Extract and migrate NuSpec metadata if present
             var nuspecPath = await _nuspecExtractor.FindNuSpecFileAsync(legacyProject.FullPath, cancellationToken);
@@ -92,14 +148,37 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             packages = await _transitiveDependencyDetector.DetectTransitiveDependenciesAsync(packages, cancellationToken);
             
             var packagesToInclude = packages.Where(p => !p.IsTransitive).ToList();
+            
+            // Add required package references from project type detection
+            if (projectTypeInfo.RequiredPackageReferences.Any())
+            {
+                foreach (var requiredPackage in projectTypeInfo.RequiredPackageReferences)
+                {
+                    if (!packagesToInclude.Any(p => p.PackageId.Equals(requiredPackage, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        packagesToInclude.Add(new PackageReference
+                        {
+                            PackageId = requiredPackage,
+                            Version = "latest" // Will be resolved by package manager
+                        });
+                        _logger.LogInformation("Added required package reference: {Package}", requiredPackage);
+                    }
+                }
+            }
+            
             if (packagesToInclude.Any())
             {
                 var packageGroup = new XElement("ItemGroup");
                 foreach (var package in packagesToInclude)
                 {
                     var packageElement = new XElement("PackageReference",
-                        new XAttribute("Include", package.PackageId),
-                        new XAttribute("Version", package.Version));
+                        new XAttribute("Include", package.PackageId));
+                    
+                    // Only add Version if not using Central Package Management
+                    if (!_options.EnableCentralPackageManagement)
+                    {
+                        packageElement.Add(new XAttribute("Version", package.Version));
+                    }
                     
                     foreach (var metadata in package.Metadata)
                     {
@@ -153,6 +232,15 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement.Add(otherItems);
             }
             
+            // Migrate native dependencies
+            if (nativeDeps.Any())
+            {
+                _nativeDependencyHandler.MigrateNativeDependencies(nativeDeps, projectElement, result);
+            }
+            
+            // Migrate build events before custom targets
+            _buildEventMigrator.MigrateBuildEvents(legacyProject, projectElement, result);
+            
             MigrateCustomTargetsAndImports(legacyProject, projectElement, result);
 
             if (!_options.DryRun)
@@ -173,6 +261,15 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 _logger.LogInformation("[DRY RUN] Would migrate project to {OutputPath}", outputPath);
                 _logger.LogDebug("[DRY RUN] Generated project content:\n{Content}", sdkProject.ToString());
+            }
+            
+            // Add special handling notes from project type detection
+            if (projectTypeInfo.RequiresSpecialHandling && projectTypeInfo.SpecialHandlingNotes.Any())
+            {
+                foreach (var note in projectTypeInfo.SpecialHandlingNotes)
+                {
+                    result.Warnings.Add($"[Project Type] {note}");
+                }
             }
             
             result.Success = true;
@@ -230,16 +327,34 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var propertyGroup = new XElement("PropertyGroup");
 
-        var targetFramework = GetTargetFramework(legacyProject);
-        if (!string.IsNullOrEmpty(targetFramework))
+        // Handle single or multi-targeting
+        if (_options.TargetFrameworks != null && _options.TargetFrameworks.Length > 0)
         {
-            propertyGroup.Add(new XElement("TargetFramework", targetFramework));
+            // Multi-targeting requested
+            propertyGroup.Add(new XElement("TargetFrameworks", string.Join(";", _options.TargetFrameworks)));
+            _logger.LogInformation("Using multi-targeting: {Frameworks}", string.Join(";", _options.TargetFrameworks));
+            
+            // Add warning if this is a library project
+            var outputType = legacyProject.GetPropertyValue("OutputType");
+            if (string.IsNullOrEmpty(outputType) || outputType.Equals("Library", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Warnings.Add("Multi-targeting enabled. Review conditional compilation and ensure all target frameworks are properly supported.");
+            }
+        }
+        else
+        {
+            // Single target framework
+            var targetFramework = GetTargetFramework(legacyProject);
+            if (!string.IsNullOrEmpty(targetFramework))
+            {
+                propertyGroup.Add(new XElement("TargetFramework", targetFramework));
+            }
         }
 
-        var outputType = legacyProject.GetPropertyValue("OutputType");
-        if (!string.IsNullOrEmpty(outputType))
+        var projectOutputType = legacyProject.GetPropertyValue("OutputType");
+        if (!string.IsNullOrEmpty(projectOutputType))
         {
-            propertyGroup.Add(new XElement("OutputType", outputType));
+            propertyGroup.Add(new XElement("OutputType", projectOutputType));
         }
 
         var rootNamespace = legacyProject.GetPropertyValue("RootNamespace");
@@ -299,6 +414,36 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         return propertyGroup;
+    }
+
+    private bool IsContentForPackaging(string path)
+    {
+        // Common file types that are often included in packages
+        var packagingExtensions = new[] { ".txt", ".md", ".json", ".xml", ".config", ".props", ".targets", ".ps1", ".psm1" };
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        
+        // Check common packaging locations
+        var directoryName = Path.GetDirectoryName(path)?.ToLowerInvariant() ?? "";
+        var packagingDirectories = new[] { "content", "contentfiles", "build", "buildMultitargeting", "tools", "lib" };
+        
+        return packagingExtensions.Contains(extension) || 
+               packagingDirectories.Any(d => directoryName.Contains(d));
+    }
+    
+    private string GetPackagePath(string itemPath)
+    {
+        // Try to infer package path from item path
+        var directoryName = Path.GetDirectoryName(itemPath)?.ToLowerInvariant() ?? "";
+        
+        if (directoryName.Contains("content"))
+            return "content";
+        if (directoryName.Contains("tools"))
+            return "tools";
+        if (directoryName.Contains("build"))
+            return "build";
+            
+        // Default to content
+        return "content";
     }
 
     private string GetTargetFramework(Project project)
@@ -466,6 +611,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private XElement MigrateContentItems(Project legacyProject)
     {
         var itemGroup = new XElement("ItemGroup");
+        var sdk = DetermineSdk(legacyProject);
+        var isPackable = !string.IsNullOrEmpty(legacyProject.GetPropertyValue("GeneratePackageOnBuild")) ||
+                        !string.IsNullOrEmpty(legacyProject.GetPropertyValue("IsPackable"));
         
         var contentItems = legacyProject.Items
             .Where(i => i.ItemType == "Content")
@@ -494,17 +642,68 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         foreach (var item in contentItems)
         {
             var copyToOutput = item.GetMetadataValue("CopyToOutputDirectory");
+            var packValue = item.GetMetadataValue("Pack");
+            var packagePath = item.GetMetadataValue("PackagePath");
             
-            if (!string.IsNullOrEmpty(copyToOutput) && copyToOutput != "Never")
+            // For web projects, Content is implicit
+            if (sdk == "Microsoft.NET.Sdk.Web")
             {
-                var element = new XElement("None",
-                    new XAttribute("Include", item.EvaluatedInclude));
-                
-                element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
-                CopyMetadata(item, element, "CopyToOutputDirectory");
-                
-                itemGroup.Add(element);
-                _logger.LogDebug("Migrated Content item as None: {Include}", item.EvaluatedInclude);
+                // Only need to explicitly include if it has special metadata
+                if (!string.IsNullOrEmpty(copyToOutput) || !string.IsNullOrEmpty(packValue) || !string.IsNullOrEmpty(packagePath))
+                {
+                    var element = new XElement("Content",
+                        new XAttribute("Include", item.EvaluatedInclude));
+                    
+                    if (!string.IsNullOrEmpty(copyToOutput))
+                        element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
+                    if (!string.IsNullOrEmpty(packValue))
+                        element.Add(new XElement("Pack", packValue));
+                    if (!string.IsNullOrEmpty(packagePath))
+                        element.Add(new XElement("PackagePath", packagePath));
+                    
+                    CopyMetadata(item, element, "CopyToOutputDirectory", "Pack", "PackagePath");
+                    itemGroup.Add(element);
+                }
+            }
+            else
+            {
+                // For non-web SDKs, Content items need to be explicitly handled
+                if (!string.IsNullOrEmpty(copyToOutput) && copyToOutput != "Never")
+                {
+                    var element = new XElement("None",
+                        new XAttribute("Include", item.EvaluatedInclude));
+                    
+                    element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
+                    CopyMetadata(item, element, "CopyToOutputDirectory");
+                    
+                    itemGroup.Add(element);
+                    _logger.LogDebug("Migrated Content item as None with CopyToOutput: {Include}", item.EvaluatedInclude);
+                }
+                else if (isPackable && IsContentForPackaging(item.EvaluatedInclude))
+                {
+                    // This content item might be for packaging
+                    var element = new XElement("None",
+                        new XAttribute("Include", item.EvaluatedInclude));
+                    
+                    element.Add(new XElement("Pack", "true"));
+                    if (!string.IsNullOrEmpty(packagePath))
+                    {
+                        element.Add(new XElement("PackagePath", packagePath));
+                    }
+                    else
+                    {
+                        // Infer package path from item path
+                        var inferredPath = GetPackagePath(item.EvaluatedInclude);
+                        if (!string.IsNullOrEmpty(inferredPath))
+                        {
+                            element.Add(new XElement("PackagePath", inferredPath));
+                        }
+                    }
+                    
+                    CopyMetadata(item, element, "Pack", "PackagePath");
+                    itemGroup.Add(element);
+                    _logger.LogDebug("Migrated Content item as None for packaging: {Include}", item.EvaluatedInclude);
+                }
             }
         }
         
@@ -787,15 +986,32 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             result.RemovedElements.Add($"Import: {importPath}");
             _logger.LogDebug("Removed import: {Import}", importPath);
             
-            // Add a warning if this looks like a custom project import
+            // Capture the import details
+            var removedImport = new RemovedMSBuildElement
+            {
+                ElementType = "Import",
+                Name = importPath,
+                XmlContent = $"<Import Project=\"{import.Project}\"" + (string.IsNullOrEmpty(import.Condition) ? "" : $" Condition=\"{import.Condition}\"") + " />",
+                Condition = import.Condition,
+                Reason = "SDK-style projects use implicit imports"
+            };
+            
+            // Add a warning and suggestion if this looks like a custom project import
             if (!string.IsNullOrEmpty(importPath) && 
                 !importPath.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) &&
                 !importPath.Contains("MSBuild", StringComparison.OrdinalIgnoreCase) &&
                 !importPath.Contains("VisualStudio", StringComparison.OrdinalIgnoreCase) &&
                 (importPath.StartsWith(".") || !importPath.Contains("$(")))
             {
-                result.Warnings.Add($"Removed import '{importPath}' - if this is a custom project import, you may need to add it back manually");
+                removedImport.SuggestedMigrationPath = "Move custom imports to Directory.Build.props or Directory.Build.targets";
+                result.Warnings.Add($"Removed custom import '{importPath}' - move to Directory.Build.props/targets if needed");
             }
+            else
+            {
+                removedImport.SuggestedMigrationPath = "No migration needed - handled by SDK";
+            }
+            
+            result.RemovedMSBuildElements.Add(removedImport);
         }
         
         foreach (var target in legacyProject.Xml.Targets)
@@ -811,7 +1027,39 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             if (commonTargets.Contains(target.Name, StringComparer.OrdinalIgnoreCase))
             {
                 result.RemovedElements.Add($"Target: {target.Name}");
-                result.Warnings.Add($"Removed '{target.Name}' target - use SDK extensibility points instead (e.g., BeforeTargets/AfterTargets attributes)");
+                
+                // Capture the target content
+                var removedTarget = new RemovedMSBuildElement
+                {
+                    ElementType = "Target",
+                    Name = target.Name,
+                    XmlContent = GetTargetXmlString(target),
+                    Condition = target.Condition,
+                    Reason = "Common build target handled by SDK"
+                };
+                
+                // Provide specific migration guidance based on target name
+                switch (target.Name.ToLower())
+                {
+                    case "beforebuild":
+                    case "afterbuild":
+                        removedTarget.SuggestedMigrationPath = "Move to Directory.Build.targets with BeforeTargets='Build' or AfterTargets='Build'";
+                        break;
+                    case "beforecompile":
+                    case "aftercompile":
+                        removedTarget.SuggestedMigrationPath = "Move to Directory.Build.targets with BeforeTargets='CoreCompile' or AfterTargets='CoreCompile'";
+                        break;
+                    case "beforepublish":
+                    case "afterpublish":
+                        removedTarget.SuggestedMigrationPath = "Move to Directory.Build.targets with BeforeTargets='Publish' or AfterTargets='Publish'";
+                        break;
+                    default:
+                        removedTarget.SuggestedMigrationPath = "Use SDK extensibility points (BeforeTargets/AfterTargets attributes)";
+                        break;
+                }
+                
+                result.RemovedMSBuildElements.Add(removedTarget);
+                result.Warnings.Add($"Removed '{target.Name}' target - {removedTarget.SuggestedMigrationPath}");
                 _logger.LogDebug("Removed MSBuild target: {Target}", target.Name);
                 continue;
             }
@@ -1139,6 +1387,22 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             propertyGroup.Add(new XElement(name, value));
             _logger.LogDebug("Added property {Name} with value '{Value}'", name, value);
         }
+    }
+    
+    private string GetTargetXmlString(Microsoft.Build.Construction.ProjectTargetElement target)
+    {
+        var attributes = new List<string> { $"Name=\"{target.Name}\"" };
+        
+        if (!string.IsNullOrEmpty(target.BeforeTargets))
+            attributes.Add($"BeforeTargets=\"{target.BeforeTargets}\"");
+        if (!string.IsNullOrEmpty(target.AfterTargets))
+            attributes.Add($"AfterTargets=\"{target.AfterTargets}\"");
+        if (!string.IsNullOrEmpty(target.DependsOnTargets))
+            attributes.Add($"DependsOnTargets=\"{target.DependsOnTargets}\"");
+        if (!string.IsNullOrEmpty(target.Condition))
+            attributes.Add($"Condition=\"{target.Condition}\"");
+            
+        return $"<Target {string.Join(" ", attributes)}>...</Target>";
     }
     
 }

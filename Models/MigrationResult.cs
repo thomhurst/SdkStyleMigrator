@@ -1,3 +1,5 @@
+using SdkMigrator.Services;
+
 namespace SdkMigrator.Models;
 
 public class MigrationResult
@@ -11,4 +13,12 @@ public class MigrationResult
     public List<PackageReference> MigratedPackages { get; set; } = new();
     public bool LoadedWithDefensiveParsing { get; set; }
     public List<string> ConvertedHintPaths { get; set; } = new();
+    public List<RemovedMSBuildElement> RemovedMSBuildElements { get; set; } = new();
+    
+    // Edge case tracking
+    public ProjectTypeInfo? DetectedProjectType { get; set; }
+    public DeploymentInfo? DeploymentInfo { get; set; }
+    public List<NativeDependency> NativeDependencies { get; set; } = new();
+    public ServiceReferenceInfo? ServiceReferences { get; set; }
+    public bool HasCriticalBlockers { get; set; }
 }

@@ -19,6 +19,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly ILockService _lockService;
     private readonly IAuditService _auditService;
     private readonly ILocalPackageFilesCleaner _localPackageFilesCleaner;
+    private readonly ICentralPackageManagementGenerator _centralPackageManagementGenerator;
+    private readonly IPostMigrationValidator _postMigrationValidator;
     private readonly MigrationOptions _options;
 
     public MigrationOrchestrator(
@@ -33,6 +35,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         ILockService lockService,
         IAuditService auditService,
         ILocalPackageFilesCleaner localPackageFilesCleaner,
+        ICentralPackageManagementGenerator centralPackageManagementGenerator,
+        IPostMigrationValidator postMigrationValidator,
         MigrationOptions options)
     {
         _logger = logger;
@@ -46,6 +50,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _lockService = lockService;
         _auditService = auditService;
         _localPackageFilesCleaner = localPackageFilesCleaner;
+        _centralPackageManagementGenerator = centralPackageManagementGenerator;
+        _postMigrationValidator = postMigrationValidator;
         _options = options;
     }
 
@@ -157,6 +163,53 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     outputDir, projectAssemblyProperties.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), cancellationToken);
             }
             
+            // Generate Central Package Management configuration if enabled
+            if (_options.EnableCentralPackageManagement && report.Results.Any(r => r.Success))
+            {
+                _logger.LogInformation("Generating Central Package Management configuration...");
+                
+                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory) 
+                    ? _options.OutputDirectory 
+                    : directoryPath;
+                    
+                var cpmResult = await _centralPackageManagementGenerator.GenerateDirectoryPackagesPropsAsync(
+                    outputDir, 
+                    report.Results.Where(r => r.Success), 
+                    cancellationToken);
+                    
+                if (cpmResult.Success)
+                {
+                    _logger.LogInformation("Created Directory.Packages.props with {Count} packages", cpmResult.PackageCount);
+                    
+                    if (cpmResult.VersionConflicts.Any())
+                    {
+                        _logger.LogWarning("Resolved {Count} package version conflicts", cpmResult.VersionConflicts.Count);
+                    }
+                    
+                    // Remove versions from project files
+                    if (!_options.DryRun)
+                    {
+                        var migratedProjectFiles = report.Results
+                            .Where(r => r.Success)
+                            .Select(r => r.OutputPath)
+                            .Where(p => !string.IsNullOrEmpty(p))
+                            .Cast<string>()
+                            .ToList();
+                            
+                        await _centralPackageManagementGenerator.RemoveVersionsFromProjectsAsync(
+                            migratedProjectFiles, 
+                            cancellationToken);
+                    }
+                }
+                else
+                {
+                    foreach (var error in cpmResult.Errors)
+                    {
+                        _logger.LogError("Central Package Management error: {Error}", error);
+                    }
+                }
+            }
+            
             // Clean up local package files after all projects are migrated (to avoid file lock issues)
             if (!_options.DryRun && projectCleanupInfo.Any())
             {
@@ -245,6 +298,45 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     _logger.LogInformation("Updated {Count} project references in solution files", 
                         solutionResult.UpdatedProjects.Count);
+                }
+            }
+            
+            // Run post-migration validation
+            if (report.Results.Any(r => r.Success) && !_options.DryRun)
+            {
+                _logger.LogInformation("Running post-migration validation...");
+                
+                var validationReport = await _postMigrationValidator.ValidateSolutionAsync(
+                    directoryPath,
+                    report.Results,
+                    cancellationToken);
+                    
+                if (validationReport.ProjectsWithIssues > 0)
+                {
+                    _logger.LogWarning("Post-migration validation found issues in {Count} projects", 
+                        validationReport.ProjectsWithIssues);
+                        
+                    // Add validation issues to the migration report warnings
+                    foreach (var projectResult in validationReport.ProjectResults.Where(r => r.Issues.Any()))
+                    {
+                        var migrationResult = report.Results.FirstOrDefault(r => 
+                            r.OutputPath == projectResult.ProjectPath || 
+                            r.ProjectPath == projectResult.ProjectPath);
+                            
+                        if (migrationResult != null)
+                        {
+                            foreach (var issue in projectResult.Issues.Where(i => 
+                                i.Severity == ValidationSeverity.Warning || 
+                                i.Severity == ValidationSeverity.Error))
+                            {
+                                migrationResult.Warnings.Add($"[Validation] {issue.Message}");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Post-migration validation completed successfully for all projects");
                 }
             }
         }
@@ -661,6 +753,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         writer.WriteLine($"  Failed: {report.TotalProjectsFailed}");
         writer.WriteLine();
         
+        // Add configuration migration guidance section
+        var configLogger = new Microsoft.Extensions.Logging.LoggerFactory()
+            .CreateLogger<ConfigurationMigrationAnalyzer>();
+        var configAnalyzer = new ConfigurationMigrationAnalyzer(configLogger);
+        var projectsWithConfig = new List<ConfigurationMigrationGuidance>();
+        
         foreach (var result in report.Results)
         {
             writer.WriteLine($"Project: {result.ProjectPath}");
@@ -703,6 +801,53 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
             
             writer.WriteLine();
+        }
+        
+        // Write configuration migration guidance if any
+        foreach (var result in report.Results.Where(r => r.Success))
+        {
+            var targetFramework = _options.TargetFramework ?? "net8.0";
+            var configGuidance = configAnalyzer.AnalyzeConfiguration(result.OutputPath ?? result.ProjectPath, targetFramework);
+            
+            if (configGuidance.Issues.Any())
+            {
+                projectsWithConfig.Add(configGuidance);
+            }
+        }
+        
+        if (projectsWithConfig.Any())
+        {
+            writer.WriteLine();
+            writer.WriteLine("Configuration Migration Guidance:");
+            writer.WriteLine("================================");
+            
+            foreach (var guidance in projectsWithConfig)
+            {
+                writer.WriteLine();
+                writer.WriteLine($"Project: {guidance.ProjectPath}");
+                writer.WriteLine($"Config Type: {guidance.ConfigType}");
+                
+                foreach (var issue in guidance.Issues)
+                {
+                    writer.WriteLine();
+                    writer.WriteLine($"  Issue: {issue.Issue}");
+                    writer.WriteLine($"  Section: {issue.Section}");
+                    writer.WriteLine("  Migration Steps:");
+                    foreach (var step in issue.MigrationSteps)
+                    {
+                        writer.WriteLine($"    - {step}");
+                    }
+                    
+                    if (!string.IsNullOrEmpty(issue.CodeExample))
+                    {
+                        writer.WriteLine("  Example:");
+                        foreach (var line in issue.CodeExample.Split('\n'))
+                        {
+                            writer.WriteLine($"    {line}");
+                        }
+                    }
+                }
+            }
         }
     }
 }
