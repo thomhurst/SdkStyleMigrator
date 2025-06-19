@@ -239,6 +239,34 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                packageId.EndsWith(".Analyzers", StringComparison.OrdinalIgnoreCase);
     }
     
+    private void CollectTransitiveProjectDependencies(ProjectInfo project, Dictionary<string, ProjectInfo> projectGraph, HashSet<string> visited)
+    {
+        if (!visited.Add(project.FilePath))
+            return;
+            
+        foreach (var refPath in project.ProjectReferences)
+        {
+            if (projectGraph.TryGetValue(refPath, out var referencedProject))
+            {
+                project.AllProjectDependencies.Add(refPath);
+                
+                // Recursively collect transitive dependencies
+                CollectTransitiveProjectDependencies(referencedProject, projectGraph, visited);
+                
+                // Add transitive dependencies
+                project.AllProjectDependencies.UnionWith(referencedProject.AllProjectDependencies);
+            }
+        }
+    }
+    
+    private class ProjectInfo
+    {
+        public string FilePath { get; set; } = string.Empty;
+        public HashSet<string> DirectPackageReferences { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ProjectReferences { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> AllProjectDependencies { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+    
     private class VersionComparer : IComparer<string>
     {
         public int Compare(string? x, string? y)
@@ -316,22 +344,36 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             
             _logger.LogInformation("Found {Count} project files to analyze", projectFiles.Count);
             
-            // Collect all referenced packages from all projects
+            // Build project dependency graph and collect all referenced packages
+            var projectGraph = new Dictionary<string, ProjectInfo>(StringComparer.OrdinalIgnoreCase);
             var referencedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             
+            // First pass: Load all projects and their direct dependencies
             foreach (var projectFile in projectFiles)
             {
                 try
                 {
                     var projectDoc = XDocument.Load(projectFile);
+                    var projectInfo = new ProjectInfo { FilePath = projectFile };
+                    
+                    // Get package references
                     var packageRefs = projectDoc.Descendants("PackageReference")
                         .Select(pr => pr.Attribute("Include")?.Value)
-                        .Where(id => !string.IsNullOrEmpty(id));
+                        .Where(id => !string.IsNullOrEmpty(id))
+                        .ToList();
                     
-                    foreach (var packageId in packageRefs)
-                    {
-                        referencedPackages.Add(packageId!);
-                    }
+                    projectInfo.DirectPackageReferences.UnionWith(packageRefs!);
+                    
+                    // Get project references
+                    var projectRefs = projectDoc.Descendants("ProjectReference")
+                        .Select(pr => pr.Attribute("Include")?.Value)
+                        .Where(path => !string.IsNullOrEmpty(path))
+                        .Select(path => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFile)!, path!)))
+                        .Where(fullPath => File.Exists(fullPath))
+                        .ToList();
+                    
+                    projectInfo.ProjectReferences.UnionWith(projectRefs);
+                    projectGraph[projectFile] = projectInfo;
                 }
                 catch (Exception ex)
                 {
@@ -339,18 +381,102 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 }
             }
             
-            _logger.LogInformation("Found {Count} unique package references across all projects", referencedPackages.Count);
+            // Second pass: Resolve transitive project dependencies
+            foreach (var project in projectGraph.Values)
+            {
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                CollectTransitiveProjectDependencies(project, projectGraph, visited);
+            }
+            
+            // Third pass: Collect all packages (direct and from project references)
+            foreach (var project in projectGraph.Values)
+            {
+                // Add direct package references
+                referencedPackages.UnionWith(project.DirectPackageReferences);
+                
+                // Add packages from all project dependencies
+                foreach (var depPath in project.AllProjectDependencies)
+                {
+                    if (projectGraph.TryGetValue(depPath, out var depProject))
+                    {
+                        referencedPackages.UnionWith(depProject.DirectPackageReferences);
+                    }
+                }
+            }
+            
+            _logger.LogInformation("Found {Count} unique package references across all projects (including project reference dependencies)", referencedPackages.Count);
+            
+            // Log detailed analysis if in debug mode
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                foreach (var project in projectGraph.Values)
+                {
+                    _logger.LogDebug("Project {Project}:", Path.GetFileName(project.FilePath));
+                    _logger.LogDebug("  Direct packages: {Packages}", string.Join(", ", project.DirectPackageReferences));
+                    _logger.LogDebug("  Project refs: {Count}", project.ProjectReferences.Count);
+                    _logger.LogDebug("  All dependencies: {Count}", project.AllProjectDependencies.Count);
+                }
+            }
             
             // Find unused packages
             var unusedPackageElements = new List<XElement>();
+            var keptPackages = new Dictionary<string, List<string>>(); // package -> list of projects using it
+            
             foreach (var packageElement in packageVersionElements)
             {
                 var packageId = packageElement.Attribute("Include")?.Value;
-                if (!string.IsNullOrEmpty(packageId) && !referencedPackages.Contains(packageId))
+                if (string.IsNullOrEmpty(packageId))
+                    continue;
+                    
+                if (!referencedPackages.Contains(packageId))
                 {
                     unusedPackageElements.Add(packageElement);
                     result.RemovedPackages.Add(packageId);
                     _logger.LogInformation("Found unused package: {PackageId}", packageId);
+                }
+                else
+                {
+                    // Track which projects use this package for logging
+                    var usedBy = new List<string>();
+                    foreach (var project in projectGraph.Values)
+                    {
+                        if (project.DirectPackageReferences.Contains(packageId))
+                        {
+                            usedBy.Add(Path.GetFileName(project.FilePath));
+                        }
+                        else
+                        {
+                            // Check if used by a project dependency
+                            foreach (var depPath in project.AllProjectDependencies)
+                            {
+                                if (projectGraph.TryGetValue(depPath, out var depProject) && 
+                                    depProject.DirectPackageReferences.Contains(packageId))
+                                {
+                                    usedBy.Add($"{Path.GetFileName(project.FilePath)} -> {Path.GetFileName(depPath)}");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (usedBy.Any())
+                    {
+                        keptPackages[packageId] = usedBy;
+                    }
+                }
+            }
+            
+            // Log kept packages if in debug mode
+            if (_logger.IsEnabled(LogLevel.Debug) && keptPackages.Any())
+            {
+                _logger.LogDebug("Packages kept in Directory.Packages.props:");
+                foreach (var (packageId, usedBy) in keptPackages.OrderBy(kvp => kvp.Key))
+                {
+                    _logger.LogDebug("  {Package}: used by {Projects}", packageId, string.Join(", ", usedBy.Take(3)));
+                    if (usedBy.Count > 3)
+                    {
+                        _logger.LogDebug("    ...and {Count} more projects", usedBy.Count - 3);
+                    }
                 }
             }
             

@@ -900,12 +900,56 @@ Examples:
                 IsTransitive = false
             }).ToList();
             
+            // Get project references to check their package dependencies
+            var projectRefs = root.Descendants("ProjectReference")
+                .Select(pr => pr.Attribute("Include")?.Value)
+                .Where(path => !string.IsNullOrEmpty(path))
+                .Select(path => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectPath)!, path!)))
+                .Where(fullPath => File.Exists(fullPath))
+                .ToList();
+            
+            // Collect packages that are directly referenced by project dependencies
+            var projectDepPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var projRef in projectRefs)
+            {
+                try
+                {
+                    var projDoc = XDocument.Load(projRef);
+                    var depPackages = projDoc.Descendants("PackageReference")
+                        .Select(pr => pr.Attribute("Include")?.Value)
+                        .Where(id => !string.IsNullOrEmpty(id));
+                    
+                    foreach (var pkg in depPackages)
+                    {
+                        projectDepPackages.Add(pkg!);
+                        logger.LogDebug("Package '{Package}' is used by project reference: {Project}", pkg, Path.GetFileName(projRef));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to analyze project reference: {Project}", projRef);
+                }
+            }
+            
             // Detect transitive dependencies
             var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, CancellationToken.None);
-            var transitiveDeps = analyzedPackages.Where(p => p.IsTransitive).ToList();
+            
+            // Filter out packages that are transitive but also directly used by project references
+            var transitiveDeps = analyzedPackages
+                .Where(p => p.IsTransitive)
+                .Where(p => !projectDepPackages.Contains(p.PackageId))
+                .ToList();
             
             if (!transitiveDeps.Any())
+            {
+                logger.LogInformation("  No removable transitive dependencies found");
+                if (analyzedPackages.Any(p => p.IsTransitive && projectDepPackages.Contains(p.PackageId)))
+                {
+                    var kept = analyzedPackages.Count(p => p.IsTransitive && projectDepPackages.Contains(p.PackageId));
+                    logger.LogInformation("  {Count} transitive dependencies kept because they're used by project references", kept);
+                }
                 return new CleanDepsResult { Success = true, RemovedCount = 0 };
+            }
             
             if (!options.DryRun && options.CreateBackup)
             {
