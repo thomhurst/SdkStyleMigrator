@@ -3,6 +3,9 @@
 ## [0.2.1] - 2025-01-19
 
 ### Fixed
+- **NuGet DLL References**: Skip None/Content items pointing to DLLs in NuGet cache
+  - Filters out any DLL references from packages or .nuget folders
+  - Prevents unnecessary file references to NuGet cache being added to projects
 - **AssemblyInfo Compile Items**: Now properly removes AssemblyInfo.cs compile items from the project file during migration
   - Previously only removed the physical files but left dangling references in the project
   - Now excludes these files during SDK-style project generation

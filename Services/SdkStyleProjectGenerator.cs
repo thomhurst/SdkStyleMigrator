@@ -414,7 +414,28 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var itemGroup = new XElement("ItemGroup");
         
         var contentItems = legacyProject.Items
-            .Where(i => i.ItemType == "Content");
+            .Where(i => i.ItemType == "Content")
+            .Where(i =>
+            {
+                var path = i.EvaluatedInclude;
+                var fileName = Path.GetFileName(path);
+                
+                // Skip DLL files from packages or NuGet cache
+                if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
+                    (path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) ||
+                     path.Contains("packages", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return false;
+                }
+                
+                // Skip items from NuGet packages or .nuget folders
+                return !path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("packages", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase);
+            });
 
         foreach (var item in contentItems)
         {
@@ -429,6 +450,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 CopyMetadata(item, element, "CopyToOutputDirectory");
                 
                 itemGroup.Add(element);
+                _logger.LogDebug("Migrated Content item as None: {Include}", item.EvaluatedInclude);
             }
         }
         
@@ -438,6 +460,27 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 var copyToOutput = i.GetMetadataValue("CopyToOutputDirectory");
                 return !string.IsNullOrEmpty(copyToOutput) && copyToOutput != "Never";
+            })
+            .Where(i =>
+            {
+                var path = i.EvaluatedInclude;
+                var fileName = Path.GetFileName(path);
+                
+                // Skip DLL files from packages or NuGet cache
+                if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
+                    (path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) ||
+                     path.Contains("packages", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return false;
+                }
+                
+                // Skip items from NuGet packages or .nuget folders
+                return !path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains("packages", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase) &&
+                       !path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase);
             });
 
         foreach (var item in noneItems)
@@ -450,6 +493,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             CopyMetadata(item, element, "CopyToOutputDirectory");
 
             itemGroup.Add(element);
+            _logger.LogDebug("Migrated None item: {Include}", item.EvaluatedInclude);
         }
 
         return itemGroup;
