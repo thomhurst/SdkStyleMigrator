@@ -18,6 +18,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IBackupService _backupService;
     private readonly ILockService _lockService;
     private readonly IAuditService _auditService;
+    private readonly ILocalPackageFilesCleaner _localPackageFilesCleaner;
     private readonly MigrationOptions _options;
 
     public MigrationOrchestrator(
@@ -31,6 +32,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         IBackupService backupService,
         ILockService lockService,
         IAuditService auditService,
+        ILocalPackageFilesCleaner localPackageFilesCleaner,
         MigrationOptions options)
     {
         _logger = logger;
@@ -43,6 +45,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _backupService = backupService;
         _lockService = lockService;
         _auditService = auditService;
+        _localPackageFilesCleaner = localPackageFilesCleaner;
         _options = options;
     }
 
@@ -149,6 +152,17 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
                     outputDir, projectAssemblyProperties.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), cancellationToken);
+            }
+            
+            // Clean packages folder if all projects have been migrated
+            if (report.TotalProjectsMigrated > 0 && report.TotalProjectsFailed == 0 && !_options.DryRun)
+            {
+                _logger.LogInformation("All projects migrated successfully. Checking if packages folder can be cleaned...");
+                var packagesCleanResult = await _localPackageFilesCleaner.CleanPackagesFolderAsync(directoryPath, cancellationToken);
+                if (packagesCleanResult)
+                {
+                    _logger.LogInformation("Successfully cleaned packages folder");
+                }
             }
             
             if (projectMappings.Any())
@@ -272,6 +286,34 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     AfterSize = fileInfo.Length,
                     ModificationType = "SDK-style migration"
                 }, cancellationToken);
+
+                // Clean up local package files that were replaced by PackageReference
+                if (result.ConvertedHintPaths.Any() || result.MigratedPackages.Any())
+                {
+                    _logger.LogInformation("{Progress} Cleaning local package files for {ProjectPath}", progress, projectFile);
+                    var cleanupResult = await _localPackageFilesCleaner.CleanLocalPackageFilesAsync(
+                        projectDir,
+                        result.MigratedPackages,
+                        result.ConvertedHintPaths,
+                        cancellationToken);
+                    
+                    if (cleanupResult.Success)
+                    {
+                        if (cleanupResult.CleanedFiles.Any())
+                        {
+                            _logger.LogInformation("{Progress} Cleaned {Count} local package files, freed {Size:N0} bytes", 
+                                progress, cleanupResult.CleanedFiles.Count, cleanupResult.TotalBytesFreed);
+                            result.RemovedElements.Add($"Cleaned {cleanupResult.CleanedFiles.Count} local package files ({cleanupResult.TotalBytesFreed:N0} bytes)");
+                        }
+                    }
+                    else
+                    {
+                        foreach (var error in cleanupResult.Errors)
+                        {
+                            result.Warnings.Add($"Package cleanup: {error}");
+                        }
+                    }
+                }
             }
             
             if (result.Success && outputPath != projectFile)

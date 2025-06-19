@@ -387,6 +387,7 @@ Examples:
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<ILockService, LockService>();
         services.AddSingleton<IAuditService, AuditService>();
+        services.AddSingleton<ILocalPackageFilesCleaner, LocalPackageFilesCleaner>();
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }
     

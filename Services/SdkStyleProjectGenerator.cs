@@ -573,6 +573,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var packageResolution = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyName, cancellationToken: cancellationToken);
             if (packageResolution != null)
             {
+                // Collect hint path if this reference has one
+                var hintPath = reference.GetMetadataValue("HintPath");
+                if (!string.IsNullOrEmpty(hintPath))
+                {
+                    result.ConvertedHintPaths.Add(hintPath);
+                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", hintPath);
+                }
                 // Add main package
                 if (!addedPackages.Contains(packageResolution.PackageId))
                 {

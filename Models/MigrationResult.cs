@@ -10,4 +10,5 @@ public class MigrationResult
     public List<string> RemovedElements { get; set; } = new();
     public List<PackageReference> MigratedPackages { get; set; } = new();
     public bool LoadedWithDefensiveParsing { get; set; }
+    public List<string> ConvertedHintPaths { get; set; } = new();
 }
