@@ -18,4 +18,19 @@ public interface ICentralPackageManagementGenerator
     Task<bool> RemoveVersionsFromProjectsAsync(
         IEnumerable<string> projectFiles,
         CancellationToken cancellationToken = default);
+        
+    /// <summary>
+    /// Removes unused packages from Directory.Packages.props
+    /// </summary>
+    Task<CleanCpmResult> CleanUnusedPackagesAsync(
+        string directoryPath,
+        bool dryRun,
+        CancellationToken cancellationToken = default);
+}
+
+public class CleanCpmResult
+{
+    public bool Success { get; set; }
+    public List<string> RemovedPackages { get; set; } = new();
+    public string? Error { get; set; }
 }

@@ -257,4 +257,141 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             return string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
         }
     }
+    
+    public async Task<CleanCpmResult> CleanUnusedPackagesAsync(
+        string directoryPath,
+        bool dryRun,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new CleanCpmResult { Success = true };
+        
+        try
+        {
+            // Find Directory.Packages.props
+            var packagesPropsPath = Path.Combine(directoryPath, "Directory.Packages.props");
+            if (!File.Exists(packagesPropsPath))
+            {
+                // Try parent directories up to 3 levels
+                var searchDir = directoryPath;
+                for (int i = 0; i < 3; i++)
+                {
+                    var parent = Directory.GetParent(searchDir);
+                    if (parent == null) break;
+                    
+                    searchDir = parent.FullName;
+                    packagesPropsPath = Path.Combine(searchDir, "Directory.Packages.props");
+                    if (File.Exists(packagesPropsPath))
+                    {
+                        _logger.LogInformation("Found Directory.Packages.props at: {Path}", packagesPropsPath);
+                        break;
+                    }
+                }
+                
+                if (!File.Exists(packagesPropsPath))
+                {
+                    result.Success = false;
+                    result.Error = "Directory.Packages.props not found";
+                    return result;
+                }
+            }
+            
+            // Load Directory.Packages.props
+            var packagesDoc = XDocument.Load(packagesPropsPath);
+            var packageVersionElements = packagesDoc.Descendants("PackageVersion").ToList();
+            
+            if (!packageVersionElements.Any())
+            {
+                _logger.LogInformation("No PackageVersion elements found in Directory.Packages.props");
+                return result;
+            }
+            
+            // Find all project files in the directory and subdirectories
+            var projectFiles = Directory.GetFiles(directoryPath, "*.csproj", SearchOption.AllDirectories)
+                .Concat(Directory.GetFiles(directoryPath, "*.vbproj", SearchOption.AllDirectories))
+                .Concat(Directory.GetFiles(directoryPath, "*.fsproj", SearchOption.AllDirectories))
+                .Where(f => !f.Contains(".obj", StringComparison.OrdinalIgnoreCase) && 
+                           !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) &&
+                           !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            
+            _logger.LogInformation("Found {Count} project files to analyze", projectFiles.Count);
+            
+            // Collect all referenced packages from all projects
+            var referencedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            
+            foreach (var projectFile in projectFiles)
+            {
+                try
+                {
+                    var projectDoc = XDocument.Load(projectFile);
+                    var packageRefs = projectDoc.Descendants("PackageReference")
+                        .Select(pr => pr.Attribute("Include")?.Value)
+                        .Where(id => !string.IsNullOrEmpty(id));
+                    
+                    foreach (var packageId in packageRefs)
+                    {
+                        referencedPackages.Add(packageId!);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to read project file: {ProjectFile}", projectFile);
+                }
+            }
+            
+            _logger.LogInformation("Found {Count} unique package references across all projects", referencedPackages.Count);
+            
+            // Find unused packages
+            var unusedPackageElements = new List<XElement>();
+            foreach (var packageElement in packageVersionElements)
+            {
+                var packageId = packageElement.Attribute("Include")?.Value;
+                if (!string.IsNullOrEmpty(packageId) && !referencedPackages.Contains(packageId))
+                {
+                    unusedPackageElements.Add(packageElement);
+                    result.RemovedPackages.Add(packageId);
+                    _logger.LogInformation("Found unused package: {PackageId}", packageId);
+                }
+            }
+            
+            if (unusedPackageElements.Any() && !dryRun)
+            {
+                // Create backup
+                if (_options.CreateBackup)
+                {
+                    var backupPath = packagesPropsPath + ".backup";
+                    File.Copy(packagesPropsPath, backupPath, overwrite: true);
+                    _logger.LogInformation("Created backup: {BackupPath}", backupPath);
+                }
+                
+                // Remove unused packages
+                foreach (var element in unusedPackageElements)
+                {
+                    element.Remove();
+                }
+                
+                // Clean up empty ItemGroups
+                var emptyItemGroups = packagesDoc.Descendants("ItemGroup")
+                    .Where(ig => !ig.HasElements && !ig.HasAttributes)
+                    .ToList();
+                foreach (var ig in emptyItemGroups)
+                {
+                    ig.Remove();
+                }
+                
+                // Save the cleaned file
+                packagesDoc.Save(packagesPropsPath);
+                _logger.LogInformation("Updated Directory.Packages.props - removed {Count} unused packages", unusedPackageElements.Count);
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning Directory.Packages.props");
+            result.Success = false;
+            result.Error = ex.Message;
+            return result;
+        }
+    }
 }

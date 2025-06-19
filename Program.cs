@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Xml.Linq;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -140,6 +141,86 @@ class Program
         
         rootCommand.AddCommand(analyzeCommand);
         
+        // Clean-deps command - Remove transitive dependencies
+        var cleanDepsCommand = new Command("clean-deps", "Remove transitive package dependencies from SDK-style projects");
+        var cleanDepsDirectoryArgument = new Argument<string>(
+            name: "directory",
+            description: "The directory to scan for project files");
+        var cleanDepsBackupOption = new Option<bool>(
+            aliases: new[] { "--backup", "-b" },
+            getDefaultValue: () => true,
+            description: "Create backup files before modifying");
+        var cleanDepsDryRunOption = new Option<bool>(
+            aliases: new[] { "--dry-run", "-d" },
+            description: "Preview changes without modifying files");
+        
+        cleanDepsCommand.AddArgument(cleanDepsDirectoryArgument);
+        cleanDepsCommand.AddOption(cleanDepsBackupOption);
+        cleanDepsCommand.AddOption(cleanDepsDryRunOption);
+        cleanDepsCommand.AddOption(logLevelOption);
+        cleanDepsCommand.AddOption(parallelOption);
+        cleanDepsCommand.AddOption(offlineOption);
+        cleanDepsCommand.AddOption(nugetConfigOption);
+        
+        cleanDepsCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var directory = context.ParseResult.GetValueForArgument(cleanDepsDirectoryArgument);
+            var backup = context.ParseResult.GetValueForOption(cleanDepsBackupOption);
+            var dryRun = context.ParseResult.GetValueForOption(cleanDepsDryRunOption);
+            var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
+            var parallel = context.ParseResult.GetValueForOption(parallelOption) ?? 1;
+            var offline = context.ParseResult.GetValueForOption(offlineOption);
+            var nugetConfig = context.ParseResult.GetValueForOption(nugetConfigOption);
+            
+            var options = new MigrationOptions
+            {
+                DirectoryPath = Path.GetFullPath(directory),
+                DryRun = dryRun,
+                CreateBackup = backup,
+                LogLevel = logLevel,
+                MaxDegreeOfParallelism = parallel == 0 ? Environment.ProcessorCount : parallel,
+                UseOfflineMode = offline,
+                NuGetConfigPath = nugetConfig
+            };
+            
+            var exitCode = await RunCleanDeps(options);
+            context.ExitCode = exitCode;
+        });
+        
+        rootCommand.AddCommand(cleanDepsCommand);
+        
+        // Clean-cpm command - Clean unused packages from Central Package Management
+        var cleanCpmCommand = new Command("clean-cpm", "Remove unused packages from Directory.Packages.props");
+        var cleanCpmDirectoryArgument = new Argument<string>(
+            name: "directory",
+            description: "The directory containing Directory.Packages.props");
+        var cleanCpmDryRunOption = new Option<bool>(
+            aliases: new[] { "--dry-run", "-d" },
+            description: "Preview changes without modifying files");
+        
+        cleanCpmCommand.AddArgument(cleanCpmDirectoryArgument);
+        cleanCpmCommand.AddOption(cleanCpmDryRunOption);
+        cleanCpmCommand.AddOption(logLevelOption);
+        
+        cleanCpmCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var directory = context.ParseResult.GetValueForArgument(cleanCpmDirectoryArgument);
+            var dryRun = context.ParseResult.GetValueForOption(cleanCpmDryRunOption);
+            var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
+            
+            var options = new MigrationOptions
+            {
+                DirectoryPath = Path.GetFullPath(directory),
+                DryRun = dryRun,
+                LogLevel = logLevel
+            };
+            
+            var exitCode = await RunCleanCpm(options);
+            context.ExitCode = exitCode;
+        });
+        
+        rootCommand.AddCommand(cleanCpmCommand);
+        
         rootCommand.SetHandler(async (InvocationContext context) =>
         {
             var options = new MigrationOptions
@@ -211,6 +292,8 @@ Commands:
   migrate (default)  Migrate legacy projects to SDK-style format
   analyze           Analyze projects for migration readiness
   rollback          Rollback a previous migration using backup session
+  clean-deps        Remove transitive package dependencies from SDK-style projects
+  clean-cpm         Remove unused packages from Directory.Packages.props
 
 Examples:
   SdkMigrator ./src
@@ -220,7 +303,9 @@ Examples:
   SdkMigrator ./src --nuget-config ./custom-nuget.config
   SdkMigrator analyze ./src
   SdkMigrator rollback ./src
-  SdkMigrator rollback ./src --session-id 20250119_120000";
+  SdkMigrator rollback ./src --session-id 20250119_120000
+  SdkMigrator clean-deps ./src --dry-run
+  SdkMigrator clean-cpm ./src";
         
         return await rootCommand.InvokeAsync(args);
     }
@@ -631,6 +716,249 @@ Examples:
         services.AddSingleton<NuGetAssetsResolver>();
         
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
+    }
+    
+    static async Task<int> RunCleanDeps(MigrationOptions options)
+    {
+        var services = new ServiceCollection();
+        ConfigureServices(services, options);
+        
+        using var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var transitiveDepsService = serviceProvider.GetRequiredService<ITransitiveDependencyDetector>();
+        var projectScanner = serviceProvider.GetRequiredService<IProjectFileScanner>();
+        var backupService = serviceProvider.GetRequiredService<IBackupService>();
+        
+        try
+        {
+            if (options.DryRun)
+            {
+                logger.LogWarning("DRY RUN MODE - No files will be modified");
+            }
+            
+            logger.LogInformation("Starting transitive dependency cleanup for directory: {Directory}", options.DirectoryPath);
+            
+            var projectFiles = await projectScanner.ScanForProjectFilesAsync(options.DirectoryPath, CancellationToken.None);
+            var sdkStyleProjects = projectFiles.Where(p => IsSdkStyleProject(p)).ToList();
+            
+            if (!sdkStyleProjects.Any())
+            {
+                logger.LogWarning("No SDK-style projects found in {Directory}", options.DirectoryPath);
+                return 0;
+            }
+            
+            logger.LogInformation("Found {Count} SDK-style projects to process", sdkStyleProjects.Count);
+            
+            var totalRemoved = 0;
+            var failedProjects = 0;
+            
+            foreach (var projectPath in sdkStyleProjects)
+            {
+                try
+                {
+                    logger.LogInformation("Processing: {Project}", Path.GetFileName(projectPath));
+                    
+                    var result = await CleanProjectDependenciesAsync(
+                        projectPath, 
+                        transitiveDepsService, 
+                        backupService,
+                        options,
+                        logger);
+                        
+                    if (result.Success)
+                    {
+                        totalRemoved += result.RemovedCount;
+                        if (result.RemovedCount > 0)
+                        {
+                            logger.LogInformation("  Removed {Count} transitive dependencies", result.RemovedCount);
+                        }
+                        else
+                        {
+                            logger.LogInformation("  No transitive dependencies found");
+                        }
+                    }
+                    else
+                    {
+                        failedProjects++;
+                        logger.LogError("  Failed: {Error}", result.Error);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failedProjects++;
+                    logger.LogError(ex, "Error processing {Project}", projectPath);
+                }
+            }
+            
+            Console.WriteLine();
+            Console.WriteLine("Transitive Dependency Cleanup Summary:");
+            Console.WriteLine($"  Projects processed: {sdkStyleProjects.Count}");
+            Console.WriteLine($"  Total dependencies removed: {totalRemoved}");
+            Console.WriteLine($"  Failed projects: {failedProjects}");
+            
+            return failedProjects > 0 ? 1 : 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during transitive dependency cleanup");
+            return 1;
+        }
+    }
+    
+    static async Task<int> RunCleanCpm(MigrationOptions options)
+    {
+        var services = new ServiceCollection();
+        ConfigureServices(services, options);
+        
+        using var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var cpmGenerator = serviceProvider.GetRequiredService<ICentralPackageManagementGenerator>();
+        
+        try
+        {
+            if (options.DryRun)
+            {
+                logger.LogWarning("DRY RUN MODE - No files will be modified");
+            }
+            
+            logger.LogInformation("Starting Central Package Management cleanup for directory: {Directory}", options.DirectoryPath);
+            
+            var result = await cpmGenerator.CleanUnusedPackagesAsync(options.DirectoryPath, options.DryRun, CancellationToken.None);
+            
+            if (result.Success)
+            {
+                if (result.RemovedPackages.Any())
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Removed {result.RemovedPackages.Count} unused packages:");
+                    foreach (var package in result.RemovedPackages.OrderBy(p => p))
+                    {
+                        Console.WriteLine($"  - {package}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("No unused packages found.");
+                }
+                
+                return 0;
+            }
+            else
+            {
+                logger.LogError("Failed to clean Central Package Management: {Error}", result.Error);
+                return 1;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during Central Package Management cleanup");
+            return 1;
+        }
+    }
+    
+    static bool IsSdkStyleProject(string projectPath)
+    {
+        try
+        {
+            var content = File.ReadAllText(projectPath);
+            return content.Contains("<Project Sdk=", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    
+    static async Task<CleanDepsResult> CleanProjectDependenciesAsync(
+        string projectPath,
+        ITransitiveDependencyDetector transitiveDepsService,
+        IBackupService backupService,
+        MigrationOptions options,
+        ILogger logger)
+    {
+        try
+        {
+            // Load project XML
+            var doc = XDocument.Load(projectPath);
+            var root = doc.Root;
+            if (root == null)
+                return new CleanDepsResult { Success = false, Error = "Invalid project file" };
+            
+            // Find all PackageReference elements
+            var packageRefs = root.Descendants("PackageReference")
+                .Where(pr => pr.Attribute("Include") != null)
+                .ToList();
+                
+            if (!packageRefs.Any())
+                return new CleanDepsResult { Success = true, RemovedCount = 0 };
+            
+            // Convert to PackageReference models
+            var packages = packageRefs.Select(pr => new Models.PackageReference
+            {
+                PackageId = pr.Attribute("Include")!.Value,
+                Version = pr.Attribute("Version")?.Value ?? pr.Element("Version")?.Value ?? "*",
+                IsTransitive = false
+            }).ToList();
+            
+            // Detect transitive dependencies
+            var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, CancellationToken.None);
+            var transitiveDeps = analyzedPackages.Where(p => p.IsTransitive).ToList();
+            
+            if (!transitiveDeps.Any())
+                return new CleanDepsResult { Success = true, RemovedCount = 0 };
+            
+            if (!options.DryRun && options.CreateBackup)
+            {
+                // Create simple backup
+                var backupPath = projectPath + ".backup";
+                File.Copy(projectPath, backupPath, overwrite: true);
+                logger.LogDebug("Created backup: {BackupPath}", backupPath);
+            }
+            
+            // Remove transitive dependencies from XML
+            var removedCount = 0;
+            foreach (var transitiveDep in transitiveDeps)
+            {
+                var elementsToRemove = packageRefs
+                    .Where(pr => pr.Attribute("Include")?.Value.Equals(transitiveDep.PackageId, StringComparison.OrdinalIgnoreCase) == true)
+                    .ToList();
+                    
+                foreach (var element in elementsToRemove)
+                {
+                    logger.LogDebug("  Removing transitive dependency: {Package}", transitiveDep.PackageId);
+                    element.Remove();
+                    removedCount++;
+                }
+            }
+            
+            // Clean up empty ItemGroups
+            var emptyItemGroups = root.Descendants("ItemGroup")
+                .Where(ig => !ig.HasElements && !ig.HasAttributes)
+                .ToList();
+            foreach (var ig in emptyItemGroups)
+            {
+                ig.Remove();
+            }
+            
+            if (!options.DryRun && removedCount > 0)
+            {
+                // Save the modified project file
+                doc.Save(projectPath);
+            }
+            
+            return new CleanDepsResult { Success = true, RemovedCount = removedCount };
+        }
+        catch (Exception ex)
+        {
+            return new CleanDepsResult { Success = false, Error = ex.Message };
+        }
+    }
+    
+    class CleanDepsResult
+    {
+        public bool Success { get; set; }
+        public int RemovedCount { get; set; }
+        public string? Error { get; set; }
     }
     
     static void InitializeMSBuild()
