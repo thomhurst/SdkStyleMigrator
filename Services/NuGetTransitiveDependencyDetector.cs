@@ -35,6 +35,34 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             _repositories.Add(Repository.Factory.GetCoreV3("https://api.nuget.org/v3/index.json"));
         }
     }
+    
+    private NuGetVersion? TryParseVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+            
+        // Handle special cases
+        if (version == "*" || version.Contains("*"))
+        {
+            _logger.LogDebug("Skipping wildcard version: {Version}", version);
+            return null;
+        }
+        
+        // Try to parse as a normal version
+        if (NuGetVersion.TryParse(version, out var parsedVersion))
+        {
+            return parsedVersion;
+        }
+        
+        // Try to parse as a version range and get the minimum version
+        if (VersionRange.TryParse(version, out var range) && range.MinVersion != null)
+        {
+            return range.MinVersion;
+        }
+        
+        _logger.LogDebug("Could not parse version: {Version}", version);
+        return null;
+    }
 
     public async Task<IEnumerable<PackageReference>> DetectTransitiveDependenciesAsync(
         IEnumerable<PackageReference> packageReferences, 
@@ -58,7 +86,15 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             
             foreach (var package in packages)
             {
-                var identity = new PackageIdentity(package.PackageId, NuGetVersion.Parse(package.Version));
+                var version = TryParseVersion(package.Version);
+                if (version == null)
+                {
+                    _logger.LogWarning("Skipping package {PackageId} with unparseable version: {Version}", 
+                        package.PackageId, package.Version);
+                    continue;
+                }
+                
+                var identity = new PackageIdentity(package.PackageId, version);
                 directPackages.Add(identity);
                 allDependencies.Add(identity);
             }
@@ -69,13 +105,21 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             {
                 try
                 {
+                    var version = TryParseVersion(package.Version);
+                    if (version == null)
+                    {
+                        _logger.LogWarning("Skipping dependency analysis for {PackageId} with unparseable version: {Version}", 
+                            package.PackageId, package.Version);
+                        continue;
+                    }
+                    
                     var dependencies = await GetPackageDependenciesAsync(
                         package.PackageId, 
                         package.Version, 
                         framework, 
                         cancellationToken);
                     
-                    var identity = new PackageIdentity(package.PackageId, NuGetVersion.Parse(package.Version));
+                    var identity = new PackageIdentity(package.PackageId, version);
                     packageDependencyMap[identity] = dependencies;
                     
                     foreach (var dep in dependencies)
@@ -93,7 +137,14 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             var transitiveCount = 0;
             foreach (var package in packages)
             {
-                var identity = new PackageIdentity(package.PackageId, NuGetVersion.Parse(package.Version));
+                var version = TryParseVersion(package.Version);
+                if (version == null)
+                {
+                    // Can't determine transitivity without valid version
+                    continue;
+                }
+                
+                var identity = new PackageIdentity(package.PackageId, version);
                 
                 var isTransitive = false;
                 foreach (var kvp in packageDependencyMap)
@@ -135,7 +186,14 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         CancellationToken cancellationToken)
     {
         var dependencies = new HashSet<PackageIdentity>();
-        var nugetVersion = NuGetVersion.Parse(version);
+        var nugetVersion = TryParseVersion(version);
+        if (nugetVersion == null)
+        {
+            _logger.LogWarning("Cannot get dependencies for {PackageId} with unparseable version: {Version}", 
+                packageId, version);
+            return dependencies;
+        }
+        
         var packageIdentity = new PackageIdentity(packageId, nugetVersion);
         
         foreach (var repository in _repositories)
