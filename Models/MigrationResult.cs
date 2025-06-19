@@ -9,4 +9,5 @@ public class MigrationResult
     public List<string> Warnings { get; set; } = new();
     public List<string> RemovedElements { get; set; } = new();
     public List<PackageReference> MigratedPackages { get; set; } = new();
+    public bool LoadedWithDefensiveParsing { get; set; }
 }

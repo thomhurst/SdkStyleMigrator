@@ -1,9 +1,10 @@
 using Microsoft.Build.Evaluation;
+using SdkMigrator.Models;
 
 namespace SdkMigrator.Abstractions;
 
 public interface IProjectParser
 {
-    Task<Project> ParseProjectAsync(string projectPath, CancellationToken cancellationToken = default);
+    Task<ParsedProject> ParseProjectAsync(string projectPath, CancellationToken cancellationToken = default);
     bool IsLegacyProject(Project project);
 }

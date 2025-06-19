@@ -509,6 +509,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement.Add(importElement);
                 _logger.LogDebug("Preserved custom import: {Import}", import.Project);
             }
+            else
+            {
+                result.RemovedElements.Add($"Import: {import.Project}");
+            }
         }
         
         foreach (var target in legacyProject.Xml.Targets)

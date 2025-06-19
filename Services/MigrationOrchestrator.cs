@@ -167,7 +167,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     {
         try
         {
-            var project = await _projectParser.ParseProjectAsync(projectFile, cancellationToken);
+            var parsedProject = await _projectParser.ParseProjectAsync(projectFile, cancellationToken);
+            var project = parsedProject.Project;
 
             if (!_projectParser.IsLegacyProject(project))
             {
@@ -196,6 +197,16 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);
+
+            if (parsedProject.LoadedWithDefensiveParsing)
+            {
+                result.LoadedWithDefensiveParsing = true;
+                result.Warnings.Add("Project was loaded with defensive parsing due to invalid imports. Some imports were removed automatically.");
+                foreach (var removedImport in parsedProject.RemovedImports)
+                {
+                    result.Warnings.Add($"Removed import: {removedImport}");
+                }
+            }
 
             if (result.Success && !_options.DryRun)
             {

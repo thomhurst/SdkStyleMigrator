@@ -1,6 +1,9 @@
 using Microsoft.Build.Evaluation;
+using Microsoft.Build.Exceptions;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
+using SdkMigrator.Models;
+using System.Xml.Linq;
 
 namespace SdkMigrator.Services;
 
@@ -16,7 +19,7 @@ public class ProjectParser : IProjectParser, IDisposable
     }
 
 
-    public Task<Project> ParseProjectAsync(string projectPath, CancellationToken cancellationToken = default)
+    public Task<ParsedProject> ParseProjectAsync(string projectPath, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(projectPath))
         {
@@ -35,15 +38,188 @@ public class ProjectParser : IProjectParser, IDisposable
                 _projectCollection.UnloadProject(existingProject);
             }
             
-            var project = new Project(projectPath, null, null, _projectCollection);
-            
-            _logger.LogDebug("Successfully parsed project: {ProjectPath}", projectPath);
-            return Task.FromResult(project);
+            try
+            {
+                var project = new Project(projectPath, null, null, _projectCollection);
+                _logger.LogDebug("Successfully parsed project: {ProjectPath}", projectPath);
+                return Task.FromResult(new ParsedProject 
+                { 
+                    Project = project,
+                    LoadedWithDefensiveParsing = false
+                });
+            }
+            catch (InvalidProjectFileException ipfe) when (ipfe.Message.Contains("imported project") && ipfe.Message.Contains("was not found"))
+            {
+                _logger.LogWarning("Project has missing imports, attempting to load with imports removed: {ProjectPath}", projectPath);
+                return LoadProjectWithoutInvalidImports(projectPath, cancellationToken);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to parse project: {ProjectPath}", projectPath);
+            
+            if (ex is InvalidProjectFileException && (ex.Message.Contains("imported project") || ex.Message.Contains("was not found")))
+            {
+                _logger.LogWarning("Attempting to load project with defensive parsing due to: {Error}", ex.Message);
+                return LoadProjectWithoutInvalidImports(projectPath, cancellationToken);
+            }
+            
             throw;
+        }
+    }
+    
+    private Task<ParsedProject> LoadProjectWithoutInvalidImports(string projectPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var projectXml = XDocument.Load(projectPath);
+            var ns = projectXml.Root?.Name.Namespace ?? XNamespace.None;
+            
+            var imports = projectXml.Descendants(ns + "Import").ToList();
+            var importErrors = projectXml.Descendants(ns + "ImportError").ToList();
+            var invalidImports = new List<XElement>();
+            
+            foreach (var error in importErrors)
+            {
+                error.Remove();
+            }
+            
+            var essentialImports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Microsoft.Common.props",
+                "Microsoft.CSharp.targets",
+                "Microsoft.VisualBasic.targets",
+                "Microsoft.FSharp.targets"
+            };
+            
+            foreach (var import in imports)
+            {
+                var projectAttr = import.Attribute("Project")?.Value;
+                if (!string.IsNullOrEmpty(projectAttr))
+                {
+                    var isEssential = essentialImports.Any(e => projectAttr.Contains(e));
+                    
+                    if (!isEssential)
+                    {
+                        _logger.LogDebug("Removing non-essential import: {Import}", projectAttr);
+                        invalidImports.Add(import);
+                    }
+                }
+            }
+            
+            foreach (var invalidImport in invalidImports)
+            {
+                invalidImport.Remove();
+            }
+            
+            var tempPath = Path.Combine(Path.GetTempPath(), $"{Path.GetFileNameWithoutExtension(projectPath)}_temp_{Guid.NewGuid()}.csproj");
+            projectXml.Save(tempPath);
+            
+            try
+            {
+                var globalProperties = new Dictionary<string, string>
+                {
+                    ["DesignTimeBuild"] = "true",
+                    ["SkipInvalidConfigurations"] = "true",
+                    ["_ResolveReferenceDependencies"] = "false",
+                    ["_GetChildProjectCopyToOutputDirectoryItems"] = "false",
+                    ["_SGenCheckForOutputs"] = "false",
+                    ["_CompileTargetNameForLocalType"] = "Compile",
+                    ["BuildProjectReferences"] = "false"
+                };
+                
+                var project = new Project(tempPath, globalProperties, null, _projectCollection);
+                
+                var originalPath = Path.GetFullPath(projectPath);
+                project.FullPath = originalPath;
+                
+                _logger.LogWarning("Successfully loaded project after removing {Count} non-essential imports", invalidImports.Count);
+                
+                var removedImports = invalidImports.Select(i => i.Attribute("Project")?.Value ?? "Unknown").ToList();
+                
+                return Task.FromResult(new ParsedProject
+                {
+                    Project = project,
+                    LoadedWithDefensiveParsing = true,
+                    RemovedImports = removedImports
+                });
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load project even with defensive parsing");
+            
+            try
+            {
+                return LoadProjectAsRawXml(projectPath, cancellationToken);
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogError(ex2, "Failed to load project as raw XML");
+                throw new InvalidOperationException($"Cannot parse project {projectPath} even with defensive parsing", ex);
+            }
+        }
+    }
+    
+    private Task<ParsedProject> LoadProjectAsRawXml(string projectPath, CancellationToken cancellationToken)
+    {
+        _logger.LogWarning("Attempting to create minimal project from raw XML: {ProjectPath}", projectPath);
+        
+        var projectXml = XDocument.Load(projectPath);
+        var ns = projectXml.Root?.Name.Namespace ?? XNamespace.None;
+        
+        var minimalProject = new XDocument(
+            new XElement(ns + "Project",
+                new XAttribute("ToolsVersion", "4.0"),
+                new XAttribute("DefaultTargets", "Build"),
+                new XAttribute("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003")
+            )
+        );
+        
+        var root = minimalProject.Root!;
+        
+        foreach (var propertyGroup in projectXml.Descendants(ns + "PropertyGroup"))
+        {
+            root.Add(new XElement(propertyGroup));
+        }
+        
+        foreach (var itemGroup in projectXml.Descendants(ns + "ItemGroup"))
+        {
+            root.Add(new XElement(itemGroup));
+        }
+        
+        root.Add(new XElement(ns + "Import", 
+            new XAttribute("Project", @"$(MSBuildToolsPath)\Microsoft.CSharp.targets")));
+        
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Path.GetFileNameWithoutExtension(projectPath)}_minimal_{Guid.NewGuid()}.csproj");
+        minimalProject.Save(tempPath);
+        
+        try
+        {
+            var project = new Project(tempPath, null, null, _projectCollection);
+            project.FullPath = Path.GetFullPath(projectPath);
+            
+            _logger.LogWarning("Successfully created minimal project from raw XML");
+            return Task.FromResult(new ParsedProject
+            {
+                Project = project,
+                LoadedWithDefensiveParsing = true,
+                RemovedImports = new List<string> { "All non-essential imports removed" }
+            });
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
         }
     }
 
