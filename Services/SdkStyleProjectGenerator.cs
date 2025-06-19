@@ -12,15 +12,18 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly ILogger<SdkStyleProjectGenerator> _logger;
     private readonly IPackageReferenceMigrator _packageReferenceMigrator;
     private readonly ITransitiveDependencyDetector _transitiveDependencyDetector;
+    private readonly MigrationOptions _options;
 
     public SdkStyleProjectGenerator(
         ILogger<SdkStyleProjectGenerator> logger,
         IPackageReferenceMigrator packageReferenceMigrator,
-        ITransitiveDependencyDetector transitiveDependencyDetector)
+        ITransitiveDependencyDetector transitiveDependencyDetector,
+        MigrationOptions options)
     {
         _logger = logger;
         _packageReferenceMigrator = packageReferenceMigrator;
         _transitiveDependencyDetector = transitiveDependencyDetector;
+        _options = options;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -41,7 +44,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var sdkProject = new XDocument();
             var projectElement = new XElement("Project");
             
-            var sdk = DetermineSdk(legacyProject.FullPath);
+            var sdk = DetermineSdk(legacyProject);
             projectElement.Add(new XAttribute("Sdk", sdk));
             
             sdkProject.Add(projectElement);
@@ -108,16 +111,24 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             
             MigrateCustomTargetsAndImports(legacyProject, projectElement, result);
 
-            var directory = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            if (!_options.DryRun)
             {
-                Directory.CreateDirectory(directory);
-            }
+                var directory = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
 
-            sdkProject.Save(outputPath);
-            result.Success = true;
+                sdkProject.Save(outputPath);
+                _logger.LogInformation("Successfully migrated project to {OutputPath}", outputPath);
+            }
+            else
+            {
+                _logger.LogInformation("[DRY RUN] Would migrate project to {OutputPath}", outputPath);
+                _logger.LogDebug("[DRY RUN] Generated project content:\n{Content}", sdkProject.ToString());
+            }
             
-            _logger.LogInformation("Successfully migrated project to {OutputPath}", outputPath);
+            result.Success = true;
         }
         catch (Exception ex)
         {
@@ -129,16 +140,43 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return result;
     }
 
-    private string DetermineSdk(string projectPath)
+    private string DetermineSdk(Project legacyProject)
     {
-        var extension = Path.GetExtension(projectPath).ToLowerInvariant();
-        return extension switch
+        var projectPath = legacyProject.FullPath;
+        
+        var hasWpfItems = legacyProject.Items.Any(i => 
+            i.ItemType == "ApplicationDefinition" || 
+            i.ItemType == "Page" ||
+            (i.ItemType == "Compile" && i.EvaluatedInclude.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase)));
+            
+        var hasWinFormsReferences = legacyProject.Items.Any(i => 
+            i.ItemType == "Reference" && 
+            (i.EvaluatedInclude.StartsWith("System.Windows.Forms", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.StartsWith("System.Drawing", StringComparison.OrdinalIgnoreCase)));
+             
+        if (hasWpfItems || hasWinFormsReferences)
         {
-            ".csproj" => "Microsoft.NET.Sdk",
-            ".vbproj" => "Microsoft.NET.Sdk",
-            ".fsproj" => "Microsoft.NET.Sdk",
-            _ => "Microsoft.NET.Sdk"
-        };
+            return "Microsoft.NET.Sdk.WindowsDesktop";
+        }
+        
+        var hasWebContent = legacyProject.Items.Any(i =>
+            (i.ItemType == "Content" || i.ItemType == "None") &&
+            (i.EvaluatedInclude.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.EndsWith(".aspx", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.EndsWith(".ascx", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.Equals("web.config", StringComparison.OrdinalIgnoreCase)));
+             
+        var hasWebReferences = legacyProject.Items.Any(i =>
+            i.ItemType == "Reference" &&
+            (i.EvaluatedInclude.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.StartsWith("Microsoft.AspNet", StringComparison.OrdinalIgnoreCase)));
+             
+        if (hasWebContent || hasWebReferences)
+        {
+            return "Microsoft.NET.Sdk.Web";
+        }
+        
+        return "Microsoft.NET.Sdk";
     }
 
     private XElement MigrateProperties(Project legacyProject, MigrationResult result)
@@ -218,16 +256,48 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private string GetTargetFramework(Project project)
     {
+        if (!string.IsNullOrEmpty(_options.TargetFramework))
+        {
+            _logger.LogInformation("Using override target framework: {TargetFramework}", _options.TargetFramework);
+            return _options.TargetFramework;
+        }
+        
         var targetFrameworkVersion = project.GetPropertyValue("TargetFrameworkVersion");
         if (string.IsNullOrEmpty(targetFrameworkVersion))
         {
-            return "net8.0";
+            return "net48";
         }
 
-        if (targetFrameworkVersion.StartsWith("v"))
+        if (targetFrameworkVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
         {
-            var version = targetFrameworkVersion.Substring(1).Replace(".", "");
-            return $"net{version}";
+            var version = targetFrameworkVersion.Substring(1);
+            
+            var tfmMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["2.0"] = "net20",
+                ["3.0"] = "net30",
+                ["3.5"] = "net35",
+                ["4.0"] = "net40",
+                ["4.5"] = "net45",
+                ["4.5.1"] = "net451",
+                ["4.5.2"] = "net452",
+                ["4.6"] = "net46",
+                ["4.6.1"] = "net461",
+                ["4.6.2"] = "net462",
+                ["4.7"] = "net47",
+                ["4.7.1"] = "net471",
+                ["4.7.2"] = "net472",
+                ["4.8"] = "net48",
+                ["4.8.1"] = "net481"
+            };
+            
+            if (tfmMappings.TryGetValue(version, out var tfm))
+            {
+                return tfm;
+            }
+            
+            _logger.LogWarning("Unknown TargetFrameworkVersion: {Version}, defaulting to net48", targetFrameworkVersion);
+            return "net48";
         }
 
         return targetFrameworkVersion;

@@ -13,6 +13,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly ISdkStyleProjectGenerator _sdkStyleProjectGenerator;
     private readonly IAssemblyInfoExtractor _assemblyInfoExtractor;
     private readonly IDirectoryBuildPropsGenerator _directoryBuildPropsGenerator;
+    private readonly MigrationOptions _options;
 
     public MigrationOrchestrator(
         ILogger<MigrationOrchestrator> logger,
@@ -20,7 +21,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         IProjectParser projectParser,
         ISdkStyleProjectGenerator sdkStyleProjectGenerator,
         IAssemblyInfoExtractor assemblyInfoExtractor,
-        IDirectoryBuildPropsGenerator directoryBuildPropsGenerator)
+        IDirectoryBuildPropsGenerator directoryBuildPropsGenerator,
+        MigrationOptions options)
     {
         _logger = logger;
         _projectFileScanner = projectFileScanner;
@@ -28,6 +30,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _sdkStyleProjectGenerator = sdkStyleProjectGenerator;
         _assemblyInfoExtractor = assemblyInfoExtractor;
         _directoryBuildPropsGenerator = directoryBuildPropsGenerator;
+        _options = options;
     }
 
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
@@ -48,6 +51,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
 
             var projectAssemblyProperties = new Dictionary<string, AssemblyProperties>();
+            var projectIndex = 0;
 
             foreach (var projectFile in projectFilesList)
             {
@@ -57,15 +61,20 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     break;
                 }
 
+                projectIndex++;
+                var progress = $"[{projectIndex}/{projectFilesList.Count}]";
+                
                 try
                 {
                     var project = await _projectParser.ParseProjectAsync(projectFile, cancellationToken);
 
                     if (!_projectParser.IsLegacyProject(project))
                     {
-                        _logger.LogInformation("Skipping {ProjectPath} - already SDK-style", projectFile);
+                        _logger.LogInformation("{Progress} Skipping {ProjectPath} - already SDK-style", progress, projectFile);
                         continue;
                     }
+                    
+                    _logger.LogInformation("{Progress} Processing {ProjectPath}", progress, projectFile);
 
                     var projectDir = Path.GetDirectoryName(projectFile)!;
                     var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
@@ -87,7 +96,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                         project, outputPath, cancellationToken);
 
-                    if (result.Success)
+                    if (result.Success && !_options.DryRun)
                     {
                         await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
                     }
@@ -97,17 +106,17 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     if (result.Success)
                     {
                         report.TotalProjectsMigrated++;
-                        _logger.LogInformation("Successfully migrated {ProjectPath}", projectFile);
+                        _logger.LogInformation("{Progress} Successfully migrated {ProjectPath}", progress, projectFile);
                     }
                     else
                     {
                         report.TotalProjectsFailed++;
-                        _logger.LogError("Failed to migrate {ProjectPath}", projectFile);
+                        _logger.LogError("{Progress} Failed to migrate {ProjectPath}", progress, projectFile);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing project {ProjectPath}", projectFile);
+                    _logger.LogError(ex, "{Progress} Error processing project {ProjectPath}", progress, projectFile);
                     
                     var result = new MigrationResult
                     {
@@ -123,8 +132,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             
             if (projectAssemblyProperties.Any())
             {
+                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory) 
+                    ? _options.OutputDirectory 
+                    : directoryPath;
+                    
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
-                    directoryPath, projectAssemblyProperties, cancellationToken);
+                    outputDir, projectAssemblyProperties, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -153,11 +166,18 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     
                 try
                 {
-                    var backupPath = $"{file}.backup";
-                    File.Copy(file, backupPath, overwrite: true);
-                    File.Delete(file);
-                    
-                    _logger.LogInformation("Removed AssemblyInfo file: {File} (backup: {BackupPath})", file, backupPath);
+                    if (!_options.DryRun)
+                    {
+                        var backupPath = $"{file}.backup";
+                        File.Copy(file, backupPath, overwrite: true);
+                        File.Delete(file);
+                        
+                        _logger.LogInformation("Removed AssemblyInfo file: {File} (backup: {BackupPath})", file, backupPath);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[DRY RUN] Would remove AssemblyInfo file: {File}", file);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -171,14 +191,34 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
     private string GenerateOutputPath(string projectFile)
     {
-        var directory = Path.GetDirectoryName(projectFile)!;
-        var filename = Path.GetFileName(projectFile);
-        var backupPath = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(filename)}.legacy{Path.GetExtension(filename)}");
-        
-        if (File.Exists(projectFile))
+        if (!string.IsNullOrEmpty(_options.OutputDirectory))
         {
-            File.Copy(projectFile, backupPath, overwrite: true);
-            _logger.LogDebug("Created backup at {BackupPath}", backupPath);
+            var relativePath = Path.GetRelativePath(_options.DirectoryPath, projectFile);
+            var outputPath = Path.Combine(_options.OutputDirectory, relativePath);
+            
+            if (!_options.DryRun)
+            {
+                var outputDir = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
+                {
+                    Directory.CreateDirectory(outputDir);
+                }
+            }
+            
+            return outputPath;
+        }
+        
+        if (!_options.NoBackup && !_options.DryRun)
+        {
+            var directory = Path.GetDirectoryName(projectFile)!;
+            var filename = Path.GetFileName(projectFile);
+            var backupPath = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(filename)}.legacy{Path.GetExtension(filename)}");
+            
+            if (File.Exists(projectFile))
+            {
+                File.Copy(projectFile, backupPath, overwrite: true);
+                _logger.LogDebug("Created backup at {BackupPath}", backupPath);
+            }
         }
 
         return projectFile;
@@ -225,11 +265,14 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("Total legacy elements removed: {Count}", totalRemovedElements);
         }
         
-        var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".", 
-            $"migration-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
-        WriteDetailedReport(report, reportPath);
-        _logger.LogInformation("");
-        _logger.LogInformation("Detailed migration report written to: {Path}", reportPath);
+        if (!_options.DryRun)
+        {
+            var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".", 
+                $"migration-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
+            WriteDetailedReport(report, reportPath);
+            _logger.LogInformation("");
+            _logger.LogInformation("Detailed migration report written to: {Path}", reportPath);
+        }
     }
     
     private void WriteDetailedReport(MigrationReport report, string reportPath)

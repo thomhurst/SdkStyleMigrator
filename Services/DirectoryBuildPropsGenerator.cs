@@ -8,10 +8,12 @@ namespace SdkMigrator.Services;
 public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
 {
     private readonly ILogger<DirectoryBuildPropsGenerator> _logger;
+    private readonly MigrationOptions _options;
 
-    public DirectoryBuildPropsGenerator(ILogger<DirectoryBuildPropsGenerator> logger)
+    public DirectoryBuildPropsGenerator(ILogger<DirectoryBuildPropsGenerator> logger, MigrationOptions options)
     {
         _logger = logger;
+        _options = options;
     }
 
     public Task GenerateDirectoryBuildPropsAsync(string rootDirectory, Dictionary<string, AssemblyProperties> projectProperties, CancellationToken cancellationToken = default)
@@ -29,56 +31,91 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         XDocument doc;
         XElement projectElement;
 
-        if (File.Exists(filePath))
+        if (File.Exists(filePath) && !_options.DryRun)
         {
             _logger.LogInformation("Updating existing Directory.Build.props at {Path}", filePath);
             doc = XDocument.Load(filePath);
             projectElement = doc.Root!;
         }
+        else if (File.Exists(filePath) && _options.DryRun)
+        {
+            _logger.LogInformation("[DRY RUN] Would update existing Directory.Build.props at {Path}", filePath);
+            doc = XDocument.Load(filePath);
+            projectElement = doc.Root!;
+        }
         else
         {
-            _logger.LogInformation("Creating new Directory.Build.props at {Path}", filePath);
-            doc = new XDocument();
+            var action = _options.DryRun ? "[DRY RUN] Would create" : "Creating";
+            _logger.LogInformation("{Action} new Directory.Build.props at {Path}", action, filePath);
+            doc = new XDocument(new XDeclaration("1.0", "utf-8", null));
             projectElement = new XElement("Project");
             doc.Add(projectElement);
         }
 
-        var propertyGroup = projectElement.Elements("PropertyGroup").FirstOrDefault();
-        if (propertyGroup == null)
+        var assemblyPropGroup = projectElement.Elements("PropertyGroup")
+            .FirstOrDefault(pg => pg.Elements().Any(e => 
+                e.Name.LocalName == "GenerateAssemblyInfo" ||
+                e.Name.LocalName.StartsWith("Assembly") ||
+                e.Name.LocalName == "Company" ||
+                e.Name.LocalName == "Product" ||
+                e.Name.LocalName == "Copyright" ||
+                e.Name.LocalName == "FileVersion" ||
+                e.Name.LocalName == "NeutralResourcesLanguage" ||
+                e.Name.LocalName == "ComVisible"));
+                
+        if (assemblyPropGroup == null)
         {
-            propertyGroup = new XElement("PropertyGroup");
-            projectElement.AddFirst(propertyGroup);
+            assemblyPropGroup = new XElement("PropertyGroup");
+            assemblyPropGroup.Add(new XComment("Assembly Information"));
+            
+            var firstPropGroup = projectElement.Elements("PropertyGroup").FirstOrDefault();
+            if (firstPropGroup != null)
+            {
+                firstPropGroup.AddAfterSelf(assemblyPropGroup);
+            }
+            else
+            {
+                projectElement.AddFirst(assemblyPropGroup);
+            }
         }
 
-        AddOrUpdateProperty(propertyGroup, "GenerateAssemblyInfo", "true");
+        AddOrUpdateProperty(assemblyPropGroup, "GenerateAssemblyInfo", "true");
         
         if (!string.IsNullOrEmpty(commonProperties.Company))
-            AddOrUpdateProperty(propertyGroup, "Company", commonProperties.Company);
+            AddOrUpdateProperty(assemblyPropGroup, "Company", commonProperties.Company);
         
         if (!string.IsNullOrEmpty(commonProperties.Product))
-            AddOrUpdateProperty(propertyGroup, "Product", commonProperties.Product);
+            AddOrUpdateProperty(assemblyPropGroup, "Product", commonProperties.Product);
         
         if (!string.IsNullOrEmpty(commonProperties.Copyright))
-            AddOrUpdateProperty(propertyGroup, "Copyright", commonProperties.Copyright);
+            AddOrUpdateProperty(assemblyPropGroup, "Copyright", commonProperties.Copyright);
         
         if (!string.IsNullOrEmpty(commonProperties.Trademark))
-            AddOrUpdateProperty(propertyGroup, "Trademark", commonProperties.Trademark);
+            AddOrUpdateProperty(assemblyPropGroup, "Trademark", commonProperties.Trademark);
         
         if (!string.IsNullOrEmpty(commonProperties.AssemblyVersion))
-            AddOrUpdateProperty(propertyGroup, "AssemblyVersion", commonProperties.AssemblyVersion);
+            AddOrUpdateProperty(assemblyPropGroup, "AssemblyVersion", commonProperties.AssemblyVersion);
         
         if (!string.IsNullOrEmpty(commonProperties.FileVersion))
-            AddOrUpdateProperty(propertyGroup, "FileVersion", commonProperties.FileVersion);
+            AddOrUpdateProperty(assemblyPropGroup, "FileVersion", commonProperties.FileVersion);
         
         if (!string.IsNullOrEmpty(commonProperties.NeutralResourcesLanguage))
-            AddOrUpdateProperty(propertyGroup, "NeutralResourcesLanguage", commonProperties.NeutralResourcesLanguage);
+            AddOrUpdateProperty(assemblyPropGroup, "NeutralResourcesLanguage", commonProperties.NeutralResourcesLanguage);
         
         if (commonProperties.ComVisible.HasValue)
-            AddOrUpdateProperty(propertyGroup, "ComVisible", commonProperties.ComVisible.Value.ToString().ToLower());
+            AddOrUpdateProperty(assemblyPropGroup, "ComVisible", commonProperties.ComVisible.Value.ToString().ToLower());
 
-        doc.Save(filePath);
+        if (!_options.DryRun)
+        {
+            doc.Save(filePath);
+            _logger.LogInformation("Successfully created/updated Directory.Build.props with common assembly properties");
+        }
+        else
+        {
+            _logger.LogInformation("[DRY RUN] Would create/update Directory.Build.props at {Path}", filePath);
+            _logger.LogDebug("[DRY RUN] Directory.Build.props content:\n{Content}", doc.ToString());
+        }
         
-        _logger.LogInformation("Successfully created/updated Directory.Build.props with common assembly properties");
         return Task.CompletedTask;
     }
 
@@ -124,10 +161,19 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         var existing = propertyGroup.Elements(name).FirstOrDefault();
         if (existing != null)
         {
-            existing.Value = value;
+            if (existing.Value != value)
+            {
+                _logger.LogDebug("Updating property {Name} from '{OldValue}' to '{NewValue}'", name, existing.Value, value);
+                existing.Value = value;
+            }
+            else
+            {
+                _logger.LogDebug("Property {Name} already has value '{Value}'", name, value);
+            }
         }
         else
         {
+            _logger.LogDebug("Adding new property {Name} with value '{Value}'", name, value);
             propertyGroup.Add(new XElement(name, value));
         }
     }
