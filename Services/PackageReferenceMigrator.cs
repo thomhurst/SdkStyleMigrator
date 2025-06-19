@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
@@ -111,19 +112,42 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
             if (packagesIndex >= 0 && packagesIndex < parts.Length - 1)
             {
                 var packageFolder = parts[packagesIndex + 1];
-                var lastDotIndex = packageFolder.LastIndexOf('.');
                 
-                if (lastDotIndex > 0)
+                // Try to find the version by looking for a pattern like x.y.z
+                // Start from the end and work backwards to find a valid version pattern
+                var versionMatch = Regex.Match(
+                    packageFolder, 
+                    @"^(.+?)\.(\d+(?:\.\d+)*)$");
+                
+                if (versionMatch.Success)
                 {
-                    var possibleVersion = packageFolder.Substring(lastDotIndex + 1);
-                    if (char.IsDigit(possibleVersion[0]))
+                    var packageId = versionMatch.Groups[1].Value;
+                    var version = versionMatch.Groups[2].Value;
+                    
+                    // Validate that we have a reasonable version number
+                    if (version.Split('.').All(part => int.TryParse(part, out _)))
                     {
                         return new PackageReference
                         {
-                            PackageId = packageFolder.Substring(0, lastDotIndex),
-                            Version = possibleVersion
+                            PackageId = packageId,
+                            Version = version
                         };
                     }
+                }
+                
+                // Fallback: try to match known version patterns more aggressively
+                // This handles cases like: PackageName.1.2.3.4 or PackageName2.1.0.0
+                var fallbackMatch = Regex.Match(
+                    packageFolder,
+                    @"^(.+?)\.(\d+\.\d+(?:\.\d+)*(?:\.\d+)?)$");
+                    
+                if (fallbackMatch.Success)
+                {
+                    return new PackageReference
+                    {
+                        PackageId = fallbackMatch.Groups[1].Value,
+                        Version = fallbackMatch.Groups[2].Value
+                    };
                 }
             }
         }

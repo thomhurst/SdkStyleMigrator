@@ -6,6 +6,9 @@
 - **AssemblyInfo Compile Items**: Now properly removes AssemblyInfo.cs compile items from the project file during migration
   - Previously only removed the physical files but left dangling references in the project
   - Now excludes these files during SDK-style project generation
+- **Package Version Extraction**: Fixed issue extracting version from packages with names ending in numbers
+  - Previously failed on packages like `MyPackage2.1.0.0` or `System.Data.SQLite.Core.1.0.118.0`
+  - Now uses regex pattern matching to correctly identify package name and version boundaries
 
 ### Changed
 - **Backup Files**: Legacy backup files (*.legacy.csproj) are now opt-in instead of default
