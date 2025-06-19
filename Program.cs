@@ -370,6 +370,7 @@ Examples:
             services.AddSingleton<INuGetPackageResolver, NuGetPackageResolver>();
         }
         
+        services.AddSingleton<INuSpecExtractor, NuSpecExtractor>();
         services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
         services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
         services.AddSingleton<IDirectoryBuildPropsGenerator>(provider => 

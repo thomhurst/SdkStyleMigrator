@@ -14,6 +14,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IPackageReferenceMigrator _packageReferenceMigrator;
     private readonly ITransitiveDependencyDetector _transitiveDependencyDetector;
     private readonly INuGetPackageResolver _nugetResolver;
+    private readonly INuSpecExtractor _nuspecExtractor;
     private readonly MigrationOptions _options;
 
     public SdkStyleProjectGenerator(
@@ -21,12 +22,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         IPackageReferenceMigrator packageReferenceMigrator,
         ITransitiveDependencyDetector transitiveDependencyDetector,
         INuGetPackageResolver nugetResolver,
+        INuSpecExtractor nuspecExtractor,
         MigrationOptions options)
     {
         _logger = logger;
         _packageReferenceMigrator = packageReferenceMigrator;
         _transitiveDependencyDetector = transitiveDependencyDetector;
         _nugetResolver = nugetResolver;
+        _nuspecExtractor = nuspecExtractor;
         _options = options;
     }
 
@@ -67,6 +70,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             sdkProject.Add(projectElement);
 
             var propertyGroup = MigrateProperties(legacyProject, result);
+            
+            // Extract and migrate NuSpec metadata if present
+            var nuspecPath = await _nuspecExtractor.FindNuSpecFileAsync(legacyProject.FullPath, cancellationToken);
+            if (!string.IsNullOrEmpty(nuspecPath))
+            {
+                var nuspecMetadata = await _nuspecExtractor.ExtractMetadataAsync(nuspecPath, cancellationToken);
+                if (nuspecMetadata != null)
+                {
+                    MigrateNuSpecMetadata(propertyGroup, nuspecMetadata, result);
+                    result.RemovedElements.Add($"NuSpec file: {Path.GetFileName(nuspecPath)} (metadata migrated to project file)");
+                }
+            }
+            
             if (propertyGroup.HasElements)
             {
                 projectElement.Add(propertyGroup);
@@ -980,6 +996,132 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             _logger.LogError(ex, "Error resolving project reference path: {Path}", referencePath);
             return referencePath;
+        }
+    }
+    
+    private void MigrateNuSpecMetadata(XElement propertyGroup, NuSpecMetadata nuspec, MigrationResult result)
+    {
+        _logger.LogInformation("Migrating NuSpec metadata to MSBuild properties");
+        
+        // Always make the project packable when there's a nuspec
+        AddOrUpdateProperty(propertyGroup, "IsPackable", "true");
+        
+        // Basic package metadata
+        if (!string.IsNullOrEmpty(nuspec.Id))
+            AddOrUpdateProperty(propertyGroup, "PackageId", nuspec.Id);
+            
+        if (!string.IsNullOrEmpty(nuspec.Version))
+            AddOrUpdateProperty(propertyGroup, "PackageVersion", nuspec.Version);
+            
+        if (!string.IsNullOrEmpty(nuspec.Authors))
+            AddOrUpdateProperty(propertyGroup, "Authors", nuspec.Authors);
+            
+        if (!string.IsNullOrEmpty(nuspec.Description))
+            AddOrUpdateProperty(propertyGroup, "PackageDescription", nuspec.Description);
+            
+        if (!string.IsNullOrEmpty(nuspec.Copyright))
+            AddOrUpdateProperty(propertyGroup, "Copyright", nuspec.Copyright);
+            
+        if (!string.IsNullOrEmpty(nuspec.ProjectUrl))
+            AddOrUpdateProperty(propertyGroup, "PackageProjectUrl", nuspec.ProjectUrl);
+            
+        if (!string.IsNullOrEmpty(nuspec.LicenseUrl))
+        {
+            AddOrUpdateProperty(propertyGroup, "PackageLicenseUrl", nuspec.LicenseUrl);
+            result.Warnings.Add("PackageLicenseUrl is deprecated. Consider using PackageLicenseExpression or PackageLicenseFile instead.");
+        }
+        
+        if (!string.IsNullOrEmpty(nuspec.License))
+        {
+            if (nuspec.License.StartsWith("LICENSE_FILE:"))
+            {
+                var licenseFile = nuspec.License.Substring("LICENSE_FILE:".Length);
+                AddOrUpdateProperty(propertyGroup, "PackageLicenseFile", licenseFile);
+            }
+            else
+            {
+                AddOrUpdateProperty(propertyGroup, "PackageLicenseExpression", nuspec.License);
+            }
+        }
+        
+        if (!string.IsNullOrEmpty(nuspec.IconUrl))
+        {
+            AddOrUpdateProperty(propertyGroup, "PackageIconUrl", nuspec.IconUrl);
+            result.Warnings.Add("PackageIconUrl is deprecated. Consider using PackageIcon with an embedded icon file instead.");
+        }
+        
+        if (!string.IsNullOrEmpty(nuspec.Icon))
+            AddOrUpdateProperty(propertyGroup, "PackageIcon", nuspec.Icon);
+            
+        if (!string.IsNullOrEmpty(nuspec.Tags))
+            AddOrUpdateProperty(propertyGroup, "PackageTags", nuspec.Tags);
+            
+        if (!string.IsNullOrEmpty(nuspec.ReleaseNotes))
+            AddOrUpdateProperty(propertyGroup, "PackageReleaseNotes", nuspec.ReleaseNotes);
+            
+        if (nuspec.RequireLicenseAcceptance.HasValue)
+            AddOrUpdateProperty(propertyGroup, "PackageRequireLicenseAcceptance", nuspec.RequireLicenseAcceptance.Value.ToString().ToLower());
+            
+        if (!string.IsNullOrEmpty(nuspec.RepositoryUrl))
+            AddOrUpdateProperty(propertyGroup, "RepositoryUrl", nuspec.RepositoryUrl);
+            
+        if (!string.IsNullOrEmpty(nuspec.RepositoryType))
+            AddOrUpdateProperty(propertyGroup, "RepositoryType", nuspec.RepositoryType);
+            
+        if (!string.IsNullOrEmpty(nuspec.RepositoryBranch))
+            AddOrUpdateProperty(propertyGroup, "RepositoryBranch", nuspec.RepositoryBranch);
+            
+        if (!string.IsNullOrEmpty(nuspec.RepositoryCommit))
+            AddOrUpdateProperty(propertyGroup, "RepositoryCommit", nuspec.RepositoryCommit);
+            
+        if (!string.IsNullOrEmpty(nuspec.Title))
+            AddOrUpdateProperty(propertyGroup, "Title", nuspec.Title);
+            
+        if (!string.IsNullOrEmpty(nuspec.Summary))
+        {
+            AddOrUpdateProperty(propertyGroup, "PackageSummary", nuspec.Summary);
+            result.Warnings.Add("PackageSummary is not commonly used in SDK-style projects. Consider using just PackageDescription.");
+        }
+        
+        if (nuspec.DevelopmentDependency.HasValue && nuspec.DevelopmentDependency.Value)
+            AddOrUpdateProperty(propertyGroup, "DevelopmentDependency", "true");
+            
+        if (nuspec.Serviceable.HasValue)
+            AddOrUpdateProperty(propertyGroup, "Serviceable", nuspec.Serviceable.Value.ToString().ToLower());
+            
+        // Handle dependencies - they should already be in PackageReference format
+        if (nuspec.Dependencies.Any())
+        {
+            result.Warnings.Add($"NuSpec contained {nuspec.Dependencies.Count} dependencies. Ensure these are properly represented as PackageReference items.");
+        }
+        
+        // Handle files
+        if (nuspec.Files.Any())
+        {
+            result.Warnings.Add($"NuSpec contained {nuspec.Files.Count} file entries. You may need to add corresponding Content/None items with Pack=\"true\" and PackagePath attributes.");
+        }
+        
+        // Handle contentFiles
+        if (nuspec.ContentFiles.Any())
+        {
+            result.Warnings.Add($"NuSpec contained {nuspec.ContentFiles.Count} contentFiles entries. These should be migrated to Content items with appropriate metadata.");
+        }
+        
+        _logger.LogInformation("Successfully migrated NuSpec metadata to project file");
+    }
+    
+    private void AddOrUpdateProperty(XElement propertyGroup, string name, string value)
+    {
+        var existing = propertyGroup.Elements(name).FirstOrDefault();
+        if (existing != null)
+        {
+            existing.Value = value;
+            _logger.LogDebug("Updated property {Name} to '{Value}'", name, value);
+        }
+        else
+        {
+            propertyGroup.Add(new XElement(name, value));
+            _logger.LogDebug("Added property {Name} with value '{Value}'", name, value);
         }
     }
     

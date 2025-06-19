@@ -259,6 +259,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             {
                 await RemoveAssemblyInfoFilesAsync(projectDir, backupSession, cancellationToken);
                 await HandleAppConfigFileAsync(projectDir, result, cancellationToken);
+                await HandleNuSpecFileAsync(projectDir, result, backupSession, cancellationToken);
 
                 // Audit the file modification
                 var fileInfo = new FileInfo(outputPath);
@@ -457,6 +458,58 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
 
         return projectFile;
+    }
+    
+    private async Task HandleNuSpecFileAsync(string projectDirectory, MigrationResult result, BackupSession? backupSession, CancellationToken cancellationToken)
+    {
+        // Check if the result indicates a nuspec was migrated
+        var nuspecEntry = result.RemovedElements.FirstOrDefault(e => e.StartsWith("NuSpec file:"));
+        if (nuspecEntry != null)
+        {
+            // Extract the filename from the entry
+            var startIndex = "NuSpec file: ".Length;
+            var endIndex = nuspecEntry.IndexOf(" (metadata migrated");
+            if (endIndex > startIndex)
+            {
+                var nuspecFileName = nuspecEntry.Substring(startIndex, endIndex - startIndex);
+                
+                // Search for the nuspec file in common locations
+                var searchPaths = new[]
+                {
+                    Path.Combine(projectDirectory, nuspecFileName),
+                    Path.Combine(projectDirectory, "..", nuspecFileName),
+                    Path.Combine(projectDirectory, "nuget", nuspecFileName),
+                    Path.Combine(projectDirectory, "..", "nuget", nuspecFileName)
+                };
+                
+                foreach (var searchPath in searchPaths)
+                {
+                    if (File.Exists(searchPath))
+                    {
+                        var beforeHash = await FileHashCalculator.CalculateHashAsync(searchPath, cancellationToken);
+                        var fileSize = new FileInfo(searchPath).Length;
+                        
+                        if (_options.CreateBackup && backupSession != null)
+                        {
+                            await _backupService.BackupFileAsync(backupSession, searchPath, cancellationToken);
+                        }
+                        
+                        File.Delete(searchPath);
+                        
+                        await _auditService.LogFileDeletionAsync(new FileDeletionAudit
+                        {
+                            FilePath = searchPath,
+                            BeforeHash = beforeHash,
+                            FileSize = fileSize,
+                            DeletionReason = "NuSpec metadata migrated to project file"
+                        }, cancellationToken);
+                        
+                        _logger.LogInformation("Removed NuSpec file: {File} (metadata migrated to project file)", searchPath);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private void LogReport(MigrationReport report)
