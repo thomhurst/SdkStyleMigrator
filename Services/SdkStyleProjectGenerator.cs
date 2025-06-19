@@ -1079,6 +1079,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Extract just the assembly name without version info
             var assemblyName = referenceName.Split(',')[0].Trim();
             
+            // Get the HintPath for this reference (we'll need it in multiple places)
+            var referenceHintPath = reference.GetMetadataValue("HintPath");
+            
             // First check if this assembly is already provided by a migrated package
             var isProvidedByPackage = resolutionResult.ResolvedAssemblies.Any(a => 
                 a.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase));
@@ -1096,13 +1099,23 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 removedReferences.Add(assemblyName);
                 
                 // Collect hint path if this reference has one for cleanup
-                var hintPath = reference.GetMetadataValue("HintPath");
-                if (!string.IsNullOrEmpty(hintPath))
+                if (!string.IsNullOrEmpty(referenceHintPath))
                 {
-                    result.ConvertedHintPaths.Add(hintPath);
-                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", hintPath);
+                    result.ConvertedHintPaths.Add(referenceHintPath);
+                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", referenceHintPath);
                 }
                 
+                continue;
+            }
+            
+            // Check if this reference has a package HintPath - if so, skip it
+            if (!string.IsNullOrEmpty(referenceHintPath) && IsPackageHintPath(referenceHintPath))
+            {
+                _logger.LogWarning("Skipping assembly reference '{AssemblyName}' with package HintPath: {HintPath}. " +
+                    "Consider adding the appropriate NuGet package if needed.", assemblyName, referenceHintPath);
+                result.Warnings.Add($"Assembly '{assemblyName}' appears to be from a NuGet package but wasn't in packages.config. " +
+                    "You may need to manually add the appropriate package reference.");
+                removedReferences.Add($"{assemblyName} (package HintPath)");
                 continue;
             }
             
@@ -1110,12 +1123,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var packageResolution = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyName, cancellationToken: cancellationToken);
             if (packageResolution != null)
             {
-                // Collect hint path if this reference has one
-                var hintPath = reference.GetMetadataValue("HintPath");
-                if (!string.IsNullOrEmpty(hintPath))
+                // Collect hint path if this reference has one (recheck since we already checked above)
+                if (!string.IsNullOrEmpty(referenceHintPath))
                 {
-                    result.ConvertedHintPaths.Add(hintPath);
-                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", hintPath);
+                    result.ConvertedHintPaths.Add(referenceHintPath);
+                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", referenceHintPath);
                 }
                 // Add main package
                 if (!addedPackages.Contains(packageResolution.PackageId))
@@ -1213,10 +1225,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     new XAttribute("Include", assemblyName));
                 
                 // Copy important metadata
-                var hintPath = reference.GetMetadataValue("HintPath");
-                if (!string.IsNullOrEmpty(hintPath))
+                if (!string.IsNullOrEmpty(referenceHintPath))
                 {
-                    element.Add(new XElement("HintPath", hintPath));
+                    element.Add(new XElement("HintPath", referenceHintPath));
                 }
                 
                 var privateValue = reference.GetMetadataValue("Private");
@@ -1234,14 +1245,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 itemGroup.Add(element);
                 _logger.LogInformation("Preserved framework extension reference: {Reference}", assemblyName);
             }
-            else if (!string.IsNullOrEmpty(reference.GetMetadataValue("HintPath")))
+            else if (!string.IsNullOrEmpty(referenceHintPath))
             {
+                // This should only be reached for non-package HintPaths since we check package HintPaths earlier
                 // This is likely a third-party assembly with a HintPath - preserve it
                 var element = new XElement("Reference",
                     new XAttribute("Include", assemblyName));
                 
-                var hintPath = reference.GetMetadataValue("HintPath");
-                element.Add(new XElement("HintPath", hintPath));
+                element.Add(new XElement("HintPath", referenceHintPath));
                 
                 var privateValue = reference.GetMetadataValue("Private");
                 if (!string.IsNullOrEmpty(privateValue))
@@ -2089,5 +2100,26 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
         
         return implicitRefs;
+    }
+    
+    private bool IsPackageHintPath(string hintPath)
+    {
+        if (string.IsNullOrEmpty(hintPath))
+            return false;
+            
+        // Normalize the path for comparison
+        var normalizedPath = hintPath.Replace('\\', '/').ToLowerInvariant();
+        
+        // Check for common package directory patterns
+        return normalizedPath.Contains("/packages/") ||
+               normalizedPath.Contains("\\packages\\") ||
+               normalizedPath.Contains("/.nuget/packages/") ||
+               normalizedPath.Contains("\\.nuget\\packages\\") ||
+               normalizedPath.Contains("/nuget/packages/") ||
+               normalizedPath.Contains("\\nuget\\packages\\") ||
+               normalizedPath.Contains("/packagesrestore/") ||
+               normalizedPath.Contains("\\packagesrestore\\") ||
+               normalizedPath.EndsWith("/packages") ||
+               normalizedPath.EndsWith("\\packages");
     }
 }
