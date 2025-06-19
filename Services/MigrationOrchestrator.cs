@@ -13,6 +13,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly ISdkStyleProjectGenerator _sdkStyleProjectGenerator;
     private readonly IAssemblyInfoExtractor _assemblyInfoExtractor;
     private readonly IDirectoryBuildPropsGenerator _directoryBuildPropsGenerator;
+    private readonly ISolutionFileUpdater _solutionFileUpdater;
     private readonly MigrationOptions _options;
 
     public MigrationOrchestrator(
@@ -22,6 +23,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         ISdkStyleProjectGenerator sdkStyleProjectGenerator,
         IAssemblyInfoExtractor assemblyInfoExtractor,
         IDirectoryBuildPropsGenerator directoryBuildPropsGenerator,
+        ISolutionFileUpdater solutionFileUpdater,
         MigrationOptions options)
     {
         _logger = logger;
@@ -30,6 +32,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _sdkStyleProjectGenerator = sdkStyleProjectGenerator;
         _assemblyInfoExtractor = assemblyInfoExtractor;
         _directoryBuildPropsGenerator = directoryBuildPropsGenerator;
+        _solutionFileUpdater = solutionFileUpdater;
         _options = options;
     }
 
@@ -50,83 +53,61 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
 
-            var projectAssemblyProperties = new Dictionary<string, AssemblyProperties>();
+            var projectAssemblyProperties = new System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyProperties>();
+            var projectMappings = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
             var projectIndex = 0;
-
-            foreach (var projectFile in projectFilesList)
+            var totalProjects = projectFilesList.Count;
+            
+            if (_options.MaxDegreeOfParallelism > 1)
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    _logger.LogWarning("Migration cancelled by user");
-                    break;
-                }
-
-                projectIndex++;
-                var progress = $"[{projectIndex}/{projectFilesList.Count}]";
+                _logger.LogInformation("Processing projects in parallel with max degree of parallelism: {MaxDegree}", _options.MaxDegreeOfParallelism);
                 
-                try
+                var semaphore = new SemaphoreSlim(_options.MaxDegreeOfParallelism);
+                var processedCount = 0;
+                var lockObj = new object();
+                
+                var migrationTasks = projectFilesList.Select(async projectFile =>
                 {
-                    var project = await _projectParser.ParseProjectAsync(projectFile, cancellationToken);
-
-                    if (!_projectParser.IsLegacyProject(project))
+                    await semaphore.WaitAsync(cancellationToken);
+                    try
                     {
-                        _logger.LogInformation("{Progress} Skipping {ProjectPath} - already SDK-style", progress, projectFile);
-                        continue;
-                    }
-                    
-                    _logger.LogInformation("{Progress} Processing {ProjectPath}", progress, projectFile);
-
-                    var projectDir = Path.GetDirectoryName(projectFile)!;
-                    var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
-                    var projectProps = await _assemblyInfoExtractor.ExtractFromProjectAsync(project, cancellationToken);
-                    
-                    foreach (var prop in typeof(AssemblyProperties).GetProperties())
-                    {
-                        var projectValue = prop.GetValue(projectProps);
-                        if (projectValue != null && (projectValue is not string str || !string.IsNullOrEmpty(str)))
+                        if (cancellationToken.IsCancellationRequested)
                         {
-                            prop.SetValue(assemblyProps, projectValue);
+                            _logger.LogWarning("Migration cancelled by user");
+                            return;
                         }
+                        
+                        int currentIndex;
+                        lock (lockObj)
+                        {
+                            currentIndex = ++processedCount;
+                        }
+                        
+                        var progress = $"[{currentIndex}/{totalProjects}]";
+                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, cancellationToken);
                     }
-                    
-                    projectAssemblyProperties[projectFile] = assemblyProps;
-
-                    var outputPath = GenerateOutputPath(projectFile);
-
-                    var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
-                        project, outputPath, cancellationToken);
-
-                    if (result.Success && !_options.DryRun)
+                    finally
                     {
-                        await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
+                        semaphore.Release();
                     }
-
-                    report.Results.Add(result);
-
-                    if (result.Success)
-                    {
-                        report.TotalProjectsMigrated++;
-                        _logger.LogInformation("{Progress} Successfully migrated {ProjectPath}", progress, projectFile);
-                    }
-                    else
-                    {
-                        report.TotalProjectsFailed++;
-                        _logger.LogError("{Progress} Failed to migrate {ProjectPath}", progress, projectFile);
-                    }
-                }
-                catch (Exception ex)
+                }).ToList();
+                
+                await Task.WhenAll(migrationTasks);
+            }
+            else
+            {
+                foreach (var projectFile in projectFilesList)
                 {
-                    _logger.LogError(ex, "{Progress} Error processing project {ProjectPath}", progress, projectFile);
-                    
-                    var result = new MigrationResult
+                    if (cancellationToken.IsCancellationRequested)
                     {
-                        ProjectPath = projectFile,
-                        Success = false,
-                        Errors = { ex.Message }
-                    };
+                        _logger.LogWarning("Migration cancelled by user");
+                        break;
+                    }
+
+                    projectIndex++;
+                    var progress = $"[{projectIndex}/{projectFilesList.Count}]";
                     
-                    report.Results.Add(result);
-                    report.TotalProjectsFailed++;
+                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, cancellationToken);
                 }
             }
             
@@ -137,7 +118,29 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     : directoryPath;
                     
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
-                    outputDir, projectAssemblyProperties, cancellationToken);
+                    outputDir, projectAssemblyProperties.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), cancellationToken);
+            }
+            
+            if (projectMappings.Any())
+            {
+                _logger.LogInformation("Updating solution files with new project paths");
+                var solutionResult = await _solutionFileUpdater.UpdateSolutionFilesAsync(
+                    directoryPath, 
+                    projectMappings.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), 
+                    cancellationToken);
+                    
+                if (!solutionResult.Success)
+                {
+                    foreach (var error in solutionResult.Errors)
+                    {
+                        _logger.LogError("Solution update error: {Error}", error);
+                    }
+                }
+                else if (solutionResult.UpdatedProjects.Any())
+                {
+                    _logger.LogInformation("Updated {Count} project references in solution files", 
+                        solutionResult.UpdatedProjects.Count);
+                }
             }
         }
         catch (Exception ex)
@@ -152,6 +155,91 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
 
         return report;
+    }
+    
+    private async Task ProcessProjectAsync(
+        string projectFile, 
+        string progress, 
+        System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyProperties> projectAssemblyProperties,
+        System.Collections.Concurrent.ConcurrentDictionary<string, string> projectMappings,
+        MigrationReport report,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var project = await _projectParser.ParseProjectAsync(projectFile, cancellationToken);
+
+            if (!_projectParser.IsLegacyProject(project))
+            {
+                _logger.LogInformation("{Progress} Skipping {ProjectPath} - already SDK-style", progress, projectFile);
+                return;
+            }
+            
+            _logger.LogInformation("{Progress} Processing {ProjectPath}", progress, projectFile);
+
+            var projectDir = Path.GetDirectoryName(projectFile)!;
+            var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
+            var projectProps = await _assemblyInfoExtractor.ExtractFromProjectAsync(project, cancellationToken);
+            
+            foreach (var prop in typeof(AssemblyProperties).GetProperties())
+            {
+                var projectValue = prop.GetValue(projectProps);
+                if (projectValue != null && (projectValue is not string str || !string.IsNullOrEmpty(str)))
+                {
+                    prop.SetValue(assemblyProps, projectValue);
+                }
+            }
+            
+            projectAssemblyProperties[projectFile] = assemblyProps;
+
+            var outputPath = GenerateOutputPath(projectFile);
+
+            var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
+                project, outputPath, cancellationToken);
+
+            if (result.Success && !_options.DryRun)
+            {
+                await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
+            }
+            
+            if (result.Success && outputPath != projectFile)
+            {
+                projectMappings[projectFile] = outputPath;
+            }
+
+            lock (report)
+            {
+                report.Results.Add(result);
+
+                if (result.Success)
+                {
+                    report.TotalProjectsMigrated++;
+                    _logger.LogInformation("{Progress} Successfully migrated {ProjectPath}", progress, projectFile);
+                }
+                else
+                {
+                    report.TotalProjectsFailed++;
+                    _logger.LogError("{Progress} Failed to migrate {ProjectPath}", progress, projectFile);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{Progress} Error processing project {ProjectPath}", progress, projectFile);
+            
+            var result = new MigrationResult
+            {
+                ProjectPath = projectFile,
+                Success = false,
+                Errors = { ex.Message }
+            };
+            
+            lock (report)
+            {
+                report.Results.Add(result);
+                report.TotalProjectsFailed++;
+            }
+        }
     }
 
     private Task RemoveAssemblyInfoFilesAsync(string projectDirectory, CancellationToken cancellationToken)
@@ -168,7 +256,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     if (!_options.DryRun)
                     {
-                        var backupPath = $"{file}.backup";
+                        var backupPath = $"{file}.legacy";
                         File.Copy(file, backupPath, overwrite: true);
                         File.Delete(file);
                         

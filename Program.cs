@@ -1,4 +1,6 @@
-﻿using Microsoft.Build.Locator;
+using System.CommandLine;
+using System.CommandLine.Invocation;
+using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
@@ -13,13 +15,113 @@ class Program
     {
         InitializeMSBuild();
         
-        var options = ParseArguments(args);
+        var rootCommand = new RootCommand("SDK Migrator - Migrate legacy MSBuild project files to SDK-style format");
         
-        if (options == null)
+        var directoryArgument = new Argument<string>(
+            name: "directory",
+            description: "The directory to scan for project files");
+        
+        var dryRunOption = new Option<bool>(
+            aliases: new[] { "--dry-run", "-d" },
+            description: "Preview changes without modifying files");
+            
+        var outputDirectoryOption = new Option<string?>(
+            aliases: new[] { "--output-directory", "-o" },
+            description: "Output directory for migrated projects");
+            
+        var targetFrameworkOption = new Option<string?>(
+            aliases: new[] { "--target-framework", "-t" },
+            description: "Override target framework (e.g., net8.0)");
+            
+        var forceOption = new Option<bool>(
+            aliases: new[] { "--force", "-f" },
+            description: "Force migration without prompts");
+            
+        var noBackupOption = new Option<bool>(
+            aliases: new[] { "--no-backup" },
+            description: "Skip creating backup files");
+            
+        var parallelOption = new Option<int?>(
+            aliases: new[] { "--parallel", "-p" },
+            description: "Enable parallel processing (n = max threads)");
+            
+        var logLevelOption = new Option<string>(
+            aliases: new[] { "--log-level", "-l" },
+            getDefaultValue: () => "Information",
+            description: "Set log level (Trace|Debug|Information|Warning|Error)");
+            
+        rootCommand.AddArgument(directoryArgument);
+        rootCommand.AddOption(dryRunOption);
+        rootCommand.AddOption(outputDirectoryOption);
+        rootCommand.AddOption(targetFrameworkOption);
+        rootCommand.AddOption(forceOption);
+        rootCommand.AddOption(noBackupOption);
+        rootCommand.AddOption(parallelOption);
+        rootCommand.AddOption(logLevelOption);
+        
+        rootCommand.SetHandler(async (InvocationContext context) =>
         {
-            return 1;
-        }
+            var options = new MigrationOptions
+            {
+                DirectoryPath = context.ParseResult.GetValueForArgument(directoryArgument),
+                DryRun = context.ParseResult.GetValueForOption(dryRunOption),
+                OutputDirectory = context.ParseResult.GetValueForOption(outputDirectoryOption),
+                TargetFramework = context.ParseResult.GetValueForOption(targetFrameworkOption),
+                Force = context.ParseResult.GetValueForOption(forceOption),
+                NoBackup = context.ParseResult.GetValueForOption(noBackupOption),
+                MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
+                LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information"
+            };
+            
+            options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
+            
+            if (!Directory.Exists(options.DirectoryPath))
+            {
+                Console.Error.WriteLine($"Error: Directory '{options.DirectoryPath}' does not exist.");
+                context.ExitCode = 1;
+                return;
+            }
+            
+            if (options.OutputDirectory != null)
+            {
+                options.OutputDirectory = Path.GetFullPath(options.OutputDirectory);
+            }
+            
+            if (options.MaxDegreeOfParallelism == 0)
+            {
+                options.MaxDegreeOfParallelism = Environment.ProcessorCount;
+            }
+            
+            var exitCode = await RunMigration(options);
+            context.ExitCode = exitCode;
+        });
+        
+        rootCommand.Description = @"SDK Migrator - Migrate legacy MSBuild project files to SDK-style format
 
+This tool scans the specified directory and all subdirectories for
+legacy MSBuild project files (.csproj, .vbproj, .fsproj) and migrates
+them to the new SDK-style format.
+
+The tool will:
+- Remove unnecessary legacy properties and imports
+- Convert packages.config to PackageReference
+- Detect and remove transitive package dependencies
+- Extract assembly properties to Directory.Build.props
+- Remove AssemblyInfo files and enable SDK auto-generation
+- Create backup files with .legacy extension
+- Maintain feature parity with the original project
+
+Examples:
+  SdkMigrator ./src
+  SdkMigrator ./src --dry-run
+  SdkMigrator ./src -o ./src-migrated -t net8.0
+  SdkMigrator ./src --parallel 4 --log-level Debug";
+        
+        return await rootCommand.InvokeAsync(args);
+    }
+    
+    static async Task<int> RunMigration(MigrationOptions options)
+    {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
         
@@ -64,128 +166,6 @@ class Program
             return 1;
         }
     }
-    
-    static MigrationOptions? ParseArguments(string[] args)
-    {
-        if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
-        {
-            ShowHelp();
-            return null;
-        }
-
-        var options = new MigrationOptions();
-        var positionalArgs = new List<string>();
-
-        for (int i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            
-            if (arg.StartsWith("--") || arg.StartsWith("-"))
-            {
-                switch (arg.ToLower())
-                {
-                    case "--dry-run":
-                    case "-d":
-                        options.DryRun = true;
-                        break;
-                        
-                    case "--output-directory":
-                    case "-o":
-                        if (i + 1 < args.Length)
-                        {
-                            options.OutputDirectory = args[++i];
-                        }
-                        else
-                        {
-                            Console.Error.WriteLine($"Error: {arg} requires a value");
-                            return null;
-                        }
-                        break;
-                        
-                    case "--target-framework":
-                    case "-t":
-                        if (i + 1 < args.Length)
-                        {
-                            options.TargetFramework = args[++i];
-                        }
-                        else
-                        {
-                            Console.Error.WriteLine($"Error: {arg} requires a value");
-                            return null;
-                        }
-                        break;
-                        
-                    case "--no-backup":
-                        options.NoBackup = true;
-                        break;
-                        
-                    case "--force":
-                    case "-f":
-                        options.Force = true;
-                        break;
-                        
-                    case "--parallel":
-                    case "-p":
-                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out var parallelism))
-                        {
-                            options.MaxDegreeOfParallelism = parallelism;
-                            i++;
-                        }
-                        else
-                        {
-                            options.MaxDegreeOfParallelism = Environment.ProcessorCount;
-                        }
-                        break;
-                        
-                    case "--log-level":
-                    case "-l":
-                        if (i + 1 < args.Length)
-                        {
-                            options.LogLevel = args[++i];
-                        }
-                        else
-                        {
-                            Console.Error.WriteLine($"Error: {arg} requires a value");
-                            return null;
-                        }
-                        break;
-                        
-                    default:
-                        Console.Error.WriteLine($"Error: Unknown option '{arg}'");
-                        ShowHelp();
-                        return null;
-                }
-            }
-            else
-            {
-                positionalArgs.Add(arg);
-            }
-        }
-
-        if (positionalArgs.Count == 0)
-        {
-            Console.Error.WriteLine("Error: Directory path is required");
-            ShowHelp();
-            return null;
-        }
-
-        options.DirectoryPath = positionalArgs[0];
-        
-        if (!Directory.Exists(options.DirectoryPath))
-        {
-            Console.Error.WriteLine($"Error: Directory '{options.DirectoryPath}' does not exist.");
-            return null;
-        }
-
-        options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
-        
-        if (options.OutputDirectory != null)
-        {
-            options.OutputDirectory = Path.GetFullPath(options.OutputDirectory);
-        }
-
-        return options;
-    }
 
     static void ConfigureServices(IServiceCollection services, MigrationOptions options)
     {
@@ -213,51 +193,12 @@ class Program
         services.AddSingleton<ProjectParser>();
         services.AddSingleton<IProjectParser>(provider => provider.GetRequiredService<ProjectParser>());
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();
-        services.AddSingleton<ITransitiveDependencyDetector, TransitiveDependencyDetector>();
+        services.AddSingleton<ITransitiveDependencyDetector, NuGetTransitiveDependencyDetector>();
         services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
         services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
         services.AddSingleton<IDirectoryBuildPropsGenerator, DirectoryBuildPropsGenerator>();
+        services.AddSingleton<ISolutionFileUpdater, SolutionFileUpdater>();
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
-    }
-
-    static void ShowHelp()
-    {
-        Console.WriteLine("SDK Migrator - Migrate legacy MSBuild project files to SDK-style format");
-        Console.WriteLine();
-        Console.WriteLine("Usage: SdkMigrator <directory> [options]");
-        Console.WriteLine();
-        Console.WriteLine("Arguments:");
-        Console.WriteLine("  <directory>              The directory to scan for project files");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  -h, --help               Show this help message");
-        Console.WriteLine("  -d, --dry-run            Preview changes without modifying files");
-        Console.WriteLine("  -o, --output-directory   Output directory for migrated projects");
-        Console.WriteLine("  -t, --target-framework   Override target framework (e.g., net8.0)");
-        Console.WriteLine("  -f, --force              Force migration without prompts");
-        Console.WriteLine("  --no-backup              Skip creating backup files");
-        Console.WriteLine("  -p, --parallel [n]       Enable parallel processing (n = max threads)");
-        Console.WriteLine("  -l, --log-level          Set log level (Trace|Debug|Information|Warning|Error)");
-        Console.WriteLine();
-        Console.WriteLine("Examples:");
-        Console.WriteLine("  SdkMigrator ./src");
-        Console.WriteLine("  SdkMigrator ./src --dry-run");
-        Console.WriteLine("  SdkMigrator ./src -o ./src-migrated -t net8.0");
-        Console.WriteLine("  SdkMigrator ./src --parallel 4 --log-level Debug");
-        Console.WriteLine();
-        Console.WriteLine("Description:");
-        Console.WriteLine("  This tool scans the specified directory and all subdirectories for");
-        Console.WriteLine("  legacy MSBuild project files (.csproj, .vbproj, .fsproj) and migrates");
-        Console.WriteLine("  them to the new SDK-style format.");
-        Console.WriteLine();
-        Console.WriteLine("  The tool will:");
-        Console.WriteLine("  - Remove unnecessary legacy properties and imports");
-        Console.WriteLine("  - Convert packages.config to PackageReference");
-        Console.WriteLine("  - Detect and remove transitive package dependencies");
-        Console.WriteLine("  - Extract assembly properties to Directory.Build.props");
-        Console.WriteLine("  - Remove AssemblyInfo files and enable SDK auto-generation");
-        Console.WriteLine("  - Create backup files with .legacy extension");
-        Console.WriteLine("  - Maintain feature parity with the original project");
     }
     
     static void InitializeMSBuild()

@@ -120,4 +120,9 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 
         return Task.FromResult<IEnumerable<PackageReference>>(packages);
     }
+    
+    public void Dispose()
+    {
+        // Nothing to dispose in the heuristic implementation
+    }
 }
