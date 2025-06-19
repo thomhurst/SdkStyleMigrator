@@ -22,11 +22,8 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         
         var commonProperties = ExtractCommonProperties(projectProperties);
         
-        if (!commonProperties.HasProperties())
-        {
-            _logger.LogInformation("No common assembly properties found, skipping Directory.Build.props generation");
-            return Task.CompletedTask;
-        }
+        // Always create Directory.Build.props for binding redirects and other settings
+        // even if there are no common assembly properties
 
         XDocument doc;
         XElement projectElement;
@@ -81,21 +78,7 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
 
         AddOrUpdateProperty(assemblyPropGroup, "GenerateAssemblyInfo", "true");
         
-        // Add automatic binding redirect generation
-        var bindingRedirectPropGroup = projectElement.Elements("PropertyGroup")
-            .FirstOrDefault(pg => pg.Elements().Any(e => 
-                e.Name.LocalName == "AutoGenerateBindingRedirects"));
-                
-        if (bindingRedirectPropGroup == null)
-        {
-            bindingRedirectPropGroup = new XElement("PropertyGroup");
-            bindingRedirectPropGroup.Add(new XComment("Binding Redirect Configuration"));
-            assemblyPropGroup.AddAfterSelf(bindingRedirectPropGroup);
-        }
-        
-        AddOrUpdateProperty(bindingRedirectPropGroup, "AutoGenerateBindingRedirects", "true");
-        AddOrUpdateProperty(bindingRedirectPropGroup, "GenerateBindingRedirectsOutputType", "true");
-        
+        // Add assembly properties if they exist
         if (!string.IsNullOrEmpty(commonProperties.Company))
             AddOrUpdateProperty(assemblyPropGroup, "Company", commonProperties.Company);
         
@@ -119,11 +102,26 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         
         if (commonProperties.ComVisible.HasValue)
             AddOrUpdateProperty(assemblyPropGroup, "ComVisible", commonProperties.ComVisible.Value.ToString().ToLower());
+        
+        // Add automatic binding redirect generation
+        var bindingRedirectPropGroup = projectElement.Elements("PropertyGroup")
+            .FirstOrDefault(pg => pg.Elements().Any(e => 
+                e.Name.LocalName == "AutoGenerateBindingRedirects"));
+                
+        if (bindingRedirectPropGroup == null)
+        {
+            bindingRedirectPropGroup = new XElement("PropertyGroup");
+            bindingRedirectPropGroup.Add(new XComment("Binding Redirect Configuration"));
+            assemblyPropGroup.AddAfterSelf(bindingRedirectPropGroup);
+        }
+        
+        AddOrUpdateProperty(bindingRedirectPropGroup, "AutoGenerateBindingRedirects", "true");
+        AddOrUpdateProperty(bindingRedirectPropGroup, "GenerateBindingRedirectsOutputType", "true");
 
         if (!_options.DryRun)
         {
             doc.Save(filePath);
-            _logger.LogInformation("Successfully created/updated Directory.Build.props with common assembly properties");
+            _logger.LogInformation("Successfully created/updated Directory.Build.props at {Path}", filePath);
         }
         else
         {

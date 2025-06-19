@@ -6,6 +6,9 @@
 - **NuGet DLL References**: Skip None/Content items pointing to DLLs in NuGet cache
   - Filters out any DLL references from packages or .nuget folders
   - Prevents unnecessary file references to NuGet cache being added to projects
+- **Directory.Build.props Creation**: Fixed issue where Directory.Build.props was not being created
+  - Now always creates the file even if no common assembly properties exist
+  - Ensures binding redirect settings are always added
 - **AssemblyInfo Compile Items**: Now properly removes AssemblyInfo.cs compile items from the project file during migration
   - Previously only removed the physical files but left dangling references in the project
   - Now excludes these files during SDK-style project generation
