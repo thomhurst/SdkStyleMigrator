@@ -1615,7 +1615,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
             
             // 4. Last resort - search the entire repository for the project file
-            _logger.LogDebug("Searching entire repository for project file: {FileName}", fileName);
+            _logger.LogInformation("Project reference '{Path}' not found at expected location. Searching repository for '{FileName}'...", referencePath, fileName);
             
             // Find the repository root (look for .git directory or go up to a reasonable limit)
             var repoRoot = currentProjectDir;
@@ -1629,14 +1629,71 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 searchDepth++;
             }
             
+            // If we didn't find .git, use a reasonable parent directory (up to 5 levels)
+            if (!Directory.Exists(Path.Combine(repoRoot, ".git")) && searchDepth >= 10)
+            {
+                repoRoot = currentProjectDir;
+                for (int i = 0; i < 5; i++)
+                {
+                    var parent = Path.GetDirectoryName(repoRoot);
+                    if (string.IsNullOrEmpty(parent) || parent == repoRoot)
+                        break;
+                    repoRoot = parent;
+                }
+                _logger.LogDebug("No .git directory found, using parent directory as repository root: {Root}", repoRoot);
+            }
+            
             // Search from repository root
             try
             {
+                _logger.LogDebug("Searching for project files in: {Root}", repoRoot);
+                
+                // Directories to exclude from search
+                var excludedDirs = new[] { "bin", "obj", "packages", "node_modules", ".git", ".vs", "artifacts", "publish" };
+                
+                // First try exact filename match
                 var allProjectFiles = Directory.GetFiles(repoRoot, fileName, SearchOption.AllDirectories)
                     .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
                                f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
                                f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                    .Where(f => !excludedDirs.Any(dir => f.Contains($"{Path.DirectorySeparatorChar}{dir}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
                     .ToList();
+                
+                // If no exact match, try with wildcards for common patterns
+                if (!allProjectFiles.Any() && !fileName.Contains("*"))
+                {
+                    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+                    var extension = Path.GetExtension(fileName);
+                    
+                    // Try common variations
+                    var patterns = new[]
+                    {
+                        $"*{fileNameWithoutExtension}*{extension}",  // Any prefix/suffix
+                        $"{fileNameWithoutExtension}.*proj",           // Any project type
+                        $"*{fileNameWithoutExtension}.*proj"           // Any prefix and project type
+                    };
+                    
+                    foreach (var pattern in patterns)
+                    {
+                        _logger.LogDebug("Trying pattern: {Pattern}", pattern);
+                        var foundFiles = Directory.GetFiles(repoRoot, pattern, SearchOption.AllDirectories)
+                            .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+                                       f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
+                                       f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                            .Where(f => !excludedDirs.Any(dir => f.Contains($"{Path.DirectorySeparatorChar}{dir}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
+                            .ToList();
+                            
+                        if (foundFiles.Any())
+                        {
+                            allProjectFiles.AddRange(foundFiles);
+                        }
+                    }
+                    
+                    // Remove duplicates
+                    allProjectFiles = allProjectFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                }
+                
+                _logger.LogDebug("Found {Count} potential project matches", allProjectFiles.Count);
                 
                 if (allProjectFiles.Count == 1)
                 {
