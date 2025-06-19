@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0] - 2025-01-19
+
+### Added
+- **Private NuGet Repository Support**: Automatically discovers and uses all configured NuGet sources
+  - Searches system-wide, user-wide, and solution/project-level nuget.config files
+  - Loads credentials from configured sources automatically
+  - Searches private repositories when packages are not found on nuget.org
+  - Added `--nuget-config` option to specify custom NuGet configuration file
+  - Logs all discovered sources for transparency
+- **Local Package File Cleanup**: Automatically removes obsolete local package files after migration
+  - Deletes DLLs, PDBs, XML docs, and related files replaced by PackageReference
+  - Cleans package directories (packages, lib, libs, references, etc.)
+  - Removes empty directories after cleanup
+  - Tracks hint paths during migration for targeted cleanup
+  - Cleans global packages folder when all projects migrated successfully
+  - Integrates with backup and audit services for safe operation
+
 ## [0.3.0] - 2025-01-19
 
 ### Changed

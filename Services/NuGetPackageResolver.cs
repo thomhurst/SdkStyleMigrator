@@ -13,6 +13,7 @@ namespace SdkMigrator.Services;
 public class NuGetPackageResolver : INuGetPackageResolver
 {
     private readonly ILogger<NuGetPackageResolver> _logger;
+    private readonly MigrationOptions _options;
     private readonly SourceCacheContext _cache;
     private readonly IEnumerable<SourceRepository> _repositories;
     private readonly NuGetLogger _nugetLogger;
@@ -59,22 +60,94 @@ public class NuGetPackageResolver : INuGetPackageResolver
         ["CommonServiceLocator"] = ("CommonServiceLocator", null)
     };
 
-    public NuGetPackageResolver(ILogger<NuGetPackageResolver> logger)
+    public NuGetPackageResolver(ILogger<NuGetPackageResolver> logger, MigrationOptions options)
     {
         _logger = logger;
+        _options = options;
         _cache = new SourceCacheContext();
         _nugetLogger = new NuGetLogger(logger);
         
-        // Initialize NuGet repositories
+        // Initialize NuGet repositories from system configuration
         var providers = Repository.Provider.GetCoreV3();
-        var packageSources = new List<PackageSource>
-        {
-            new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org")
-        };
+        var packageSources = DiscoverNuGetSources();
         
         _repositories = packageSources.Select(source => new SourceRepository(source, providers)).ToList();
         
-        _logger.LogInformation("NuGet package resolver initialized with {Count} repositories", _repositories.Count());
+        _logger.LogInformation("NuGet package resolver initialized with {Count} repositories:", _repositories.Count());
+        foreach (var repo in _repositories)
+        {
+            _logger.LogInformation("  - {Name}: {Source}", repo.PackageSource.Name, repo.PackageSource.Source);
+        }
+    }
+
+    private List<PackageSource> DiscoverNuGetSources()
+    {
+        var sources = new List<PackageSource>();
+        
+        try
+        {
+            ISettings settings;
+            
+            // Check if a specific NuGet config file was provided
+            if (!string.IsNullOrEmpty(_options?.NuGetConfigPath) && File.Exists(_options.NuGetConfigPath))
+            {
+                _logger.LogInformation("Loading NuGet configuration from specified file: {ConfigPath}", _options.NuGetConfigPath);
+                var configDirectory = Path.GetDirectoryName(_options.NuGetConfigPath) ?? Directory.GetCurrentDirectory();
+                var configFileName = Path.GetFileName(_options.NuGetConfigPath);
+                settings = Settings.LoadSpecificSettings(configDirectory, configFileName);
+            }
+            else
+            {
+                // Get NuGet settings from the working directory (will search up for nuget.config files)
+                var workingDirectory = _options?.DirectoryPath ?? Directory.GetCurrentDirectory();
+                settings = Settings.LoadDefaultSettings(root: workingDirectory);
+                _logger.LogDebug("Loading NuGet settings from directory: {Directory}", workingDirectory);
+            }
+            
+            // Get all enabled package sources from the configuration
+            var sourceProvider = new PackageSourceProvider(settings);
+            var configuredSources = sourceProvider.LoadPackageSources()
+                .Where(s => s.IsEnabled)
+                .ToList();
+            
+            if (configuredSources.Any())
+            {
+                _logger.LogInformation("Found {Count} configured NuGet sources from system settings", configuredSources.Count);
+                
+                // The credentials should already be loaded with the sources
+                // Just log which sources have credentials
+                foreach (var source in configuredSources)
+                {
+                    if (source.Credentials != null && !string.IsNullOrEmpty(source.Credentials.Username))
+                    {
+                        _logger.LogInformation("Source {Source} has credentials configured for user: {User}", 
+                            source.Name, source.Credentials.Username);
+                    }
+                }
+                
+                sources.AddRange(configuredSources);
+            }
+            else
+            {
+                _logger.LogWarning("No NuGet sources found in configuration, adding default NuGet.org source");
+                sources.Add(new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org"));
+            }
+            
+            // Ensure NuGet.org is included if not already present
+            if (!sources.Any(s => s.Source.Contains("nuget.org", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogInformation("Adding NuGet.org as it was not in configured sources");
+                sources.Add(new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org"));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load NuGet configuration, falling back to default NuGet.org source");
+            sources.Clear();
+            sources.Add(new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org"));
+        }
+        
+        return sources;
     }
 
     public async Task<string?> GetLatestStableVersionAsync(string packageId, CancellationToken cancellationToken = default)
@@ -100,23 +173,37 @@ public class NuGetPackageResolver : INuGetPackageResolver
         }
 
         var allVersions = new List<NuGetVersion>();
+        var searchedSources = new List<string>();
 
         foreach (var repository in _repositories)
         {
             try
             {
+                _logger.LogDebug("Searching for package {PackageId} in repository {Repository}", 
+                    packageId, repository.PackageSource.Name);
+                    
                 var resource = await repository.GetResourceAsync<FindPackageByIdResource>(cancellationToken);
+                if (resource == null)
+                {
+                    _logger.LogWarning("Could not get FindPackageByIdResource from repository {Repository}", 
+                        repository.PackageSource.Name);
+                    continue;
+                }
+                
                 var versions = await resource.GetAllVersionsAsync(packageId, _cache, _nugetLogger, cancellationToken);
                 
                 if (versions != null && versions.Any())
                 {
                     allVersions.AddRange(versions);
+                    searchedSources.Add(repository.PackageSource.Name);
+                    _logger.LogDebug("Found {Count} versions of {PackageId} in {Repository}", 
+                        versions.Count(), packageId, repository.PackageSource.Name);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to get versions for package {PackageId} from repository {Repository}", 
-                    packageId, repository.PackageSource.Source);
+                    packageId, repository.PackageSource.Name);
             }
         }
 
@@ -126,6 +213,16 @@ public class NuGetPackageResolver : INuGetPackageResolver
             .Distinct()
             .OrderByDescending(v => v)
             .ToList();
+
+        if (filteredVersions.Any())
+        {
+            _logger.LogInformation("Package {PackageId} found in repositories: {Sources}", 
+                packageId, string.Join(", ", searchedSources));
+        }
+        else
+        {
+            _logger.LogDebug("Package {PackageId} not found in any configured repository", packageId);
+        }
 
         // Cache the results
         _versionCache.TryAdd(cacheKey, filteredVersions);

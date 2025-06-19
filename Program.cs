@@ -54,6 +54,10 @@ class Program
             aliases: new[] { "--offline" },
             description: "Use hardcoded package versions instead of querying NuGet (for offline scenarios)");
             
+        var nugetConfigOption = new Option<string?>(
+            aliases: new[] { "--nuget-config", "-n" },
+            description: "Path to a specific NuGet.config file to use for package sources");
+            
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
         rootCommand.AddOption(dryRunOption);
@@ -64,6 +68,7 @@ class Program
         rootCommand.AddOption(parallelOption);
         rootCommand.AddOption(logLevelOption);
         rootCommand.AddOption(offlineOption);
+        rootCommand.AddOption(nugetConfigOption);
         
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
@@ -108,7 +113,8 @@ class Program
                 CreateBackup = !context.ParseResult.GetValueForOption(noBackupOption),
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
                 LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information",
-                UseOfflineMode = context.ParseResult.GetValueForOption(offlineOption)
+                UseOfflineMode = context.ParseResult.GetValueForOption(offlineOption),
+                NuGetConfigPath = context.ParseResult.GetValueForOption(nugetConfigOption)
             };
             
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
@@ -123,6 +129,17 @@ class Program
             if (options.OutputDirectory != null)
             {
                 options.OutputDirectory = Path.GetFullPath(options.OutputDirectory);
+            }
+            
+            if (options.NuGetConfigPath != null)
+            {
+                options.NuGetConfigPath = Path.GetFullPath(options.NuGetConfigPath);
+                if (!File.Exists(options.NuGetConfigPath))
+                {
+                    Console.Error.WriteLine($"Error: NuGet config file '{options.NuGetConfigPath}' does not exist.");
+                    context.ExitCode = 1;
+                    return;
+                }
             }
             
             if (options.MaxDegreeOfParallelism == 0)
@@ -158,6 +175,7 @@ Examples:
   SdkMigrator ./src --dry-run
   SdkMigrator ./src -o ./src-migrated -t net8.0
   SdkMigrator ./src --parallel 4 --log-level Debug
+  SdkMigrator ./src --nuget-config ./custom-nuget.config
   SdkMigrator rollback ./src
   SdkMigrator rollback ./src --session-id 20250119_120000";
         

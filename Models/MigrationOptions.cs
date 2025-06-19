@@ -11,4 +11,5 @@ public class MigrationOptions
     public int MaxDegreeOfParallelism { get; set; } = 1;
     public string LogLevel { get; set; } = "Information";
     public bool UseOfflineMode { get; set; }
+    public string? NuGetConfigPath { get; set; }
 }
