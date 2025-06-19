@@ -21,6 +21,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly NativeDependencyHandler _nativeDependencyHandler;
     private readonly ServiceReferenceDetector _serviceReferenceDetector;
     private readonly MigrationOptions _options;
+    private readonly CustomTargetAnalyzer _customTargetAnalyzer;
+    private readonly EntityFrameworkMigrationHandler _entityFrameworkHandler;
+    private readonly T4TemplateHandler _t4TemplateHandler;
+    private readonly PackageAssemblyResolver _packageAssemblyResolver;
 
     public SdkStyleProjectGenerator(
         ILogger<SdkStyleProjectGenerator> logger,
@@ -33,6 +37,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         DeploymentDetector deploymentDetector,
         NativeDependencyHandler nativeDependencyHandler,
         ServiceReferenceDetector serviceReferenceDetector,
+        CustomTargetAnalyzer customTargetAnalyzer,
+        EntityFrameworkMigrationHandler entityFrameworkHandler,
+        T4TemplateHandler t4TemplateHandler,
+        PackageAssemblyResolver packageAssemblyResolver,
         MigrationOptions options)
     {
         _logger = logger;
@@ -45,6 +53,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _deploymentDetector = deploymentDetector;
         _nativeDependencyHandler = nativeDependencyHandler;
         _serviceReferenceDetector = serviceReferenceDetector;
+        _customTargetAnalyzer = customTargetAnalyzer;
+        _entityFrameworkHandler = entityFrameworkHandler;
+        _t4TemplateHandler = t4TemplateHandler;
+        _packageAssemblyResolver = packageAssemblyResolver;
         _options = options;
     }
 
@@ -203,6 +215,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement.Add(compileItems);
             }
             
+            // Handle linked files separately to ensure they're preserved
+            var linkedItems = MigrateLinkedItems(legacyProject, result);
+            if (linkedItems.HasElements)
+            {
+                projectElement.Add(linkedItems);
+            }
+            
             var wpfWinFormsItems = MigrateWpfWinFormsItems(legacyProject);
             if (wpfWinFormsItems.HasElements)
             {
@@ -238,8 +257,28 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 _nativeDependencyHandler.MigrateNativeDependencies(nativeDeps, projectElement, result);
             }
             
+            // Handle Entity Framework
+            var efInfo = await _entityFrameworkHandler.DetectEntityFrameworkAsync(legacyProject, cancellationToken);
+            if (efInfo.UsesEntityFramework)
+            {
+                _entityFrameworkHandler.AddEntityFrameworkSupport(efInfo, projectElement, result);
+            }
+            
+            // Handle T4 Templates
+            var t4Info = _t4TemplateHandler.DetectT4Templates(legacyProject);
+            if (t4Info.HasT4Templates)
+            {
+                _t4TemplateHandler.MigrateT4Templates(t4Info, projectElement, result);
+            }
+            
             // Migrate build events before custom targets
             _buildEventMigrator.MigrateBuildEvents(legacyProject, projectElement, result);
+            
+            // Migrate complex build configurations
+            MigrateComplexBuildConfigurations(legacyProject, projectElement, result);
+            
+            // Migrate custom targets with enhanced analyzer
+            MigrateCustomTargetsWithAnalysis(legacyProject, projectElement, result);
             
             MigrateCustomTargetsAndImports(legacyProject, projectElement, result);
 
@@ -383,6 +422,46 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "Prefer32Bit",
             "AllowUnsafeBlocks"
         };
+        
+        // ClickOnce properties
+        var clickOnceProperties = new[]
+        {
+            "PublishUrl",
+            "InstallUrl",
+            "UpdateUrl",
+            "SupportUrl",
+            "ProductName",
+            "PublisherName",
+            "ApplicationRevision",
+            "ApplicationVersion",
+            "UseApplicationTrust",
+            "CreateDesktopShortcut",
+            "PublishWizardCompleted",
+            "BootstrapperEnabled",
+            "IsWebBootstrapper",
+            "Install",
+            "InstallFrom",
+            "UpdateEnabled",
+            "UpdateMode",
+            "UpdateInterval",
+            "UpdateIntervalUnits",
+            "UpdatePeriodically",
+            "UpdateRequired",
+            "MapFileExtensions",
+            "MinimumRequiredVersion",
+            "CreateWebPageOnPublish",
+            "WebPage",
+            "TrustUrlParameters",
+            "ErrorReportUrl",
+            "TargetCulture",
+            "SignManifests",
+            "ManifestCertificateThumbprint",
+            "ManifestKeyFile",
+            "GenerateManifests",
+            "SignAssembly",
+            "AssemblyOriginatorKeyFile",
+            "DelaySign"
+        };
 
         foreach (var propName in importantProperties)
         {
@@ -391,6 +470,34 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 propertyGroup.Add(new XElement(propName, value));
             }
+        }
+        
+        // Check if project uses ClickOnce
+        var hasClickOnce = false;
+        foreach (var propName in clickOnceProperties)
+        {
+            var value = legacyProject.GetPropertyValue(propName);
+            if (!string.IsNullOrEmpty(value))
+            {
+                propertyGroup.Add(new XElement(propName, value));
+                hasClickOnce = true;
+                _logger.LogDebug("Migrated ClickOnce property: {PropertyName} = {Value}", propName, value);
+            }
+        }
+        
+        if (hasClickOnce)
+        {
+            // Ensure IsPublishable is set for ClickOnce
+            if (propertyGroup.Element("IsPublishable") == null)
+            {
+                propertyGroup.Add(new XElement("IsPublishable", "true"));
+            }
+            
+            result.Warnings.Add("ClickOnce deployment properties migrated. Important notes:");
+            result.Warnings.Add("- Test publish functionality thoroughly after migration");
+            result.Warnings.Add("- Ensure certificate files are accessible at the specified paths");
+            result.Warnings.Add("- Update PublishUrl and InstallUrl if using relative paths");
+            result.Warnings.Add("- Run 'dotnet publish -p:PublishProfile=ClickOnceProfile' to test");
         }
         
         foreach (var propName in LegacyProjectElements.PropertiesToPreserve)
@@ -495,36 +602,84 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return targetFrameworkVersion;
     }
 
+    private string? GetTargetFrameworkFromProject(XElement projectElement)
+    {
+        var propertyGroups = projectElement.Elements("PropertyGroup");
+        foreach (var pg in propertyGroups)
+        {
+            var targetFramework = pg.Element("TargetFramework")?.Value;
+            if (!string.IsNullOrEmpty(targetFramework))
+                return targetFramework;
+                
+            var targetFrameworks = pg.Element("TargetFrameworks")?.Value;
+            if (!string.IsNullOrEmpty(targetFrameworks))
+            {
+                // Return the first framework for assembly resolution
+                return targetFrameworks.Split(';')[0].Trim();
+            }
+        }
+        return null;
+    }
+    
     private XElement MigrateProjectReferences(Project legacyProject, MigrationResult result)
     {
         var itemGroup = new XElement("ItemGroup");
         var projectReferences = legacyProject.Items.Where(i => i.ItemType == "ProjectReference");
         var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
 
-        foreach (var reference in projectReferences)
+        // Group references by condition to handle conditional references
+        var refGroups = projectReferences.GroupBy(r => r.Xml.Condition ?? "");
+        
+        foreach (var group in refGroups)
         {
-            var includeValue = reference.EvaluatedInclude;
-            var resolvedPath = ResolveProjectReferencePath(projectDir, includeValue, result);
+            var condition = group.Key;
+            var currentItemGroup = string.IsNullOrEmpty(condition) ? itemGroup : new XElement("ItemGroup");
             
-            if (resolvedPath != includeValue)
+            if (!string.IsNullOrEmpty(condition))
             {
-                _logger.LogInformation("Fixed project reference path: {OldPath} -> {NewPath}", includeValue, resolvedPath);
+                currentItemGroup.Add(new XAttribute("Condition", condition));
             }
             
-            var element = new XElement("ProjectReference",
-                new XAttribute("Include", resolvedPath));
-
-            var metadataToPreserve = new[] { "Name", "Private", "SpecificVersion" };
-            foreach (var metadata in metadataToPreserve)
+            foreach (var reference in group)
             {
-                var value = reference.GetMetadataValue(metadata);
-                if (!string.IsNullOrEmpty(value))
+                var includeValue = reference.EvaluatedInclude;
+                var resolvedPath = ResolveProjectReferencePath(projectDir, includeValue, result);
+                
+                if (resolvedPath != includeValue)
                 {
-                    element.Add(new XElement(metadata, value));
+                    _logger.LogInformation("Fixed project reference path: {OldPath} -> {NewPath}", includeValue, resolvedPath);
                 }
-            }
+                
+                var element = new XElement("ProjectReference",
+                    new XAttribute("Include", resolvedPath));
 
-            itemGroup.Add(element);
+                var metadataToPreserve = new[] { "Name", "Private", "SpecificVersion", "ReferenceOutputAssembly" };
+                foreach (var metadata in metadataToPreserve)
+                {
+                    var value = reference.GetMetadataValue(metadata);
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        element.Add(new XElement(metadata, value));
+                    }
+                }
+
+                currentItemGroup.Add(element);
+            }
+            
+            // If this was a conditional group, return it separately
+            if (!string.IsNullOrEmpty(condition) && currentItemGroup.HasElements)
+            {
+                // We need to add conditional item groups to the project element directly
+                // For now, add to the main itemGroup with a comment
+                itemGroup.Add(new XComment($"Conditional reference group: {condition}"));
+                foreach (var elem in currentItemGroup.Elements())
+                {
+                    var condElem = new XElement(elem);
+                    condElem.Add(new XAttribute("Condition", condition));
+                    itemGroup.Add(condElem);
+                }
+                result.Warnings.Add($"Conditional project reference detected: {condition}");
+            }
         }
 
         return itemGroup;
@@ -582,6 +737,73 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             itemGroup.Add(new XElement("Compile", 
                 new XAttribute("Remove", item.EvaluatedInclude)));
+        }
+        
+        return itemGroup;
+    }
+    
+    private XElement MigrateLinkedItems(Project legacyProject, MigrationResult result)
+    {
+        var itemGroup = new XElement("ItemGroup");
+        var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
+        
+        // Find all items with Link metadata that point outside the project directory
+        var linkedItems = legacyProject.Items
+            .Where(i => i.HasMetadata("Link") || 
+                       (!Path.GetFullPath(Path.Combine(projectDir, i.EvaluatedInclude))
+                        .StartsWith(projectDir, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+            
+        foreach (var item in linkedItems)
+        {
+            // Skip if already handled in other methods
+            if (item.ItemType == "Compile" && 
+                LegacyProjectElements.ImplicitlyIncludedExtensions.Contains(Path.GetExtension(item.EvaluatedInclude)))
+            {
+                continue; // Already handled in MigrateCompileItems
+            }
+            
+            var element = new XElement(item.ItemType,
+                new XAttribute("Include", item.EvaluatedInclude));
+                
+            // Ensure Link metadata is preserved
+            var linkValue = item.GetMetadataValue("Link");
+            if (string.IsNullOrEmpty(linkValue))
+            {
+                // Generate Link metadata for files outside project directory
+                var fullPath = Path.GetFullPath(Path.Combine(projectDir, item.EvaluatedInclude));
+                if (!fullPath.StartsWith(projectDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Use just the filename or a simplified path
+                    linkValue = Path.GetFileName(item.EvaluatedInclude);
+                    var dir = Path.GetDirectoryName(item.EvaluatedInclude);
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        var lastDir = Path.GetFileName(dir);
+                        if (!string.IsNullOrEmpty(lastDir))
+                        {
+                            linkValue = Path.Combine(lastDir, linkValue);
+                        }
+                    }
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(linkValue))
+            {
+                element.Add(new XElement("Link", linkValue));
+            }
+            
+            // Copy other metadata
+            CopyMetadata(item, element, "Link"); // Exclude Link since we already added it
+            
+            itemGroup.Add(element);
+            _logger.LogDebug("Migrated linked item: {ItemType} {Include} -> {Link}", 
+                item.ItemType, item.EvaluatedInclude, linkValue);
+        }
+        
+        if (linkedItems.Any())
+        {
+            result.Warnings.Add($"Migrated {linkedItems.Count} linked files. Verify paths are correct after migration.");
         }
         
         return itemGroup;
@@ -759,14 +981,46 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var addedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var convertedAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         
+        // Get all packages that were already migrated from packages.config
+        var existingPackages = result.MigratedPackages.ToList();
+        
+        // Get the target framework for assembly resolution
+        var targetFramework = GetTargetFrameworkFromProject(projectElement) ?? "net8.0";
+        
+        // Use PackageAssemblyResolver to get all assemblies provided by the migrated packages
+        var packageProvidedAssemblies = await _packageAssemblyResolver.GetAssembliesProvidedByPackagesAsync(
+            existingPackages, targetFramework, cancellationToken);
+        
+        _logger.LogInformation("Found {Count} assemblies provided by {PackageCount} packages", 
+            packageProvidedAssemblies.Count, existingPackages.Count);
+        
         // Migrate assembly references that are not part of the implicit framework references
         var assemblyReferences = legacyProject.Items.Where(i => i.ItemType == "Reference");
+        var removedReferences = new List<string>();
+        
         foreach (var reference in assemblyReferences)
         {
             var referenceName = reference.EvaluatedInclude;
             
             // Extract just the assembly name without version info
             var assemblyName = referenceName.Split(',')[0].Trim();
+            
+            // First check if this assembly is already provided by a migrated package
+            if (_packageAssemblyResolver.IsAssemblyProvidedByPackage(assemblyName, packageProvidedAssemblies))
+            {
+                removedReferences.Add(assemblyName);
+                _logger.LogInformation("Removing assembly reference '{AssemblyName}' - already provided by a package", assemblyName);
+                
+                // Collect hint path if this reference has one for cleanup
+                var hintPath = reference.GetMetadataValue("HintPath");
+                if (!string.IsNullOrEmpty(hintPath))
+                {
+                    result.ConvertedHintPaths.Add(hintPath);
+                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", hintPath);
+                }
+                
+                continue;
+            }
             
             // Check if this assembly should be converted to a package reference
             var packageResolution = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyName, cancellationToken: cancellationToken);
@@ -939,6 +1193,17 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             itemGroup.Add(element);
         }
         
+        // Log summary of removed references
+        if (removedReferences.Any())
+        {
+            _logger.LogInformation("Removed {Count} assembly references that are provided by packages:", removedReferences.Count);
+            foreach (var removed in removedReferences)
+            {
+                _logger.LogInformation("  - {AssemblyName}", removed);
+                result.RemovedElements.Add($"Assembly reference: {removed} (provided by package)");
+            }
+        }
+        
         // Merge packageItemGroup with existing package references if they exist
         if (packageItemGroup.HasElements)
         {
@@ -977,6 +1242,167 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
     }
     
+    private void MigrateComplexBuildConfigurations(Project legacyProject, XElement projectElement, MigrationResult result)
+    {
+        var configPropertyGroups = legacyProject.Xml.PropertyGroups
+            .Where(pg => !string.IsNullOrEmpty(pg.Condition))
+            .ToList();
+
+        if (!configPropertyGroups.Any())
+            return;
+
+        _logger.LogInformation("Migrating {Count} conditional property groups", configPropertyGroups.Count);
+
+        // Group by configuration
+        var configGroups = new Dictionary<string, List<Microsoft.Build.Construction.ProjectPropertyGroupElement>>();
+        
+        foreach (var group in configPropertyGroups)
+        {
+            // Extract configuration name from condition
+            var configMatch = System.Text.RegularExpressions.Regex.Match(
+                group.Condition,
+                @"'\$\(Configuration\)'(\s*==\s*|\s*\.Equals\s*\(\s*)'([^']+)'");
+            
+            if (configMatch.Success)
+            {
+                var configName = configMatch.Groups[2].Value;
+                if (!configGroups.ContainsKey(configName))
+                    configGroups[configName] = new List<Microsoft.Build.Construction.ProjectPropertyGroupElement>();
+                configGroups[configName].Add(group);
+            }
+            else if (group.Condition.Contains("$(Configuration)", StringComparison.OrdinalIgnoreCase))
+            {
+                // Complex condition - preserve as-is
+                var newPropGroup = new XElement("PropertyGroup",
+                    new XAttribute("Condition", group.Condition));
+                
+                foreach (var prop in group.Properties)
+                {
+                    // Skip properties already in main PropertyGroup
+                    if (!IsPropertyInMainGroup(prop.Name, projectElement))
+                    {
+                        newPropGroup.Add(new XElement(prop.Name, prop.Value));
+                    }
+                }
+                
+                if (newPropGroup.HasElements)
+                {
+                    projectElement.Add(newPropGroup);
+                    _logger.LogDebug("Migrated complex conditional PropertyGroup: {Condition}", group.Condition);
+                }
+            }
+        }
+
+        // Process each configuration
+        foreach (var (configName, groups) in configGroups)
+        {
+            var condition = $"'$(Configuration)' == '{configName}'";
+            var configPropGroup = new XElement("PropertyGroup",
+                new XAttribute("Condition", condition));
+            
+            // Merge all properties for this configuration
+            var addedProps = new HashSet<string>();
+            foreach (var group in groups)
+            {
+                foreach (var prop in group.Properties)
+                {
+                    // Skip if already added or in main group
+                    if (!addedProps.Contains(prop.Name) && !IsPropertyInMainGroup(prop.Name, projectElement))
+                    {
+                        configPropGroup.Add(new XElement(prop.Name, prop.Value));
+                        addedProps.Add(prop.Name);
+                    }
+                }
+            }
+            
+            if (configPropGroup.HasElements)
+            {
+                projectElement.Add(configPropGroup);
+                _logger.LogInformation("Migrated configuration-specific properties for: {Config}", configName);
+            }
+        }
+
+        // Handle conditional ItemGroups
+        var conditionalItemGroups = legacyProject.Xml.ItemGroups
+            .Where(ig => !string.IsNullOrEmpty(ig.Condition))
+            .ToList();
+            
+        foreach (var itemGroup in conditionalItemGroups)
+        {
+            var newItemGroup = new XElement("ItemGroup",
+                new XAttribute("Condition", itemGroup.Condition));
+                
+            foreach (var item in itemGroup.Items)
+            {
+                var itemElement = new XElement(item.ItemType,
+                    new XAttribute("Include", item.Include));
+                    
+                if (!string.IsNullOrEmpty(item.Exclude))
+                    itemElement.Add(new XAttribute("Exclude", item.Exclude));
+                    
+                foreach (var metadata in item.Metadata)
+                {
+                    itemElement.Add(new XElement(metadata.Name, metadata.Value));
+                }
+                
+                newItemGroup.Add(itemElement);
+            }
+            
+            if (newItemGroup.HasElements)
+            {
+                projectElement.Add(newItemGroup);
+                result.Warnings.Add($"Migrated conditional ItemGroup with condition: {itemGroup.Condition}");
+            }
+        }
+    }
+
+    private bool IsPropertyInMainGroup(string propertyName, XElement projectElement)
+    {
+        var mainPropGroup = projectElement.Elements("PropertyGroup")
+            .FirstOrDefault(pg => pg.Attribute("Condition") == null);
+            
+        return mainPropGroup?.Element(propertyName) != null;
+    }
+
+    private void MigrateCustomTargetsWithAnalysis(Project legacyProject, XElement projectElement, MigrationResult result)
+    {
+        var targetAnalyses = _customTargetAnalyzer.AnalyzeTargets(legacyProject);
+        
+        foreach (var analysis in targetAnalyses)
+        {
+            var target = legacyProject.Xml.Targets.FirstOrDefault(t => t.Name == analysis.TargetName);
+            if (target == null) continue;
+            
+            if (analysis.CanAutoMigrate)
+            {
+                var migratedTarget = _customTargetAnalyzer.MigrateTarget(target, analysis);
+                if (migratedTarget != null)
+                {
+                    projectElement.Add(migratedTarget);
+                    result.RemovedElements.Add($"Target: {analysis.TargetName} (auto-migrated)");
+                    _logger.LogInformation("Auto-migrated custom target: {TargetName}", analysis.TargetName);
+                }
+            }
+            else
+            {
+                // Add as removed with detailed guidance
+                var removedTarget = new RemovedMSBuildElement
+                {
+                    ElementType = "Target",
+                    Name = analysis.TargetName,
+                    XmlContent = analysis.SuggestedCode ?? "[Unable to generate suggested code]",
+                    Condition = analysis.Condition,
+                    Reason = "Custom target requires manual migration",
+                    SuggestedMigrationPath = analysis.ManualMigrationGuidance ?? "Review and migrate manually"
+                };
+                
+                result.RemovedMSBuildElements.Add(removedTarget);
+                result.Warnings.Add($"Custom target '{analysis.TargetName}' requires manual migration - see removed elements for guidance");
+                _logger.LogWarning("Custom target requires manual migration: {TargetName}", analysis.TargetName);
+            }
+        }
+    }
+
     private void MigrateCustomTargetsAndImports(Project legacyProject, XElement projectElement, MigrationResult result)
     {
         // Remove ALL imports - SDK-style projects should not need any of the legacy imports

@@ -1,5 +1,6 @@
 using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
+using SdkMigrator.Models;
 
 namespace SdkMigrator.Services;
 
@@ -182,29 +183,4 @@ public class ProjectTypeInfo
     public List<string> SpecialHandlingNotes { get; set; } = new();
     public List<string> RequiredPackageReferences { get; set; } = new();
     public Dictionary<string, string?> RequiredProperties { get; set; } = new();
-}
-
-public enum ProjectType
-{
-    Unknown,
-    CSharp,
-    VBNet,
-    FSharp,
-    CPlusPlus,
-    Library,
-    Console,
-    WPF,
-    WinForms,
-    WebApplication,
-    WebSite,
-    Test,
-    AzureFunctions,
-    WorkerService,
-    WindowsPhone,
-    Silverlight,
-    AspNetMvc,
-    WindowsStore,
-    UAP,
-    CloudService,
-    SolutionFolder
 }

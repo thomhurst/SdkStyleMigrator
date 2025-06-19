@@ -114,6 +114,32 @@ class Program
         
         rootCommand.AddCommand(rollbackCommand);
         
+        // Analyze command
+        var analyzeCommand = new Command("analyze", "Analyze projects for migration readiness without making changes");
+        var analyzeDirectoryArgument = new Argument<string>(
+            name: "directory",
+            description: "The directory to analyze for migration readiness");
+        
+        analyzeCommand.AddArgument(analyzeDirectoryArgument);
+        analyzeCommand.AddOption(logLevelOption);
+        
+        analyzeCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var directory = context.ParseResult.GetValueForArgument(analyzeDirectoryArgument);
+            var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
+            
+            var options = new MigrationOptions
+            {
+                DirectoryPath = Path.GetFullPath(directory),
+                LogLevel = logLevel
+            };
+            
+            var exitCode = await RunAnalysis(options);
+            context.ExitCode = exitCode;
+        });
+        
+        rootCommand.AddCommand(analyzeCommand);
+        
         rootCommand.SetHandler(async (InvocationContext context) =>
         {
             var options = new MigrationOptions
@@ -183,6 +209,7 @@ The tool will:
 
 Commands:
   migrate (default)  Migrate legacy projects to SDK-style format
+  analyze           Analyze projects for migration readiness
   rollback          Rollback a previous migration using backup session
 
 Examples:
@@ -191,10 +218,174 @@ Examples:
   SdkMigrator ./src -o ./src-migrated -t net8.0
   SdkMigrator ./src --parallel 4 --log-level Debug
   SdkMigrator ./src --nuget-config ./custom-nuget.config
+  SdkMigrator analyze ./src
   SdkMigrator rollback ./src
   SdkMigrator rollback ./src --session-id 20250119_120000";
         
         return await rootCommand.InvokeAsync(args);
+    }
+    
+    static async Task<int> RunAnalysis(MigrationOptions options)
+    {
+        var services = new ServiceCollection();
+        ConfigureServices(services, options);
+        
+        using var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var analyzer = serviceProvider.GetRequiredService<IMigrationAnalyzer>();
+        
+        try
+        {
+            logger.LogInformation("Starting migration analysis for directory: {Directory}", options.DirectoryPath);
+            
+            var analysis = await analyzer.AnalyzeProjectsAsync(options.DirectoryPath, CancellationToken.None);
+            
+            // Display analysis results
+            Console.WriteLine();
+            Console.WriteLine("Migration Analysis Report");
+            Console.WriteLine("========================");
+            Console.WriteLine($"Directory: {analysis.DirectoryPath}");
+            Console.WriteLine($"Projects found: {analysis.ProjectAnalyses.Count}");
+            Console.WriteLine($"Overall risk: {analysis.OverallRisk}");
+            Console.WriteLine($"Estimated manual effort: {analysis.EstimatedManualEffortHours} hours");
+            Console.WriteLine($"Can proceed automatically: {(analysis.CanProceedAutomatically ? "Yes" : "No")}");
+            Console.WriteLine();
+            
+            // Show project-level details
+            foreach (var project in analysis.ProjectAnalyses)
+            {
+                Console.WriteLine($"Project: {project.ProjectName}");
+                Console.WriteLine($"  Type: {project.ProjectType}");
+                Console.WriteLine($"  Risk: {project.RiskLevel}");
+                Console.WriteLine($"  Can migrate: {(project.CanMigrate ? "Yes" : "No")}");
+                
+                if (project.Issues.Any())
+                {
+                    Console.WriteLine("  Issues:");
+                    foreach (var issue in project.Issues.OrderByDescending(i => i.Severity))
+                    {
+                        var severityIcon = issue.Severity switch
+                        {
+                            MigrationIssueSeverity.Critical => "[CRITICAL]",
+                            MigrationIssueSeverity.Error => "[ERROR]",
+                            MigrationIssueSeverity.Warning => "[WARNING]",
+                            _ => "[INFO]"
+                        };
+                        Console.WriteLine($"    {severityIcon} {issue.Description}");
+                    }
+                }
+                
+                if (project.CustomTargets.Any(t => !t.CanAutoMigrate))
+                {
+                    Console.WriteLine($"  Custom targets requiring review: {project.CustomTargets.Count(t => !t.CanAutoMigrate)}");
+                }
+                
+                Console.WriteLine();
+            }
+            
+            // Show global recommendations
+            if (analysis.GlobalRecommendations.Any())
+            {
+                Console.WriteLine("Recommendations:");
+                foreach (var rec in analysis.GlobalRecommendations)
+                {
+                    Console.WriteLine($"  - {rec}");
+                }
+            }
+            
+            // Generate detailed report file
+            var reportPath = Path.Combine(options.DirectoryPath, $"migration-analysis-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
+            await WriteAnalysisReportAsync(analysis, reportPath);
+            Console.WriteLine();
+            Console.WriteLine($"Detailed analysis report written to: {reportPath}");
+            
+            // Return appropriate exit code
+            if (!analysis.CanProceedAutomatically)
+                return 1;
+            if (analysis.OverallRisk >= MigrationRiskLevel.High)
+                return 2;
+            
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during analysis");
+            return 1;
+        }
+    }
+    
+    static async Task WriteAnalysisReportAsync(MigrationAnalysis analysis, string reportPath)
+    {
+        using var writer = new StreamWriter(reportPath);
+        
+        await writer.WriteLineAsync("SDK Migration Analysis Report");
+        await writer.WriteLineAsync($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        await writer.WriteLineAsync("=".PadRight(80, '='));
+        await writer.WriteLineAsync();
+        
+        await writer.WriteLineAsync($"Directory: {analysis.DirectoryPath}");
+        await writer.WriteLineAsync($"Projects analyzed: {analysis.ProjectAnalyses.Count}");
+        await writer.WriteLineAsync($"Overall risk level: {analysis.OverallRisk}");
+        await writer.WriteLineAsync($"Estimated manual effort: {analysis.EstimatedManualEffortHours} hours");
+        await writer.WriteLineAsync($"Can proceed with automatic migration: {analysis.CanProceedAutomatically}");
+        await writer.WriteLineAsync();
+        
+        foreach (var project in analysis.ProjectAnalyses)
+        {
+            await writer.WriteLineAsync($"Project: {project.ProjectPath}");
+            await writer.WriteLineAsync($"  Name: {project.ProjectName}");
+            await writer.WriteLineAsync($"  Type: {project.ProjectType}");
+            await writer.WriteLineAsync($"  Target Framework: {project.CurrentTargetFramework}");
+            await writer.WriteLineAsync($"  Risk Level: {project.RiskLevel}");
+            await writer.WriteLineAsync($"  Can Migrate: {project.CanMigrate}");
+            await writer.WriteLineAsync($"  Estimated Effort: {project.EstimatedManualEffortHours} hours");
+            
+            if (project.Issues.Any())
+            {
+                await writer.WriteLineAsync("  Issues:");
+                foreach (var issue in project.Issues.OrderByDescending(i => i.Severity))
+                {
+                    await writer.WriteLineAsync($"    [{issue.Severity}] {issue.Category}: {issue.Description}");
+                    if (!string.IsNullOrEmpty(issue.Resolution))
+                    {
+                        await writer.WriteLineAsync($"      Resolution: {issue.Resolution}");
+                    }
+                }
+            }
+            
+            if (project.CustomTargets.Any())
+            {
+                await writer.WriteLineAsync($"  Custom MSBuild Targets ({project.CustomTargets.Count}):");
+                foreach (var target in project.CustomTargets)
+                {
+                    await writer.WriteLineAsync($"    - {target.TargetName} (Complexity: {target.Complexity}, Auto-migrate: {target.CanAutoMigrate})");
+                    if (!target.CanAutoMigrate && !string.IsNullOrEmpty(target.ManualMigrationGuidance))
+                    {
+                        await writer.WriteLineAsync($"      Guidance: {target.ManualMigrationGuidance}");
+                    }
+                }
+            }
+            
+            if (project.ManualStepsRequired.Any())
+            {
+                await writer.WriteLineAsync("  Manual Steps Required:");
+                foreach (var step in project.ManualStepsRequired)
+                {
+                    await writer.WriteLineAsync($"    - {step}");
+                }
+            }
+            
+            await writer.WriteLineAsync();
+        }
+        
+        if (analysis.GlobalRecommendations.Any())
+        {
+            await writer.WriteLineAsync("Global Recommendations:");
+            foreach (var rec in analysis.GlobalRecommendations)
+            {
+                await writer.WriteLineAsync($"  - {rec}");
+            }
+        }
     }
     
     static async Task<int> RunRollback(MigrationOptions options, string? sessionId)
@@ -430,6 +621,13 @@ Examples:
         services.AddSingleton<DeploymentDetector>();
         services.AddSingleton<NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
+        
+        // New analysis and migration services
+        services.AddSingleton<CustomTargetAnalyzer>();
+        services.AddSingleton<EntityFrameworkMigrationHandler>();
+        services.AddSingleton<T4TemplateHandler>();
+        services.AddSingleton<IMigrationAnalyzer, MigrationAnalyzer>();
+        services.AddSingleton<PackageAssemblyResolver>();
         
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }

@@ -21,6 +21,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly ILocalPackageFilesCleaner _localPackageFilesCleaner;
     private readonly ICentralPackageManagementGenerator _centralPackageManagementGenerator;
     private readonly IPostMigrationValidator _postMigrationValidator;
+    private readonly IMigrationAnalyzer _migrationAnalyzer;
     private readonly MigrationOptions _options;
 
     public MigrationOrchestrator(
@@ -37,6 +38,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         ILocalPackageFilesCleaner localPackageFilesCleaner,
         ICentralPackageManagementGenerator centralPackageManagementGenerator,
         IPostMigrationValidator postMigrationValidator,
+        IMigrationAnalyzer migrationAnalyzer,
         MigrationOptions options)
     {
         _logger = logger;
@@ -52,6 +54,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _localPackageFilesCleaner = localPackageFilesCleaner;
         _centralPackageManagementGenerator = centralPackageManagementGenerator;
         _postMigrationValidator = postMigrationValidator;
+        _migrationAnalyzer = migrationAnalyzer;
         _options = options;
     }
 
@@ -88,6 +91,35 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             _logger.LogInformation("Starting migration process for directory: {DirectoryPath}", directoryPath);
+
+            // Run pre-migration analysis if not in force mode
+            if (!_options.Force && !_options.DryRun)
+            {
+                _logger.LogInformation("Running pre-migration analysis...");
+                var analysis = await _migrationAnalyzer.AnalyzeProjectsAsync(directoryPath, cancellationToken);
+                
+                if (!analysis.CanProceedAutomatically)
+                {
+                    _logger.LogError("Pre-migration analysis found critical issues that prevent automatic migration");
+                    _logger.LogError("Overall risk level: {Risk}", analysis.OverallRisk);
+                    _logger.LogError("Estimated manual effort: {Hours} hours", analysis.EstimatedManualEffortHours);
+                    
+                    foreach (var project in analysis.ProjectAnalyses.Where(p => !p.CanMigrate))
+                    {
+                        _logger.LogError("Project {Project} cannot be migrated: {Issues}", 
+                            project.ProjectName, 
+                            string.Join(", ", project.Issues.Where(i => i.BlocksMigration).Select(i => i.Description)));
+                    }
+                    
+                    throw new InvalidOperationException("Migration cannot proceed due to critical issues. Use --force to override or fix the issues first.");
+                }
+                
+                if (analysis.OverallRisk >= MigrationRiskLevel.High)
+                {
+                    _logger.LogWarning("Pre-migration analysis indicates HIGH RISK migration");
+                    _logger.LogWarning("Consider reviewing the analysis report before proceeding");
+                }
+            }
 
             var projectFiles = await _projectFileScanner.ScanForProjectFilesAsync(directoryPath, cancellationToken);
             var projectFilesList = projectFiles.ToList();
@@ -736,6 +768,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("");
             _logger.LogInformation("Detailed migration report written to: {Path}", reportPath);
         }
+    }
+    
+    public async Task<MigrationAnalysis> AnalyzeProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Starting pre-migration analysis for directory: {DirectoryPath}", directoryPath);
+        return await _migrationAnalyzer.AnalyzeProjectsAsync(directoryPath, cancellationToken);
     }
     
     private void WriteDetailedReport(MigrationReport report, string reportPath)
