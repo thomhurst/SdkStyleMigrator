@@ -13,10 +13,23 @@
 
 ### Fixed
 - **Assembly Reference Migration**: Fixed missing assembly references in migrated projects
-  - Now properly preserves framework extension references like System.Windows.Forms and Microsoft.VisualStudio.QualityTools.UnitTestFramework
+  - Now properly preserves framework extension references like System.Windows.Forms
   - Preserves third-party assembly references with HintPath
   - Skips implicit framework references that are automatically included
   - Preserves important metadata (HintPath, Private, SpecificVersion)
+- **Assembly to Package Reference Conversion**: Automatically converts common assembly references to NuGet packages
+  - Microsoft.VisualStudio.QualityTools.UnitTestFramework → MSTest.TestFramework + MSTest.TestAdapter
+  - nunit.framework → NUnit + NUnit3TestAdapter
+  - xunit/xunit.core → xunit + xunit.runner.visualstudio
+  - EntityFramework → EntityFramework package
+  - Newtonsoft.Json → Newtonsoft.Json package
+  - System.Net.Http.Formatting → Microsoft.AspNet.WebApi.Client
+  - log4net → log4net package
+  - System.Web.Mvc → Microsoft.AspNet.Mvc
+  - System.Web.Http → Microsoft.AspNet.WebApi.Core
+  - System.Web.Http.WebHost → Microsoft.AspNet.WebApi.WebHost
+  - System.Data.SqlClient → Microsoft.Data.SqlClient
+  - System.Configuration.ConfigurationManager → System.Configuration.ConfigurationManager package
 
 ## [0.2.1] - 2025-01-19
 

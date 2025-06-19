@@ -104,8 +104,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement.Add(contentItems);
             }
             
-            var otherItems = MigrateOtherItems(legacyProject, result);
-            if (otherItems.HasElements)
+            var otherItems = MigrateOtherItems(legacyProject, result, projectElement);
+            if (otherItems != null && otherItems.Name == "MergedItemGroups")
+            {
+                // Handle multiple item groups
+                foreach (var itemGroup in otherItems.Elements())
+                {
+                    if (itemGroup.HasElements)
+                    {
+                        projectElement.Add(itemGroup);
+                    }
+                }
+            }
+            else if (otherItems != null && otherItems.HasElements)
             {
                 projectElement.Add(otherItems);
             }
@@ -507,9 +518,80 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return itemGroup;
     }
     
-    private XElement MigrateOtherItems(Project legacyProject, MigrationResult result)
+    private Dictionary<string, List<(string PackageName, string Version)>> GetAssemblyToPackageMappings()
+    {
+        return new Dictionary<string, List<(string, string)>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Microsoft.VisualStudio.QualityTools.UnitTestFramework"] = new List<(string, string)>
+            {
+                ("MSTest.TestFramework", "3.1.1"),
+                ("MSTest.TestAdapter", "3.1.1")
+            },
+            ["Microsoft.VisualStudio.TestPlatform.TestFramework"] = new List<(string, string)>
+            {
+                ("MSTest.TestFramework", "3.1.1"),
+                ("MSTest.TestAdapter", "3.1.1")
+            },
+            ["nunit.framework"] = new List<(string, string)>
+            {
+                ("NUnit", "3.13.3"),
+                ("NUnit3TestAdapter", "4.5.0")
+            },
+            ["xunit"] = new List<(string, string)>
+            {
+                ("xunit", "2.6.6"),
+                ("xunit.runner.visualstudio", "2.5.6")
+            },
+            ["xunit.core"] = new List<(string, string)>
+            {
+                ("xunit", "2.6.6"),
+                ("xunit.runner.visualstudio", "2.5.6")
+            },
+            ["EntityFramework"] = new List<(string, string)>
+            {
+                ("EntityFramework", "6.4.4")
+            },
+            ["Newtonsoft.Json"] = new List<(string, string)>
+            {
+                ("Newtonsoft.Json", "13.0.3")
+            },
+            ["System.Net.Http.Formatting"] = new List<(string, string)>
+            {
+                ("Microsoft.AspNet.WebApi.Client", "5.2.9")
+            },
+            ["log4net"] = new List<(string, string)>
+            {
+                ("log4net", "2.0.15")
+            },
+            ["System.Web.Mvc"] = new List<(string, string)>
+            {
+                ("Microsoft.AspNet.Mvc", "5.2.9")
+            },
+            ["System.Web.Http"] = new List<(string, string)>
+            {
+                ("Microsoft.AspNet.WebApi.Core", "5.2.9")
+            },
+            ["System.Web.Http.WebHost"] = new List<(string, string)>
+            {
+                ("Microsoft.AspNet.WebApi.WebHost", "5.2.9")
+            },
+            ["System.Data.SqlClient"] = new List<(string, string)>
+            {
+                ("Microsoft.Data.SqlClient", "5.1.2")
+            },
+            ["System.Configuration.ConfigurationManager"] = new List<(string, string)>
+            {
+                ("System.Configuration.ConfigurationManager", "8.0.0")
+            }
+        };
+    }
+    
+    private XElement MigrateOtherItems(Project legacyProject, MigrationResult result, XElement projectElement)
     {
         var itemGroup = new XElement("ItemGroup");
+        var packageItemGroup = new XElement("ItemGroup");
+        var assemblyToPackageMappings = GetAssemblyToPackageMappings();
+        var addedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         
         // Migrate assembly references that are not part of the implicit framework references
         var assemblyReferences = legacyProject.Items.Where(i => i.ItemType == "Reference");
@@ -519,6 +601,31 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             
             // Extract just the assembly name without version info
             var assemblyName = referenceName.Split(',')[0].Trim();
+            
+            // Check if this assembly should be converted to a package reference
+            if (assemblyToPackageMappings.TryGetValue(assemblyName, out var packageMappings))
+            {
+                foreach (var (packageName, version) in packageMappings)
+                {
+                    if (!addedPackages.Contains(packageName))
+                    {
+                        var packageElement = new XElement("PackageReference",
+                            new XAttribute("Include", packageName),
+                            new XAttribute("Version", version));
+                        packageItemGroup.Add(packageElement);
+                        addedPackages.Add(packageName);
+                        _logger.LogInformation("Converted assembly reference '{AssemblyName}' to package reference '{PackageName}' version {Version}", 
+                            assemblyName, packageName, version);
+                    }
+                }
+                result.MigratedPackages.Add(new PackageReference 
+                { 
+                    PackageId = packageMappings[0].PackageName, 
+                    Version = packageMappings[0].Version,
+                    IsTransitive = false
+                });
+                continue;
+            }
             
             // Skip references that are implicitly included in the framework
             var implicitFrameworkReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -537,9 +644,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var frameworkExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "System.Windows.Forms", "System.Drawing", "System.Web", "System.Web.Extensions",
-                "Microsoft.VisualStudio.QualityTools.UnitTestFramework", "Microsoft.VisualStudio.TestTools.UnitTesting",
                 "System.Configuration", "System.ServiceModel", "System.Runtime.Serialization",
-                "System.ComponentModel.DataAnnotations", "System.Web.Http", "System.Web.Mvc"
+                "System.ComponentModel.DataAnnotations"
             };
             
             if (frameworkExtensions.Contains(assemblyName) || 
@@ -618,6 +724,27 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 new XAttribute("Update", resource.EvaluatedInclude));
             CopyMetadata(resource, element);
             itemGroup.Add(element);
+        }
+        
+        // Merge packageItemGroup with existing package references if they exist
+        if (packageItemGroup.HasElements)
+        {
+            var existingPackageGroup = projectElement.Elements("ItemGroup")
+                .FirstOrDefault(ig => ig.Elements("PackageReference").Any());
+            
+            if (existingPackageGroup != null)
+            {
+                // Add to existing package reference group
+                foreach (var packageRef in packageItemGroup.Elements())
+                {
+                    existingPackageGroup.Add(packageRef);
+                }
+            }
+            else
+            {
+                // Return the package item group separately
+                return new XElement("MergedItemGroups", packageItemGroup, itemGroup);
+            }
         }
         
         return itemGroup;
