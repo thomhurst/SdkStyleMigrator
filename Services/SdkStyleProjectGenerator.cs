@@ -24,7 +24,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly CustomTargetAnalyzer _customTargetAnalyzer;
     private readonly EntityFrameworkMigrationHandler _entityFrameworkHandler;
     private readonly T4TemplateHandler _t4TemplateHandler;
-    private readonly PackageAssemblyResolver _packageAssemblyResolver;
+    private readonly NuGetAssetsResolver _nugetAssetsResolver;
 
     public SdkStyleProjectGenerator(
         ILogger<SdkStyleProjectGenerator> logger,
@@ -40,7 +40,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         CustomTargetAnalyzer customTargetAnalyzer,
         EntityFrameworkMigrationHandler entityFrameworkHandler,
         T4TemplateHandler t4TemplateHandler,
-        PackageAssemblyResolver packageAssemblyResolver,
+        NuGetAssetsResolver nugetAssetsResolver,
         MigrationOptions options)
     {
         _logger = logger;
@@ -56,7 +56,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _customTargetAnalyzer = customTargetAnalyzer;
         _entityFrameworkHandler = entityFrameworkHandler;
         _t4TemplateHandler = t4TemplateHandler;
-        _packageAssemblyResolver = packageAssemblyResolver;
+        _nugetAssetsResolver = nugetAssetsResolver;
         _options = options;
     }
 
@@ -74,6 +74,16 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         try
         {
             _logger.LogInformation("Starting migration for {ProjectPath}", legacyProject.FullPath);
+            
+            // Check if project is already SDK-style
+            if (!string.IsNullOrEmpty(legacyProject.Xml.Sdk))
+            {
+                _logger.LogInformation("Project {ProjectPath} is already SDK-style (SDK: {Sdk}), no migration needed", 
+                    legacyProject.FullPath, legacyProject.Xml.Sdk);
+                result.Success = true;
+                result.Warnings.Add($"Project is already SDK-style with SDK '{legacyProject.Xml.Sdk}' - no migration needed");
+                return result;
+            }
 
             // 1. Detect project type first
             var projectTypeInfo = _projectTypeDetector.DetectProjectType(legacyProject);
@@ -984,15 +994,25 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Get all packages that were already migrated from packages.config
         var existingPackages = result.MigratedPackages.ToList();
         
+        // Get the SDK from the project element
+        var sdk = projectElement.Attribute("Sdk")?.Value ?? "Microsoft.NET.Sdk";
+        
         // Get the target framework for assembly resolution
         var targetFramework = GetTargetFrameworkFromProject(projectElement) ?? "net8.0";
         
-        // Use PackageAssemblyResolver to get all assemblies provided by the migrated packages
-        var packageProvidedAssemblies = await _packageAssemblyResolver.GetAssembliesProvidedByPackagesAsync(
-            existingPackages, targetFramework, cancellationToken);
+        // Use NuGetAssetsResolver to get all assemblies provided by the migrated packages
+        var projectDirectory = Path.GetDirectoryName(legacyProject.FullPath) ?? "";
+        var resolutionResult = await _nugetAssetsResolver.ResolvePackageAssembliesAsync(
+            existingPackages, targetFramework, projectDirectory, cancellationToken);
         
-        _logger.LogInformation("Found {Count} assemblies provided by {PackageCount} packages", 
-            packageProvidedAssemblies.Count, existingPackages.Count);
+        _logger.LogInformation("Resolved {Count} assemblies from packages using {Method}. IsPartial: {IsPartial}", 
+            resolutionResult.ResolvedAssemblies.Count, resolutionResult.ResolutionMethod, resolutionResult.IsPartialResolution);
+        
+        // Add any warnings from resolution to the result
+        foreach (var warning in resolutionResult.Warnings)
+        {
+            result.Warnings.Add($"[Package Resolution] {warning}");
+        }
         
         // Migrate assembly references that are not part of the implicit framework references
         var assemblyReferences = legacyProject.Items.Where(i => i.ItemType == "Reference");
@@ -1006,10 +1026,20 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var assemblyName = referenceName.Split(',')[0].Trim();
             
             // First check if this assembly is already provided by a migrated package
-            if (_packageAssemblyResolver.IsAssemblyProvidedByPackage(assemblyName, packageProvidedAssemblies))
+            var isProvidedByPackage = resolutionResult.ResolvedAssemblies.Any(a => 
+                a.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase));
+            
+            if (isProvidedByPackage)
             {
                 removedReferences.Add(assemblyName);
-                _logger.LogInformation("Removing assembly reference '{AssemblyName}' - already provided by a package", assemblyName);
+                continue;
+                var providingPackage = resolutionResult.ResolvedAssemblies
+                    .FirstOrDefault(a => a.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase));
+                
+                _logger.LogInformation("Removing assembly reference '{AssemblyName}' - provided by package '{PackageId}' {Transitive}", 
+                    assemblyName, 
+                    providingPackage?.PackageId ?? "unknown",
+                    providingPackage?.IsTransitive == true ? "(transitive)" : "");
                 
                 // Collect hint path if this reference has one for cleanup
                 var hintPath = reference.GetMetadataValue("HintPath");
@@ -1092,17 +1122,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
             
             // Skip references that are implicitly included in the framework or were already converted to packages
-            var implicitFrameworkReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "System", "System.Core", "System.Data", "System.Xml", "System.Xml.Linq",
-                "Microsoft.CSharp", "System.Net.Http", "System.IO.Compression.FileSystem"
-            };
+            var implicitFrameworkReferences = GetImplicitReferences(sdk, targetFramework);
             
             if (implicitFrameworkReferences.Contains(assemblyName) || convertedAssemblies.Contains(assemblyName))
             {
-                _logger.LogDebug("Skipping {Reason} reference: {Reference}", 
-                    convertedAssemblies.Contains(assemblyName) ? "already converted to package" : "implicit framework", 
-                    assemblyName);
+                if (implicitFrameworkReferences.Contains(assemblyName))
+                {
+                    removedReferences.Add($"{assemblyName} (SDK implicit)");
+                    _logger.LogInformation("Removing assembly reference '{AssemblyName}' - implicitly included by SDK", assemblyName);
+                }
+                else
+                {
+                    _logger.LogDebug("Skipping already converted to package reference: {Reference}", assemblyName);
+                }
                 continue;
             }
             
@@ -1888,4 +1920,86 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return $"<Target {string.Join(" ", attributes)}>...</Target>";
     }
     
+    private HashSet<string> GetImplicitReferences(string sdk, string targetFramework)
+    {
+        var implicitRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        // Basic .NET SDK implicit references (common to all SDKs)
+        implicitRefs.Add("System");
+        implicitRefs.Add("System.Core");
+        implicitRefs.Add("System.Data");
+        implicitRefs.Add("System.Xml");
+        implicitRefs.Add("System.Xml.Linq");
+        implicitRefs.Add("Microsoft.CSharp");
+        implicitRefs.Add("mscorlib");
+        
+        // .NET Framework specific
+        if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase) ||
+            targetFramework.StartsWith("net3", StringComparison.OrdinalIgnoreCase) ||
+            targetFramework.StartsWith("net2", StringComparison.OrdinalIgnoreCase))
+        {
+            implicitRefs.Add("System.Configuration");
+            implicitRefs.Add("System.ServiceProcess");
+            implicitRefs.Add("System.Net.Http");
+            implicitRefs.Add("System.IO.Compression.FileSystem");
+        }
+        
+        // SDK-specific implicit references
+        if (sdk.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase))
+        {
+            // Web SDK includes these implicitly
+            implicitRefs.Add("System.Web");
+            implicitRefs.Add("System.Net.Http");
+            implicitRefs.Add("System.ComponentModel.DataAnnotations");
+        }
+        else if (sdk.Contains("Microsoft.NET.Sdk.WindowsDesktop", StringComparison.OrdinalIgnoreCase))
+        {
+            // WindowsDesktop SDK includes WPF/WinForms references implicitly based on UseWPF/UseWindowsForms
+            // These are handled by the SDK based on project properties
+        }
+        
+        // .NET Core / .NET 5+ implicit references
+        if (targetFramework.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) ||
+            targetFramework.StartsWith("net5", StringComparison.OrdinalIgnoreCase) ||
+            targetFramework.StartsWith("net6", StringComparison.OrdinalIgnoreCase) ||
+            targetFramework.StartsWith("net7", StringComparison.OrdinalIgnoreCase) ||
+            targetFramework.StartsWith("net8", StringComparison.OrdinalIgnoreCase))
+        {
+            // Most System.* assemblies are implicitly included in .NET Core+
+            implicitRefs.Add("System.Collections");
+            implicitRefs.Add("System.Collections.Concurrent");
+            implicitRefs.Add("System.Console");
+            implicitRefs.Add("System.Diagnostics.Debug");
+            implicitRefs.Add("System.Diagnostics.Tools");
+            implicitRefs.Add("System.Diagnostics.Tracing");
+            implicitRefs.Add("System.Globalization");
+            implicitRefs.Add("System.IO");
+            implicitRefs.Add("System.IO.Compression");
+            implicitRefs.Add("System.Linq");
+            implicitRefs.Add("System.Linq.Expressions");
+            implicitRefs.Add("System.Net.Http");
+            implicitRefs.Add("System.Net.Primitives");
+            implicitRefs.Add("System.ObjectModel");
+            implicitRefs.Add("System.Reflection");
+            implicitRefs.Add("System.Reflection.Extensions");
+            implicitRefs.Add("System.Reflection.Primitives");
+            implicitRefs.Add("System.Resources.ResourceManager");
+            implicitRefs.Add("System.Runtime");
+            implicitRefs.Add("System.Runtime.Extensions");
+            implicitRefs.Add("System.Runtime.InteropServices");
+            implicitRefs.Add("System.Runtime.InteropServices.RuntimeInformation");
+            implicitRefs.Add("System.Runtime.Numerics");
+            implicitRefs.Add("System.Runtime.Serialization.Primitives");
+            implicitRefs.Add("System.Text.Encoding");
+            implicitRefs.Add("System.Text.Encoding.Extensions");
+            implicitRefs.Add("System.Text.RegularExpressions");
+            implicitRefs.Add("System.Threading");
+            implicitRefs.Add("System.Threading.Tasks");
+            implicitRefs.Add("System.Threading.Timer");
+            implicitRefs.Add("System.Xml.ReaderWriter");
+            implicitRefs.Add("System.Xml.XDocument");
+        }
+        
+        return implicitRefs;
+    }
 }

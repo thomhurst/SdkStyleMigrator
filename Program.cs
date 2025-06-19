@@ -628,6 +628,7 @@ Examples:
         services.AddSingleton<T4TemplateHandler>();
         services.AddSingleton<IMigrationAnalyzer, MigrationAnalyzer>();
         services.AddSingleton<PackageAssemblyResolver>();
+        services.AddSingleton<NuGetAssetsResolver>();
         
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }

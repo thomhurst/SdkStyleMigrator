@@ -420,6 +420,22 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (!_projectParser.IsLegacyProject(project))
             {
                 _logger.LogInformation("{Progress} Skipping {ProjectPath} - already SDK-style", progress, projectFile);
+                
+                // Add to report as successful but skipped
+                var skippedResult = new MigrationResult
+                {
+                    ProjectPath = projectFile,
+                    OutputPath = projectFile,
+                    Success = true,
+                    Warnings = { "Project is already in SDK-style format - no migration needed" }
+                };
+                
+                lock (report)
+                {
+                    report.Results.Add(skippedResult);
+                    report.TotalProjectsMigrated++; // Count as migrated since it's already in the desired format
+                }
+                
                 return;
             }
             

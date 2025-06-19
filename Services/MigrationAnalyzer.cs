@@ -122,13 +122,15 @@ public class MigrationAnalyzer : IMigrationAnalyzer
             // Check if already SDK-style
             if (!_projectParser.IsLegacyProject(project))
             {
-                analysis.CanMigrate = false;
+                analysis.CanMigrate = true; // It's "migrated" in the sense that it's already in the desired format
+                analysis.RiskLevel = MigrationRiskLevel.Low; // No risk since it's already migrated
+                analysis.EstimatedManualEffortHours = 0;
                 analysis.Issues.Add(new MigrationIssue
                 {
                     Category = "Project Format",
-                    Description = "Project is already in SDK-style format",
+                    Description = "Project is already in SDK-style format - no migration needed",
                     Severity = MigrationIssueSeverity.Info,
-                    BlocksMigration = true
+                    BlocksMigration = false
                 });
                 return analysis;
             }
