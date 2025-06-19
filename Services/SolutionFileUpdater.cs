@@ -106,7 +106,7 @@ public class SolutionFileUpdater : ISolutionFileUpdater
         {
             if (!_options.DryRun)
             {
-                if (!_options.NoBackup)
+                if (_options.CreateBackup)
                 {
                     var backupPath = $"{solutionPath}.legacy";
                     File.Copy(solutionPath, backupPath, overwrite: true);
