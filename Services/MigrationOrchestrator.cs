@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
@@ -211,6 +212,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (result.Success && !_options.DryRun)
             {
                 await RemoveAssemblyInfoFilesAsync(projectDir, cancellationToken);
+                await HandleAppConfigFileAsync(projectDir, result, cancellationToken);
             }
             
             if (result.Success && outputPath != projectFile)
@@ -291,6 +293,67 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
         
         return Task.CompletedTask;
+    }
+    
+    private async Task HandleAppConfigFileAsync(string projectDirectory, MigrationResult result, CancellationToken cancellationToken)
+    {
+        var appConfigPath = Path.Combine(projectDirectory, "app.config");
+        if (!File.Exists(appConfigPath))
+        {
+            appConfigPath = Path.Combine(projectDirectory, "App.config");
+            if (!File.Exists(appConfigPath))
+                return;
+        }
+        
+        try
+        {
+            var configContent = await File.ReadAllTextAsync(appConfigPath, cancellationToken);
+            var doc = System.Xml.Linq.XDocument.Parse(configContent);
+            
+            var configuration = doc.Root;
+            if (configuration == null || configuration.Name != "configuration")
+                return;
+                
+            var runtime = configuration.Element("runtime");
+            var assemblyBinding = runtime?.Element(XName.Get("assemblyBinding", "urn:schemas-microsoft-com:asm.v1"));
+            
+            // Remove assemblyBinding section if it exists
+            if (assemblyBinding != null)
+            {
+                assemblyBinding.Remove();
+                result.RemovedElements.Add("Assembly binding redirects from app.config");
+                _logger.LogInformation("Removed assembly binding redirects from {File}", appConfigPath);
+            }
+            
+            // Check if app.config has any other content
+            var hasOtherContent = configuration.Elements()
+                .Any(e => e.Name != "runtime" || 
+                         (e.Name == "runtime" && e.Elements().Any()));
+            
+            if (!hasOtherContent)
+            {
+                // App.config only contained binding redirects, so we can remove it
+                if (_options.CreateBackup)
+                {
+                    var backupPath = $"{appConfigPath}.legacy";
+                    File.Copy(appConfigPath, backupPath, overwrite: true);
+                }
+                
+                File.Delete(appConfigPath);
+                result.RemovedElements.Add($"App.config file (contained only binding redirects)");
+                _logger.LogInformation("Removed {File} as it only contained binding redirects", appConfigPath);
+            }
+            else
+            {
+                // Save the modified app.config without binding redirects
+                await File.WriteAllTextAsync(appConfigPath, doc.ToString(), cancellationToken);
+                _logger.LogInformation("Updated {File} - removed binding redirects", appConfigPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to process app.config file: {File}", appConfigPath);
+        }
     }
 
     private string GenerateOutputPath(string projectFile)

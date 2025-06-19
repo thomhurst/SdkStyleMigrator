@@ -14,6 +14,13 @@
   - Detects and removes version-specific Visual Studio imports (v10.0 through v17.0)
   - Adds warnings for custom imports that reference Visual Studio paths
 
+### Added
+- **Automatic Binding Redirects**: Directory.Build.props now includes AutoGenerateBindingRedirects
+  - Sets `AutoGenerateBindingRedirects` to `true` for automatic binding redirect generation
+  - Sets `GenerateBindingRedirectsOutputType` to `true` for better compatibility
+  - Removes manual assembly binding redirects from app.config files
+  - Deletes app.config files that contain only binding redirects
+
 ### Changed
 - **Backup Files**: Legacy backup files (*.legacy.csproj) are now opt-in instead of default
   - Use `--backup` or `-b` flag to create backup files

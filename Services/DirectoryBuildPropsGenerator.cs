@@ -81,6 +81,21 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
 
         AddOrUpdateProperty(assemblyPropGroup, "GenerateAssemblyInfo", "true");
         
+        // Add automatic binding redirect generation
+        var bindingRedirectPropGroup = projectElement.Elements("PropertyGroup")
+            .FirstOrDefault(pg => pg.Elements().Any(e => 
+                e.Name.LocalName == "AutoGenerateBindingRedirects"));
+                
+        if (bindingRedirectPropGroup == null)
+        {
+            bindingRedirectPropGroup = new XElement("PropertyGroup");
+            bindingRedirectPropGroup.Add(new XComment("Binding Redirect Configuration"));
+            assemblyPropGroup.AddAfterSelf(bindingRedirectPropGroup);
+        }
+        
+        AddOrUpdateProperty(bindingRedirectPropGroup, "AutoGenerateBindingRedirects", "true");
+        AddOrUpdateProperty(bindingRedirectPropGroup, "GenerateBindingRedirectsOutputType", "true");
+        
         if (!string.IsNullOrEmpty(commonProperties.Company))
             AddOrUpdateProperty(assemblyPropGroup, "Company", commonProperties.Company);
         
