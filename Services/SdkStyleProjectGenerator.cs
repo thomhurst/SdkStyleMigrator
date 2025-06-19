@@ -759,6 +759,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         
         // Find all items with Link metadata that point outside the project directory
         var linkedItems = legacyProject.Items
+            .Where(i => !IsEvaluationArtifact(i.ItemType))
             .Where(i => i.HasMetadata("Link") || 
                        (!Path.GetFullPath(Path.Combine(projectDir, i.EvaluatedInclude))
                         .StartsWith(projectDir, StringComparison.OrdinalIgnoreCase)))
@@ -766,6 +767,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             
         foreach (var item in linkedItems)
         {
+            // Skip MSBuild evaluation artifacts
+            if (IsEvaluationArtifact(item.ItemType))
+            {
+                _logger.LogDebug("Skipping MSBuild evaluation artifact in linked items: {ItemType}", item.ItemType);
+                continue;
+            }
+            
             // Skip if already handled in other methods
             if (item.ItemType == "Compile" && 
                 LegacyProjectElements.ImplicitlyIncludedExtensions.Contains(Path.GetExtension(item.EvaluatedInclude)))
@@ -826,7 +834,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Migrate WPF/WinForms specific items
         foreach (var itemType in LegacyProjectElements.WpfWinFormsItemTypes)
         {
-            var items = legacyProject.Items.Where(i => i.ItemType == itemType);
+            var items = legacyProject.Items
+                .Where(i => i.ItemType == itemType)
+                .Where(i => !IsEvaluationArtifact(i.ItemType));
             
             foreach (var item in items)
             {
@@ -849,6 +859,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         
         var contentItems = legacyProject.Items
             .Where(i => i.ItemType == "Content")
+            .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
             .Where(i =>
             {
                 var path = i.EvaluatedInclude;
@@ -941,6 +952,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         
         var noneItems = legacyProject.Items
             .Where(i => i.ItemType == "None")
+            .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
             .Where(i => 
             {
                 var copyToOutput = i.GetMetadataValue("CopyToOutputDirectory");
@@ -1031,8 +1043,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             
             if (isProvidedByPackage)
             {
-                removedReferences.Add(assemblyName);
-                continue;
                 var providingPackage = resolutionResult.ResolvedAssemblies
                     .FirstOrDefault(a => a.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase));
                 
@@ -1040,6 +1050,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     assemblyName, 
                     providingPackage?.PackageId ?? "unknown",
                     providingPackage?.IsTransitive == true ? "(transitive)" : "");
+                
+                removedReferences.Add(assemblyName);
                 
                 // Collect hint path if this reference has one for cleanup
                 var hintPath = reference.GetMetadataValue("HintPath");
@@ -1213,6 +1225,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         
         var embeddedResources = legacyProject.Items
             .Where(i => i.ItemType == "EmbeddedResource")
+            .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
             .Where(i => i.HasMetadata("Generator") || 
                        i.HasMetadata("LastGenOutput") ||
                        i.HasMetadata("SubType"));
@@ -1366,6 +1379,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 
             foreach (var item in itemGroup.Items)
             {
+                // Skip MSBuild evaluation artifacts
+                if (IsEvaluationArtifact(item.ItemType))
+                {
+                    _logger.LogDebug("Skipping MSBuild evaluation artifact: {ItemType}", item.ItemType);
+                    continue;
+                }
+                
                 var itemElement = new XElement(item.ItemType,
                     new XAttribute("Include", item.Include));
                     
@@ -1918,6 +1938,32 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             attributes.Add($"Condition=\"{target.Condition}\"");
             
         return $"<Target {string.Join(" ", attributes)}>...</Target>";
+    }
+    
+    private bool IsEvaluationArtifact(string itemType)
+    {
+        // Check known evaluation artifacts
+        if (LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(itemType))
+            return true;
+            
+        // Check patterns that indicate evaluation artifacts
+        if (itemType.StartsWith("_", StringComparison.Ordinal)) // Internal MSBuild items often start with _
+            return true;
+            
+        if (itemType.Contains("MSBuild", StringComparison.OrdinalIgnoreCase) && 
+            !itemType.Equals("MSBuildAllProjects", StringComparison.OrdinalIgnoreCase)) // MSBuildAllProjects is sometimes used
+            return true;
+            
+        if (itemType.EndsWith("Paths", StringComparison.OrdinalIgnoreCase) && 
+            (itemType.Contains("Reference", StringComparison.OrdinalIgnoreCase) ||
+             itemType.Contains("Assembly", StringComparison.OrdinalIgnoreCase)))
+            return true;
+            
+        if (itemType.Contains("Analyzer", StringComparison.OrdinalIgnoreCase) &&
+            itemType.Contains("Config", StringComparison.OrdinalIgnoreCase))
+            return true;
+            
+        return false;
     }
     
     private HashSet<string> GetImplicitReferences(string sdk, string targetFramework)
