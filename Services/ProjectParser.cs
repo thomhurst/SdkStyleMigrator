@@ -48,9 +48,14 @@ public class ProjectParser : IProjectParser, IDisposable
                     LoadedWithDefensiveParsing = false
                 });
             }
-            catch (InvalidProjectFileException ipfe) when (ipfe.Message.Contains("imported project") && ipfe.Message.Contains("was not found"))
+            catch (InvalidProjectFileException ipfe) when (
+                ipfe.Message.Contains("imported project") || 
+                ipfe.Message.Contains("was not found") ||
+                ipfe.Message.Contains("MSBuildExtensionsPath") ||
+                ipfe.Message.Contains("VisualStudio") ||
+                ipfe.Message.Contains("VSToolsPath"))
             {
-                _logger.LogWarning("Project has missing imports, attempting to load with imports removed: {ProjectPath}", projectPath);
+                _logger.LogWarning("Project has invalid imports, attempting to load with imports removed: {ProjectPath}", projectPath);
                 return LoadProjectWithoutInvalidImports(projectPath, cancellationToken);
             }
         }
@@ -58,7 +63,14 @@ public class ProjectParser : IProjectParser, IDisposable
         {
             _logger.LogError(ex, "Failed to parse project: {ProjectPath}", projectPath);
             
-            if (ex is InvalidProjectFileException && (ex.Message.Contains("imported project") || ex.Message.Contains("was not found")))
+            if (ex is InvalidProjectFileException && (
+                ex.Message.Contains("imported project") || 
+                ex.Message.Contains("was not found") ||
+                ex.Message.Contains("MSBuildExtensionsPath") ||
+                ex.Message.Contains("VisualStudio") ||
+                ex.Message.Contains("VSToolsPath") ||
+                ex.Message.Contains("$(") ||
+                ex.Message.Contains("targets")))
             {
                 _logger.LogWarning("Attempting to load project with defensive parsing due to: {Error}", ex.Message);
                 return LoadProjectWithoutInvalidImports(projectPath, cancellationToken);
@@ -84,26 +96,14 @@ public class ProjectParser : IProjectParser, IDisposable
                 error.Remove();
             }
             
-            var essentialImports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "Microsoft.Common.props",
-                "Microsoft.CSharp.targets",
-                "Microsoft.VisualBasic.targets",
-                "Microsoft.FSharp.targets"
-            };
-            
+            // Remove ALL imports when loading defensively - we'll add back what's needed in SDK-style
             foreach (var import in imports)
             {
                 var projectAttr = import.Attribute("Project")?.Value;
                 if (!string.IsNullOrEmpty(projectAttr))
                 {
-                    var isEssential = essentialImports.Any(e => projectAttr.Contains(e));
-                    
-                    if (!isEssential)
-                    {
-                        _logger.LogDebug("Removing non-essential import: {Import}", projectAttr);
-                        invalidImports.Add(import);
-                    }
+                    _logger.LogDebug("Removing import for defensive parsing: {Import}", projectAttr);
+                    invalidImports.Add(import);
                 }
             }
             
