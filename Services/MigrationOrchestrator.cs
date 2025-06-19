@@ -58,6 +58,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
         BackupSession? backupSession = null;
         var lockAcquired = false;
+        
+        // Track cleanup information for each project
+        var projectCleanupInfo = new System.Collections.Concurrent.ConcurrentBag<(string ProjectDir, List<PackageReference> Packages, List<string> HintPaths)>();
 
         try
         {
@@ -117,7 +120,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         }
                         
                         var progress = $"[{currentIndex}/{totalProjects}]";
-                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, cancellationToken);
+                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, cancellationToken);
                     }
                     finally
                     {
@@ -140,7 +143,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     projectIndex++;
                     var progress = $"[{projectIndex}/{projectFilesList.Count}]";
                     
-                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, cancellationToken);
+                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, cancellationToken);
                 }
             }
             
@@ -152,6 +155,64 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
                     outputDir, projectAssemblyProperties.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), cancellationToken);
+            }
+            
+            // Clean up local package files after all projects are migrated (to avoid file lock issues)
+            if (!_options.DryRun && projectCleanupInfo.Any())
+            {
+                _logger.LogInformation("Starting cleanup of local package files for all migrated projects...");
+                
+                var totalCleanedFiles = 0;
+                var totalBytesFreed = 0L;
+                var cleanupErrors = new List<string>();
+                
+                foreach (var (projectDir, packages, hintPaths) in projectCleanupInfo)
+                {
+                    try
+                    {
+                        var cleanupResult = await _localPackageFilesCleaner.CleanLocalPackageFilesAsync(
+                            projectDir,
+                            packages,
+                            hintPaths,
+                            cancellationToken);
+                        
+                        if (cleanupResult.Success)
+                        {
+                            totalCleanedFiles += cleanupResult.CleanedFiles.Count;
+                            totalBytesFreed += cleanupResult.TotalBytesFreed;
+                            
+                            if (cleanupResult.CleanedFiles.Any())
+                            {
+                                _logger.LogInformation("Cleaned {Count} files in {ProjectDir}, freed {Size:N0} bytes", 
+                                    cleanupResult.CleanedFiles.Count, projectDir, cleanupResult.TotalBytesFreed);
+                            }
+                        }
+                        else
+                        {
+                            cleanupErrors.AddRange(cleanupResult.Errors);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to clean package files for {ProjectDir}", projectDir);
+                        cleanupErrors.Add($"{projectDir}: {ex.Message}");
+                    }
+                }
+                
+                if (totalCleanedFiles > 0)
+                {
+                    _logger.LogInformation("Total package cleanup: Cleaned {Count} files, freed {Size:N0} bytes", 
+                        totalCleanedFiles, totalBytesFreed);
+                }
+                
+                if (cleanupErrors.Any())
+                {
+                    _logger.LogWarning("Package cleanup encountered {Count} errors", cleanupErrors.Count);
+                    foreach (var error in cleanupErrors.Take(10)) // Limit error output
+                    {
+                        _logger.LogWarning("  - {Error}", error);
+                    }
+                }
             }
             
             // Clean packages folder if all projects have been migrated
@@ -224,6 +285,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         System.Collections.Concurrent.ConcurrentDictionary<string, string> projectMappings,
         MigrationReport report,
         BackupSession? backupSession,
+        System.Collections.Concurrent.ConcurrentBag<(string ProjectDir, List<PackageReference> Packages, List<string> HintPaths)> projectCleanupInfo,
         CancellationToken cancellationToken)
     {
         try
@@ -287,32 +349,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     ModificationType = "SDK-style migration"
                 }, cancellationToken);
 
-                // Clean up local package files that were replaced by PackageReference
+                // Store cleanup information for later processing
+                // Files will be cleaned after all projects are migrated to avoid file lock issues
                 if (result.ConvertedHintPaths.Any() || result.MigratedPackages.Any())
                 {
-                    _logger.LogInformation("{Progress} Cleaning local package files for {ProjectPath}", progress, projectFile);
-                    var cleanupResult = await _localPackageFilesCleaner.CleanLocalPackageFilesAsync(
-                        projectDir,
-                        result.MigratedPackages,
-                        result.ConvertedHintPaths,
-                        cancellationToken);
-                    
-                    if (cleanupResult.Success)
-                    {
-                        if (cleanupResult.CleanedFiles.Any())
-                        {
-                            _logger.LogInformation("{Progress} Cleaned {Count} local package files, freed {Size:N0} bytes", 
-                                progress, cleanupResult.CleanedFiles.Count, cleanupResult.TotalBytesFreed);
-                            result.RemovedElements.Add($"Cleaned {cleanupResult.CleanedFiles.Count} local package files ({cleanupResult.TotalBytesFreed:N0} bytes)");
-                        }
-                    }
-                    else
-                    {
-                        foreach (var error in cleanupResult.Errors)
-                        {
-                            result.Warnings.Add($"Package cleanup: {error}");
-                        }
-                    }
+                    projectCleanupInfo.Add((projectDir, result.MigratedPackages, result.ConvertedHintPaths));
                 }
             }
             
