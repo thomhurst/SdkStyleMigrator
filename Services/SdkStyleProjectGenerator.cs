@@ -389,6 +389,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private XElement MigrateProperties(Project legacyProject, MigrationResult result)
     {
         var propertyGroup = new XElement("PropertyGroup");
+        var projectName = Path.GetFileNameWithoutExtension(legacyProject.FullPath);
 
         // Handle single or multi-targeting
         if (_options.TargetFrameworks != null && _options.TargetFrameworks.Length > 0)
@@ -414,28 +415,35 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
         }
 
+        // OutputType - only add if NOT "Library" (which is the default)
         var projectOutputType = legacyProject.GetPropertyValue("OutputType");
-        if (!string.IsNullOrEmpty(projectOutputType))
+        if (!string.IsNullOrEmpty(projectOutputType) && 
+            !projectOutputType.Equals("Library", StringComparison.OrdinalIgnoreCase))
         {
             propertyGroup.Add(new XElement("OutputType", projectOutputType));
+            _logger.LogDebug("Added OutputType: {OutputType} (differs from default 'Library')", projectOutputType);
         }
 
+        // RootNamespace - only add if different from project file name
         var rootNamespace = legacyProject.GetPropertyValue("RootNamespace");
-        var projectName = Path.GetFileNameWithoutExtension(legacyProject.FullPath);
-        if (!string.IsNullOrEmpty(rootNamespace) && rootNamespace != projectName)
+        if (!string.IsNullOrEmpty(rootNamespace) && !rootNamespace.Equals(projectName, StringComparison.OrdinalIgnoreCase))
         {
             propertyGroup.Add(new XElement("RootNamespace", rootNamespace));
+            _logger.LogDebug("Added RootNamespace: {RootNamespace} (differs from project name: {ProjectName})", rootNamespace, projectName);
         }
 
+        // AssemblyName - only add if different from project file name
         var assemblyName = legacyProject.GetPropertyValue("AssemblyName");
-        if (!string.IsNullOrEmpty(assemblyName) && assemblyName != projectName)
+        if (!string.IsNullOrEmpty(assemblyName) && !assemblyName.Equals(projectName, StringComparison.OrdinalIgnoreCase))
         {
             propertyGroup.Add(new XElement("AssemblyName", assemblyName));
+            _logger.LogDebug("Added AssemblyName: {AssemblyName} (differs from project name: {ProjectName})", assemblyName, projectName);
         }
 
+        // Properties that should be preserved if they differ from defaults
         var importantProperties = new[]
         {
-            "LangVersion",
+            "LangVersion", // Only if restricting to older version (default is "latest")
             "Nullable",
             "GenerateDocumentationFile",
             "NoWarn",
@@ -443,8 +451,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "WarningsAsErrors",
             "DefineConstants",
             "PlatformTarget",
-            "Prefer32Bit",
             "AllowUnsafeBlocks"
+            // Removed "Prefer32Bit" - irrelevant for libraries, only matters for .exe with AnyCPU
         };
         
         // ClickOnce properties
@@ -524,15 +532,22 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             result.Warnings.Add("- Run 'dotnet publish -p:PublishProfile=ClickOnceProfile' to test");
         }
         
-        foreach (var propName in LegacyProjectElements.PropertiesToPreserve)
+        // Handle special properties that might be needed
+        // ProjectGuid - not needed in SDK-style projects, skip it
+        // SignAssembly, AssemblyOriginatorKeyFile, DelaySign - keep if present for signing
+        var signingProperties = new[] { "SignAssembly", "AssemblyOriginatorKeyFile", "DelaySign", "StrongNameKeyFile" };
+        foreach (var propName in signingProperties)
         {
             var value = legacyProject.GetPropertyValue(propName);
             if (!string.IsNullOrEmpty(value))
             {
                 propertyGroup.Add(new XElement(propName, value));
-                _logger.LogDebug("Preserved property for compatibility: {PropertyName}", propName);
+                _logger.LogDebug("Preserved signing property: {PropertyName}", propName);
             }
         }
+        
+        // IsPublishable - handle after ClickOnce and signing properties
+        // Will be added below if needed
 
         foreach (var property in legacyProject.Properties)
         {
@@ -542,6 +557,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 result.RemovedElements.Add($"Property: {property.Name}");
                 _logger.LogDebug("Removed legacy property: {PropertyName}", property.Name);
             }
+        }
+        
+        // IsPublishable - only add for libraries if explicitly set to true (or if ClickOnce is used)
+        // (default is true for exe, false for library)
+        var isPublishable = legacyProject.GetPropertyValue("IsPublishable");
+        bool isLibrary = string.IsNullOrEmpty(projectOutputType) || projectOutputType.Equals("Library", StringComparison.OrdinalIgnoreCase);
+        bool needsIsPublishable = hasClickOnce || 
+            (!string.IsNullOrEmpty(isPublishable) && isPublishable.Equals("true", StringComparison.OrdinalIgnoreCase) && isLibrary);
+        
+        if (needsIsPublishable && propertyGroup.Element("IsPublishable") == null)
+        {
+            propertyGroup.Add(new XElement("IsPublishable", "true"));
+            _logger.LogDebug("Added IsPublishable: true (library project with explicit publish support or ClickOnce)");
         }
 
         return propertyGroup;

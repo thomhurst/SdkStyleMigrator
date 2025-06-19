@@ -4,40 +4,26 @@ public static class LegacyProjectElements
 {
     public static readonly HashSet<string> PropertiesToRemove = new(StringComparer.OrdinalIgnoreCase)
     {
+        "ProjectGuid", // Not needed in SDK-style projects
         "ProjectTypeGuids", 
         "TargetFrameworkProfile",
         "FileAlignment",
         "AppDesignerFolder",
-        "RootNamespace",
-        "AssemblyName",
         "SchemaVersion",
         "ProductVersion",
         "FileVersion",
         "OldToolsVersion",
         "UpgradeBackupLocation",
-        "PublishUrl",
-        "Install",
-        "InstallFrom",
-        "UpdateEnabled",
-        "UpdateMode",
-        "UpdateInterval",
-        "UpdateIntervalUnits",
-        "UpdatePeriodically",
-        "UpdateRequired",
-        "MapFileExtensions",
-        "ApplicationRevision",
-        "ApplicationVersion",
-        "UseApplicationTrust",
-        "BootstrapperEnabled"
+        "Prefer32Bit" // Irrelevant for libraries, only matters for exe
+        // Note: RootNamespace and AssemblyName removed from here - handled conditionally
+        // Note: ClickOnce properties removed from here - handled separately
     };
     
+    // Properties handled conditionally elsewhere - this list is now empty
+    // Signing properties are handled in SdkStyleProjectGenerator
     public static readonly HashSet<string> PropertiesToPreserve = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ProjectGuid",
-        "SignAssembly",
-        "AssemblyOriginatorKeyFile",
-        "DelaySign",
-        "StrongNameKeyFile"
+        // Empty - all properties are now handled conditionally
     };
 
     public static readonly HashSet<string> AssemblyPropertiesToExtract = new(StringComparer.OrdinalIgnoreCase)
