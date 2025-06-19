@@ -704,6 +704,35 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
     }
     
+    private int CalculatePathSimilarity(string fullPath, List<string> originalSegments)
+    {
+        var pathSegments = fullPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+        var score = 0;
+        
+        // Check how many segments from the original path appear in the found path
+        foreach (var segment in originalSegments)
+        {
+            if (pathSegments.Any(s => s.Equals(segment, StringComparison.OrdinalIgnoreCase)))
+            {
+                score++;
+            }
+        }
+        
+        // Bonus points if segments appear in the same order
+        var lastIndex = -1;
+        foreach (var segment in originalSegments)
+        {
+            var index = Array.FindIndex(pathSegments, s => s.Equals(segment, StringComparison.OrdinalIgnoreCase));
+            if (index > lastIndex)
+            {
+                score += 2;
+                lastIndex = index;
+            }
+        }
+        
+        return score;
+    }
+    
     private string ResolveProjectReferencePath(string currentProjectDir, string referencePath, MigrationResult result)
     {
         try
@@ -768,6 +797,70 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 result.Warnings.Add($"Project reference '{referencePath}' contains variables that cannot be resolved");
                 _logger.LogWarning("Project reference contains variables that cannot be resolved: {Path}", referencePath);
+            }
+            
+            // 4. Last resort - search the entire repository for the project file
+            _logger.LogDebug("Searching entire repository for project file: {FileName}", fileName);
+            
+            // Find the repository root (look for .git directory or go up to a reasonable limit)
+            var repoRoot = currentProjectDir;
+            var searchDepth = 0;
+            while (!Directory.Exists(Path.Combine(repoRoot, ".git")) && searchDepth < 10)
+            {
+                var parent = Path.GetDirectoryName(repoRoot);
+                if (string.IsNullOrEmpty(parent) || parent == repoRoot)
+                    break;
+                repoRoot = parent;
+                searchDepth++;
+            }
+            
+            // Search from repository root
+            try
+            {
+                var allProjectFiles = Directory.GetFiles(repoRoot, fileName, SearchOption.AllDirectories)
+                    .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                if (allProjectFiles.Count == 1)
+                {
+                    var relativePath = Path.GetRelativePath(currentProjectDir, allProjectFiles[0]);
+                    _logger.LogInformation("Found project reference in repository: {OldPath} -> {NewPath}", referencePath, relativePath);
+                    result.Warnings.Add($"Fixed project reference path: '{referencePath}' -> '{relativePath}'");
+                    return relativePath.Replace('\\', Path.DirectorySeparatorChar);
+                }
+                else if (allProjectFiles.Count > 1)
+                {
+                    // Multiple matches - try to find the best match based on the original path segments
+                    var originalSegments = referencePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Where(s => !s.Equals("..", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    
+                    var bestMatch = allProjectFiles
+                        .Select(f => new
+                        {
+                            Path = f,
+                            Score = CalculatePathSimilarity(f, originalSegments)
+                        })
+                        .OrderByDescending(x => x.Score)
+                        .FirstOrDefault();
+                    
+                    if (bestMatch != null && bestMatch.Score > 0)
+                    {
+                        var relativePath = Path.GetRelativePath(currentProjectDir, bestMatch.Path);
+                        _logger.LogInformation("Found best matching project reference in repository: {OldPath} -> {NewPath}", referencePath, relativePath);
+                        result.Warnings.Add($"Fixed project reference path (best match): '{referencePath}' -> '{relativePath}'");
+                        return relativePath.Replace('\\', Path.DirectorySeparatorChar);
+                    }
+                    
+                    result.Warnings.Add($"Multiple projects named '{fileName}' found in repository - could not determine correct reference");
+                    _logger.LogWarning("Multiple projects found with name {FileName}: {Paths}", fileName, string.Join(", ", allProjectFiles));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error searching repository for project file: {FileName}", fileName);
             }
             
             result.Warnings.Add($"Could not resolve project reference path: '{referencePath}' - please verify manually");
