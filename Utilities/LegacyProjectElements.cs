@@ -14,7 +14,14 @@ public static class LegacyProjectElements
         "FileVersion",
         "OldToolsVersion",
         "UpgradeBackupLocation",
-        "Prefer32Bit" // Irrelevant for libraries, only matters for exe
+        "Prefer32Bit", // Irrelevant for libraries, only matters for exe
+        "DebugSymbols",
+        "DebugType",
+        "Optimize",
+        "OutputPath",
+        "IntermediateOutputPath",
+        "ErrorReport",
+        "WarningLevel"
         // Note: RootNamespace and AssemblyName removed from here - handled conditionally
         // Note: ClickOnce properties removed from here - handled separately
     };

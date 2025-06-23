@@ -120,7 +120,6 @@ public enum SpecialFileType
     ServiceReference,
     WebConfig,
     AppConfig,
-    ClickOnceManifest,
     StrongNameKey,
     NuSpec,
     ResxWithDesigner,

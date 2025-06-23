@@ -286,6 +286,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             MigrateCustomTargetsAndImports(legacyProject, projectElement, result);
 
+            // Remove empty PropertyGroups before saving
+            RemoveEmptyPropertyGroups(sdkProject);
+
             if (!_options.DryRun)
             {
                 var directory = Path.GetDirectoryName(outputPath);
@@ -2217,5 +2220,35 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         return patterns.Distinct().ToList();
+    }
+
+    private void RemoveEmptyPropertyGroups(XDocument sdkProject)
+    {
+        if (sdkProject.Root == null) return;
+
+        // Find all empty PropertyGroup elements
+        var emptyPropertyGroups = sdkProject.Root
+            .Elements("PropertyGroup")
+            .Where(pg => !pg.HasElements && string.IsNullOrWhiteSpace(pg.Value))
+            .ToList();
+
+        // Remove each empty PropertyGroup
+        foreach (var emptyGroup in emptyPropertyGroups)
+        {
+            _logger.LogDebug("Removing empty PropertyGroup");
+            emptyGroup.Remove();
+        }
+
+        // Also check for PropertyGroups that only contain whitespace or comments
+        var whitespaceOnlyGroups = sdkProject.Root
+            .Elements("PropertyGroup")
+            .Where(pg => !pg.Elements().Any() && pg.Nodes().All(n => n is XText text && string.IsNullOrWhiteSpace(text.Value) || n is XComment))
+            .ToList();
+
+        foreach (var group in whitespaceOnlyGroups)
+        {
+            _logger.LogDebug("Removing PropertyGroup containing only whitespace or comments");
+            group.Remove();
+        }
     }
 }
