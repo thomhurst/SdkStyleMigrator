@@ -294,8 +294,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     Directory.CreateDirectory(directory);
                 }
 
-                // Add migration metadata comment for tracking
-                sdkProject.Root?.AddFirst(new XComment($"Migrated by SdkMigrator on {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"));
 
                 // Save without XML declaration
                 var settings = new XmlWriterSettings
