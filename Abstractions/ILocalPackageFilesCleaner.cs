@@ -8,11 +8,11 @@ public interface ILocalPackageFilesCleaner
     /// Finds and removes local package files (DLLs, XMLs, PDBs, etc.) that are now replaced by PackageReference
     /// </summary>
     Task<LocalPackageCleanupResult> CleanLocalPackageFilesAsync(
-        string projectDirectory, 
+        string projectDirectory,
         List<PackageReference> packageReferences,
         List<string> hintPaths,
         CancellationToken cancellationToken = default);
-        
+
     /// <summary>
     /// Cleans up packages folders that are no longer needed
     /// </summary>

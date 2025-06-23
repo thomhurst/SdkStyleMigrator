@@ -22,14 +22,14 @@ public class ProjectAnalysis
     public string CurrentTargetFramework { get; set; } = string.Empty;
     public bool CanMigrate { get; set; }
     public MigrationRiskLevel RiskLevel { get; set; }
-    
+
     // Detailed findings
     public List<CustomTargetAnalysis> CustomTargets { get; set; } = new();
     public List<BuildConfigurationAnalysis> BuildConfigurations { get; set; } = new();
     public List<PackageAnalysis> Packages { get; set; } = new();
     public List<ProjectReferenceAnalysis> ProjectReferences { get; set; } = new();
     public List<SpecialFileAnalysis> SpecialFiles { get; set; } = new();
-    
+
     // Issues and recommendations
     public List<MigrationIssue> Issues { get; set; } = new();
     public List<string> ManualStepsRequired { get; set; } = new();

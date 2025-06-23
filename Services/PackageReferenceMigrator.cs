@@ -84,12 +84,12 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
                         Version = version,
                         TargetFramework = targetFramework
                     };
-                    
+
                     if (developmentDependency == "true")
                     {
                         packageRef.Metadata["PrivateAssets"] = "all";
                     }
-                    
+
                     packages.Add(packageRef);
                 }
             }
@@ -108,22 +108,22 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
         {
             var parts = hintPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var packagesIndex = Array.FindIndex(parts, p => p.Equals("packages", StringComparison.OrdinalIgnoreCase));
-            
+
             if (packagesIndex >= 0 && packagesIndex < parts.Length - 1)
             {
                 var packageFolder = parts[packagesIndex + 1];
-                
+
                 // Try to find the version by looking for a pattern like x.y.z
                 // Start from the end and work backwards to find a valid version pattern
                 var versionMatch = Regex.Match(
-                    packageFolder, 
+                    packageFolder,
                     @"^(.+?)\.(\d+(?:\.\d+)*)$");
-                
+
                 if (versionMatch.Success)
                 {
                     var packageId = versionMatch.Groups[1].Value;
                     var version = versionMatch.Groups[2].Value;
-                    
+
                     // Validate that we have a reasonable version number
                     if (version.Split('.').All(part => int.TryParse(part, out _)))
                     {
@@ -134,13 +134,13 @@ public class PackageReferenceMigrator : IPackageReferenceMigrator
                         };
                     }
                 }
-                
+
                 // Fallback: try to match known version patterns more aggressively
                 // This handles cases like: PackageName.1.2.3.4 or PackageName2.1.0.0
                 var fallbackMatch = Regex.Match(
                     packageFolder,
                     @"^(.+?)\.(\d+\.\d+(?:\.\d+)*(?:\.\d+)?)$");
-                    
+
                 if (fallbackMatch.Success)
                 {
                     return new PackageReference

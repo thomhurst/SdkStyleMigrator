@@ -8,27 +8,27 @@ public interface IAuditService
     /// Logs the start of a migration operation
     /// </summary>
     Task LogMigrationStartAsync(MigrationOptions options, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Logs a file modification with before and after hashes
     /// </summary>
     Task LogFileModificationAsync(FileModificationAudit audit, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Logs a file creation
     /// </summary>
     Task LogFileCreationAsync(FileCreationAudit audit, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Logs a file deletion
     /// </summary>
     Task LogFileDeletionAsync(FileDeletionAudit audit, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Logs the end of a migration operation
     /// </summary>
     Task LogMigrationEndAsync(MigrationReport report, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Logs an error during migration
     /// </summary>

@@ -8,10 +8,10 @@ public interface IPostMigrationValidator
     /// Validates a migrated project to ensure it's properly configured
     /// </summary>
     Task<PostMigrationValidationResult> ValidateProjectAsync(
-        string projectPath, 
+        string projectPath,
         MigrationResult migrationResult,
         CancellationToken cancellationToken = default);
-        
+
     /// <summary>
     /// Validates all migrated projects in a solution
     /// </summary>

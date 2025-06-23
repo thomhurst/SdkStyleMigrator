@@ -11,14 +11,14 @@ public interface ICentralPackageManagementGenerator
         string solutionDirectory,
         IEnumerable<MigrationResult> migrationResults,
         CancellationToken cancellationToken = default);
-        
+
     /// <summary>
     /// Removes Version attributes from PackageReference items in project files
     /// </summary>
     Task<bool> RemoveVersionsFromProjectsAsync(
         IEnumerable<string> projectFiles,
         CancellationToken cancellationToken = default);
-        
+
     /// <summary>
     /// Removes unused packages from Directory.Packages.props
     /// </summary>

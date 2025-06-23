@@ -12,7 +12,7 @@ public class AuditService : IAuditService
     private readonly string _auditLogPath;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-    
+
     public AuditService(ILogger<AuditService> logger, MigrationOptions options)
     {
         _logger = logger;
@@ -20,13 +20,13 @@ public class AuditService : IAuditService
             options.OutputDirectory ?? options.DirectoryPath,
             $"sdkmigrator_audit_{DateTime.UtcNow:yyyyMMdd_HHmmss}.jsonl"
         );
-        
+
         _jsonOptions = new JsonSerializerOptions
         {
             WriteIndented = false // Use JSON Lines format for easier parsing
         };
     }
-    
+
     public async Task LogMigrationStartAsync(MigrationOptions options, CancellationToken cancellationToken = default)
     {
         var entry = new
@@ -55,10 +55,10 @@ public class AuditService : IAuditService
                 options.MaxDegreeOfParallelism
             }
         };
-        
+
         await WriteAuditEntryAsync(entry, cancellationToken);
     }
-    
+
     public async Task LogFileModificationAsync(FileModificationAudit audit, CancellationToken cancellationToken = default)
     {
         var entry = new
@@ -80,10 +80,10 @@ public class AuditService : IAuditService
             User = Environment.UserName,
             ProcessId = Environment.ProcessId
         };
-        
+
         await WriteAuditEntryAsync(entry, cancellationToken);
     }
-    
+
     public async Task LogFileCreationAsync(FileCreationAudit audit, CancellationToken cancellationToken = default)
     {
         var entry = new
@@ -100,10 +100,10 @@ public class AuditService : IAuditService
             User = Environment.UserName,
             ProcessId = Environment.ProcessId
         };
-        
+
         await WriteAuditEntryAsync(entry, cancellationToken);
     }
-    
+
     public async Task LogFileDeletionAsync(FileDeletionAudit audit, CancellationToken cancellationToken = default)
     {
         var entry = new
@@ -120,10 +120,10 @@ public class AuditService : IAuditService
             User = Environment.UserName,
             ProcessId = Environment.ProcessId
         };
-        
+
         await WriteAuditEntryAsync(entry, cancellationToken);
     }
-    
+
     public async Task LogMigrationEndAsync(MigrationReport report, CancellationToken cancellationToken = default)
     {
         var entry = new
@@ -141,10 +141,10 @@ public class AuditService : IAuditService
             User = Environment.UserName,
             ProcessId = Environment.ProcessId
         };
-        
+
         await WriteAuditEntryAsync(entry, cancellationToken);
     }
-    
+
     public async Task LogErrorAsync(string context, Exception exception, CancellationToken cancellationToken = default)
     {
         var entry = new
@@ -161,10 +161,10 @@ public class AuditService : IAuditService
             User = Environment.UserName,
             ProcessId = Environment.ProcessId
         };
-        
+
         await WriteAuditEntryAsync(entry, cancellationToken);
     }
-    
+
     private async Task WriteAuditEntryAsync(object entry, CancellationToken cancellationToken)
     {
         await _writeLock.WaitAsync(cancellationToken);
@@ -172,7 +172,7 @@ public class AuditService : IAuditService
         {
             var json = JsonSerializer.Serialize(entry, _jsonOptions);
             await File.AppendAllTextAsync(_auditLogPath, json + Environment.NewLine, cancellationToken);
-            
+
             // Also log to structured logging
             _logger.LogInformation("Audit: {AuditEntry}", json);
         }
@@ -181,7 +181,7 @@ public class AuditService : IAuditService
             _writeLock.Release();
         }
     }
-    
+
     private string GetToolVersion()
     {
         var assembly = System.Reflection.Assembly.GetExecutingAssembly();
@@ -198,7 +198,7 @@ public static class FileHashCalculator
         {
             return string.Empty;
         }
-        
+
         using var sha256 = SHA256.Create();
         await using var stream = File.OpenRead(filePath);
         var hash = await sha256.ComputeHashAsync(stream, cancellationToken);

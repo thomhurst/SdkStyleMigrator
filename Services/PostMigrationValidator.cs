@@ -23,7 +23,7 @@ public class PostMigrationValidator : IPostMigrationValidator
     }
 
     public async Task<PostMigrationValidationResult> ValidateProjectAsync(
-        string projectPath, 
+        string projectPath,
         MigrationResult migrationResult,
         CancellationToken cancellationToken = default)
     {
@@ -57,28 +57,28 @@ public class PostMigrationValidator : IPostMigrationValidator
             try
             {
                 var project = new Project(projectPath, null, null, projectCollection);
-                
+
                 // Validate SDK attribute
                 ValidateSdkAttribute(doc, result);
-                
+
                 // Validate target framework
                 ValidateTargetFramework(project, result);
-                
+
                 // Validate package references
                 await ValidatePackageReferencesAsync(project, migrationResult, result, cancellationToken);
-                
+
                 // Validate removed elements were properly handled
                 ValidateRemovedElements(project, migrationResult, result);
-                
+
                 // Validate project structure
                 ValidateProjectStructure(project, result);
-                
+
                 // Validate output paths
                 ValidateOutputPaths(project, result);
-                
+
                 // Validate dependencies
                 ValidateDependencies(project, result);
-                
+
                 // Check for common migration issues
                 CheckCommonMigrationIssues(project, doc, result);
             }
@@ -102,8 +102,8 @@ public class PostMigrationValidator : IPostMigrationValidator
         }
 
         // Set IsValid based on critical/error issues
-        result.IsValid = !result.Issues.Any(i => 
-            i.Severity == ValidationSeverity.Critical || 
+        result.IsValid = !result.Issues.Any(i =>
+            i.Severity == ValidationSeverity.Critical ||
             i.Severity == ValidationSeverity.Error);
 
         return result;
@@ -124,7 +124,7 @@ public class PostMigrationValidator : IPostMigrationValidator
         }
 
         var results = await Task.WhenAll(validationTasks);
-        
+
         report.ProjectResults.AddRange(results);
         report.TotalProjects = results.Length;
         report.ValidProjects = results.Count(r => r.IsValid);
@@ -251,7 +251,7 @@ public class PostMigrationValidator : IPostMigrationValidator
         }
 
         // Validate framework values
-        var frameworks = !string.IsNullOrEmpty(targetFrameworks) 
+        var frameworks = !string.IsNullOrEmpty(targetFrameworks)
             ? targetFrameworks.Split(';', StringSplitOptions.RemoveEmptyEntries)
             : new[] { targetFramework };
 
@@ -271,7 +271,7 @@ public class PostMigrationValidator : IPostMigrationValidator
     }
 
     private async Task ValidatePackageReferencesAsync(
-        Project project, 
+        Project project,
         MigrationResult migrationResult,
         PostMigrationValidationResult result,
         CancellationToken cancellationToken)
@@ -337,7 +337,7 @@ public class PostMigrationValidator : IPostMigrationValidator
         // Check if any critical removed elements need manual attention
         foreach (var removedElement in migrationResult.RemovedMSBuildElements)
         {
-            if (removedElement.ElementType == "Target" && 
+            if (removedElement.ElementType == "Target" &&
                 !string.IsNullOrEmpty(removedElement.XmlContent) &&
                 removedElement.XmlContent.Contains("Exec", StringComparison.OrdinalIgnoreCase))
             {

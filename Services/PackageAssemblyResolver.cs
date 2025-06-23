@@ -13,10 +13,10 @@ public class PackageAssemblyResolver
     private readonly ILogger<PackageAssemblyResolver> _logger;
     private readonly INuGetPackageResolver _nugetResolver;
     private readonly string _packagesPath;
-    
+
     // Cache of package ID -> list of assemblies it provides
     private readonly ConcurrentDictionary<string, HashSet<string>> _packageAssemblyCache = new();
-    
+
     // Comprehensive mapping of well-known packages and their assemblies
     private readonly Dictionary<string, HashSet<string>> _wellKnownPackageAssemblies = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -86,15 +86,15 @@ public class PackageAssemblyResolver
     {
         _logger = logger;
         _nugetResolver = nugetResolver;
-        
+
         // Determine packages folder path
-        _packagesPath = options.DirectoryPath != null 
+        _packagesPath = options.DirectoryPath != null
             ? Path.Combine(Path.GetDirectoryName(options.DirectoryPath) ?? "", "packages")
             : Path.Combine(Directory.GetCurrentDirectory(), "packages");
     }
 
     public async Task<HashSet<string>> GetAssembliesProvidedByPackagesAsync(
-        List<Models.PackageReference> packages, 
+        List<Models.PackageReference> packages,
         string targetFramework,
         CancellationToken cancellationToken = default)
     {
@@ -113,13 +113,13 @@ public class PackageAssemblyResolver
     }
 
     public async Task<HashSet<string>> GetAssembliesForPackageAsync(
-        string packageId, 
+        string packageId,
         string version,
         string targetFramework,
         CancellationToken cancellationToken = default)
     {
         var cacheKey = $"{packageId}_{version}";
-        
+
         // Check cache first
         if (_packageAssemblyCache.TryGetValue(cacheKey, out var cachedAssemblies))
         {
@@ -151,13 +151,13 @@ public class PackageAssemblyResolver
                     {
                         var tfm = NuGetFramework.Parse(targetFramework);
                         var foundAssemblies = await GetAssembliesFromPackageFolderAsync(libPath, tfm);
-                        
+
                         foreach (var assembly in foundAssemblies)
                         {
                             assemblies.Add(assembly);
                         }
-                        
-                        _logger.LogDebug("Found {Count} assemblies for package {PackageId} from local folder", 
+
+                        _logger.LogDebug("Found {Count} assemblies for package {PackageId} from local folder",
                             foundAssemblies.Count, packageId);
                     }
                 }
@@ -184,21 +184,21 @@ public class PackageAssemblyResolver
 
         // Cache the results
         _packageAssemblyCache.TryAdd(cacheKey, assemblies);
-        
+
         return assemblies;
     }
 
     private async Task<HashSet<string>> GetAssembliesFromPackageFolderAsync(string libPath, NuGetFramework targetFramework)
     {
         var assemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        
+
         // Get all framework folders
         var frameworkFolders = Directory.GetDirectories(libPath);
-        
+
         // Find the best matching framework folder
         string? bestMatch = null;
         var bestFramework = NuGetFramework.UnsupportedFramework;
-        
+
         foreach (var folder in frameworkFolders)
         {
             var folderName = Path.GetFileName(folder);
@@ -207,7 +207,7 @@ public class PackageAssemblyResolver
                 var framework = NuGetFramework.Parse(folderName);
                 if (!framework.IsUnsupported && DefaultCompatibilityProvider.Instance.IsCompatible(targetFramework, framework))
                 {
-                    if (bestFramework.IsUnsupported || 
+                    if (bestFramework.IsUnsupported ||
                         framework.Version > bestFramework.Version)
                     {
                         bestFramework = framework;
@@ -220,21 +220,21 @@ public class PackageAssemblyResolver
                 // Not a valid framework folder name, skip it
             }
         }
-        
+
         // If no match found, try portable or netstandard
         if (bestMatch == null)
         {
-            bestMatch = frameworkFolders.FirstOrDefault(f => 
+            bestMatch = frameworkFolders.FirstOrDefault(f =>
                 Path.GetFileName(f).StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) ||
                 Path.GetFileName(f).StartsWith("portable", StringComparison.OrdinalIgnoreCase));
         }
-        
+
         // Last resort - any folder
         if (bestMatch == null && frameworkFolders.Length > 0)
         {
             bestMatch = frameworkFolders[0];
         }
-        
+
         if (bestMatch != null)
         {
             // Get all DLL files
@@ -245,7 +245,7 @@ public class PackageAssemblyResolver
                 assemblies.Add(assemblyName);
             }
         }
-        
+
         return assemblies;
     }
 
@@ -261,7 +261,7 @@ public class PackageAssemblyResolver
             return true;
 
         // Check for partial matches (some packages include version in assembly name)
-        return packageAssemblies.Any(pa => 
+        return packageAssemblies.Any(pa =>
             pa.Equals(simpleName, StringComparison.OrdinalIgnoreCase) ||
             simpleName.Equals(pa, StringComparison.OrdinalIgnoreCase));
     }

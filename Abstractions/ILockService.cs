@@ -7,17 +7,17 @@ public interface ILockService
     /// </summary>
     /// <returns>True if lock was acquired, false if another process holds the lock</returns>
     Task<bool> TryAcquireLockAsync(string directory, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Releases the lock held by this process
     /// </summary>
     Task ReleaseLockAsync(CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Checks if a lock exists and provides information about it
     /// </summary>
     Task<LockInfo?> GetLockInfoAsync(string directory, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Attempts to clean up stale locks
     /// </summary>

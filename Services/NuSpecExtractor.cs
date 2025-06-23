@@ -25,7 +25,7 @@ public class NuSpecExtractor : INuSpecExtractor
             return Task.FromResult<string?>(null);
 
         var projectName = Path.GetFileNameWithoutExtension(projectPath);
-        
+
         // Look for .nuspec files in common patterns
         var patterns = new[]
         {
@@ -41,7 +41,7 @@ public class NuSpecExtractor : INuSpecExtractor
             var searchPath = Path.Combine(projectDir, pattern);
             var directory = Path.GetDirectoryName(searchPath) ?? projectDir;
             var fileName = Path.GetFileName(searchPath);
-            
+
             if (Directory.Exists(directory))
             {
                 var files = Directory.GetFiles(directory, fileName, SearchOption.TopDirectoryOnly);
@@ -71,13 +71,13 @@ public class NuSpecExtractor : INuSpecExtractor
             var content = await File.ReadAllTextAsync(nuspecPath, cancellationToken);
             var doc = XDocument.Parse(content);
             var root = doc.Root;
-            
+
             if (root == null)
                 return null;
 
             // Determine the namespace
             var ns = root.Name.Namespace;
-            
+
             var metadataElement = root.Element(ns + "metadata");
             if (metadataElement == null)
                 return null;
@@ -170,7 +170,7 @@ public class NuSpecExtractor : INuSpecExtractor
         var value = GetElementValue(parent, ns, elementName);
         if (string.IsNullOrEmpty(value))
             return null;
-        
+
         return bool.TryParse(value, out var result) ? result : null;
     }
 
@@ -178,7 +178,7 @@ public class NuSpecExtractor : INuSpecExtractor
     {
         // Handle both grouped and ungrouped dependencies
         var groups = dependenciesElement.Elements(ns + "group");
-        
+
         if (groups.Any())
         {
             // Grouped by target framework

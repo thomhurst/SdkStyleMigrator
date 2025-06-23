@@ -26,7 +26,7 @@ public class EntityFrameworkMigrationHandler
 
         // Check for EF references
         var efReferences = project.Items
-            .Where(i => i.ItemType == "Reference" && 
+            .Where(i => i.ItemType == "Reference" &&
                        i.EvaluatedInclude.StartsWith("EntityFramework", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
@@ -39,7 +39,7 @@ public class EntityFrameworkMigrationHandler
         // Check packages
         var packages = await GetPackagesAsync(projectDir, cancellationToken);
         var efPackage = packages.FirstOrDefault(p => p.Id.Equals("EntityFramework", StringComparison.OrdinalIgnoreCase));
-        
+
         if (efPackage != null)
         {
             info.UsesEntityFramework = true;
@@ -48,9 +48,9 @@ public class EntityFrameworkMigrationHandler
         }
 
         // Check for EF Core packages
-        var efCorePackage = packages.FirstOrDefault(p => 
+        var efCorePackage = packages.FirstOrDefault(p =>
             p.Id.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase));
-        
+
         if (efCorePackage != null)
         {
             info.UsesEntityFramework = true;
@@ -64,14 +64,14 @@ public class EntityFrameworkMigrationHandler
         {
             info.HasMigrations = true;
             info.MigrationsPath = migrationsPath;
-            
+
             // Count migration files
             var migrationFiles = Directory.GetFiles(migrationsPath, "*.cs", SearchOption.AllDirectories)
                 .Where(f => System.Text.RegularExpressions.Regex.IsMatch(
-                    Path.GetFileName(f), 
+                    Path.GetFileName(f),
                     @"^\d{14}_.*\.cs$")) // EF migration pattern: 202312011234567_MigrationName.cs
                 .ToList();
-                
+
             info.MigrationCount = migrationFiles.Count;
         }
 
@@ -95,14 +95,14 @@ public class EntityFrameworkMigrationHandler
                 if (efSection != null)
                 {
                     info.HasEFConfiguration = true;
-                    
+
                     // Check for code first configuration
                     var contexts = efSection.Element("contexts");
                     if (contexts != null)
                     {
                         info.UsesCodeFirst = true;
                     }
-                    
+
                     // Check for connection factory
                     var defaultConnectionFactory = efSection.Element("defaultConnectionFactory");
                     if (defaultConnectionFactory != null)
@@ -132,14 +132,14 @@ public class EntityFrameworkMigrationHandler
         {
             // EF6 specific handling
             _logger.LogInformation("Adding Entity Framework 6 support");
-            
+
             // Add EF6 package reference
             var efPackage = new XElement("PackageReference",
                 new XAttribute("Include", "EntityFramework"),
                 new XAttribute("Version", efInfo.EntityFrameworkVersion ?? "6.4.4"));
             itemGroup.Add(efPackage);
             hasItems = true;
-            
+
             // Add provider packages if needed
             if (efInfo.ConnectionFactoryType?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) == true)
             {
@@ -148,7 +148,7 @@ public class EntityFrameworkMigrationHandler
                     new XAttribute("Version", "4.8.6"));
                 itemGroup.Add(sqlPackage);
             }
-            
+
             result.Warnings.Add("Entity Framework 6 detected. Ensure the following:");
             result.Warnings.Add("- EF6 works on .NET Core 3.0+ but with limitations (Windows only for some features)");
             result.Warnings.Add("- Consider migrating to EF Core for better .NET Core/5+ support");
@@ -158,23 +158,23 @@ public class EntityFrameworkMigrationHandler
         {
             // EF Core specific handling
             _logger.LogInformation("Entity Framework Core support detected");
-            
+
             // Add design-time tools if migrations exist
             if (efInfo.HasMigrations)
             {
                 var designPackage = new XElement("PackageReference",
                     new XAttribute("Include", "Microsoft.EntityFrameworkCore.Design"));
-                    
+
                 // Add PrivateAssets to prevent transitive dependency
                 var privateAssets = new XElement("PrivateAssets", "all");
-                var includeAssets = new XElement("IncludeAssets", 
+                var includeAssets = new XElement("IncludeAssets",
                     "runtime; build; native; contentfiles; analyzers; buildtransitive");
-                    
+
                 designPackage.Add(privateAssets);
                 designPackage.Add(includeAssets);
                 itemGroup.Add(designPackage);
                 hasItems = true;
-                
+
                 result.Warnings.Add("EF Core migrations detected. The Design package has been added.");
                 result.Warnings.Add("Use 'dotnet ef' commands for migrations (not Package Manager Console)");
             }
@@ -190,7 +190,7 @@ public class EntityFrameworkMigrationHandler
         {
             result.Warnings.Add($"Found {efInfo.MigrationCount} EF migrations in {efInfo.MigrationsPath}");
             result.Warnings.Add("After migration, test the following commands:");
-            
+
             if (efInfo.IsEF6)
             {
                 result.Warnings.Add("- Package Manager Console: Add-Migration, Update-Database");
@@ -222,19 +222,19 @@ public class EntityFrameworkMigrationHandler
     {
         var packages = new List<Package>();
         var packagesConfigPath = Path.Combine(projectDir, "packages.config");
-        
+
         if (File.Exists(packagesConfigPath))
         {
             try
             {
                 var doc = XDocument.Load(packagesConfigPath);
                 var packageElements = doc.Root?.Elements("package") ?? Enumerable.Empty<XElement>();
-                
+
                 foreach (var package in packageElements)
                 {
                     var id = package.Attribute("id")?.Value;
                     var version = package.Attribute("version")?.Value;
-                    
+
                     if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(version))
                     {
                         packages.Add(new Package { Id = id, Version = version });
@@ -246,7 +246,7 @@ public class EntityFrameworkMigrationHandler
                 _logger.LogWarning(ex, "Error reading packages.config");
             }
         }
-        
+
         return packages;
     }
 
@@ -254,20 +254,20 @@ public class EntityFrameworkMigrationHandler
     {
         var contextFiles = new List<string>();
         var projectDir = Path.GetDirectoryName(project.FullPath) ?? "";
-        
+
         // Look for files that might contain DbContext
         var csFiles = project.Items
             .Where(i => i.ItemType == "Compile" && i.EvaluatedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             .Select(i => Path.Combine(projectDir, i.EvaluatedInclude))
             .Where(File.Exists)
             .ToList();
-        
+
         foreach (var file in csFiles.Take(100)) // Limit to avoid performance issues
         {
             try
             {
                 var content = await File.ReadAllTextAsync(file, cancellationToken);
-                if (content.Contains(": DbContext", StringComparison.Ordinal) || 
+                if (content.Contains(": DbContext", StringComparison.Ordinal) ||
                     content.Contains(":DbContext", StringComparison.Ordinal) ||
                     content.Contains("class") && content.Contains("DbContext"))
                 {
@@ -279,7 +279,7 @@ public class EntityFrameworkMigrationHandler
                 // Skip files we can't read
             }
         }
-        
+
         return contextFiles;
     }
 

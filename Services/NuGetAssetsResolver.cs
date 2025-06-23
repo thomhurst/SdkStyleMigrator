@@ -22,9 +22,9 @@ public class NuGetAssetsResolver
     public NuGetAssetsResolver(ILogger<NuGetAssetsResolver> logger)
     {
         _logger = logger;
-        
+
         // Get the global packages folder
-        _globalPackagesFolder = Environment.GetEnvironmentVariable("NUGET_PACKAGES") 
+        _globalPackagesFolder = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
     }
 
@@ -32,13 +32,13 @@ public class NuGetAssetsResolver
     /// Attempts to resolve all assemblies provided by the given packages using the most accurate method available.
     /// </summary>
     public async Task<AssemblyResolutionResult> ResolvePackageAssembliesAsync(
-        List<Models.PackageReference> packages, 
+        List<Models.PackageReference> packages,
         string targetFramework,
         string projectDirectory,
         CancellationToken cancellationToken = default)
     {
         var result = new AssemblyResolutionResult();
-        
+
         // Try the high-fidelity approach first
         if (await TryResolveViaProjectAssetsJsonAsync(packages, targetFramework, projectDirectory, result, cancellationToken))
         {
@@ -52,7 +52,7 @@ public class NuGetAssetsResolver
         await ResolveViaDirectPackageInspectionAsync(packages, targetFramework, result, cancellationToken);
         result.ResolutionMethod = "direct package inspection";
         result.IsPartialResolution = true;
-        
+
         return result;
     }
 
@@ -68,13 +68,13 @@ public class NuGetAssetsResolver
             // Create a temporary project file
             var tempProjectPath = Path.Combine(Path.GetTempPath(), $"SdkMigrator_{Guid.NewGuid()}.csproj");
             var tempObjPath = Path.Combine(Path.GetDirectoryName(tempProjectPath)!, "obj");
-            
+
             try
             {
                 // Generate minimal SDK-style project
                 var projectContent = GenerateTemporaryProject(packages, targetFramework);
                 await File.WriteAllTextAsync(tempProjectPath, projectContent, cancellationToken);
-                
+
                 // Run dotnet restore
                 var restoreResult = await RunDotnetRestoreAsync(tempProjectPath, cancellationToken);
                 if (!restoreResult.Success)
@@ -102,7 +102,7 @@ public class NuGetAssetsResolver
                 // Extract assemblies from lock file
                 var framework = NuGetFramework.Parse(targetFramework);
                 var target = lockFile.GetTarget(framework, runtimeIdentifier: null);
-                
+
                 if (target == null)
                 {
                     _logger.LogWarning("No target found for framework {Framework}", targetFramework);
@@ -120,7 +120,7 @@ public class NuGetAssetsResolver
                     {
                         var assemblyPath = compileItem.Path;
                         var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-                        
+
                         result.ResolvedAssemblies.Add(new AssemblyInfo
                         {
                             Name = assemblyName,
@@ -135,7 +135,7 @@ public class NuGetAssetsResolver
                     {
                         var assemblyPath = runtimeItem.Path;
                         var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-                        
+
                         result.ResolvedAssemblies.Add(new AssemblyInfo
                         {
                             Name = assemblyName,
@@ -148,7 +148,7 @@ public class NuGetAssetsResolver
 
                 _logger.LogInformation("Resolved {Count} assemblies from {PackageCount} packages (including transitive)",
                     result.ResolvedAssemblies.Count, target.Libraries.Count);
-                
+
                 return true;
             }
             finally
@@ -183,7 +183,7 @@ public class NuGetAssetsResolver
         sb.AppendLine($"    <TargetFramework>{targetFramework}</TargetFramework>");
         sb.AppendLine("    <OutputType>Library</OutputType>");
         sb.AppendLine("  </PropertyGroup>");
-        
+
         if (packages.Any())
         {
             sb.AppendLine("  <ItemGroup>");
@@ -193,7 +193,7 @@ public class NuGetAssetsResolver
             }
             sb.AppendLine("  </ItemGroup>");
         }
-        
+
         sb.AppendLine("</Project>");
         return sb.ToString();
     }
@@ -217,13 +217,13 @@ public class NuGetAssetsResolver
             var outputBuilder = new StringBuilder();
             var errorBuilder = new StringBuilder();
 
-            process.OutputDataReceived += (sender, args) => 
+            process.OutputDataReceived += (sender, args) =>
             {
                 if (args.Data != null)
                     outputBuilder.AppendLine(args.Data);
             };
-            
-            process.ErrorDataReceived += (sender, args) => 
+
+            process.ErrorDataReceived += (sender, args) =>
             {
                 if (args.Data != null)
                     errorBuilder.AppendLine(args.Data);
@@ -235,20 +235,20 @@ public class NuGetAssetsResolver
 
             // Wait for process with timeout
             var completed = process.WaitForExit(30000); // 30 second timeout
-            
+
             if (!completed)
             {
                 try { process.Kill(); } catch { }
-                return new RestoreResult 
-                { 
-                    Success = false, 
-                    Error = "dotnet restore timed out after 30 seconds" 
+                return new RestoreResult
+                {
+                    Success = false,
+                    Error = "dotnet restore timed out after 30 seconds"
                 };
             }
 
             var exitCode = process.ExitCode;
             var error = errorBuilder.ToString();
-            
+
             return new RestoreResult
             {
                 Success = exitCode == 0,
@@ -272,17 +272,17 @@ public class NuGetAssetsResolver
         CancellationToken cancellationToken)
     {
         var framework = NuGetFramework.Parse(targetFramework);
-        
+
         foreach (var package in packages)
         {
             try
             {
                 // Try to find the package in the global packages folder
                 var packagePath = Path.Combine(_globalPackagesFolder, package.PackageId.ToLowerInvariant(), package.Version);
-                
+
                 if (!Directory.Exists(packagePath))
                 {
-                    _logger.LogWarning("Package not found in global packages folder: {Package} {Version}", 
+                    _logger.LogWarning("Package not found in global packages folder: {Package} {Version}",
                         package.PackageId, package.Version);
                     result.Warnings.Add($"Package {package.PackageId} {package.Version} not found in local cache");
                     continue;
@@ -319,11 +319,11 @@ public class NuGetAssetsResolver
         // Get lib items
         var libItems = await reader.GetLibItemsAsync(cancellationToken);
         var referenceItems = await reader.GetReferenceItemsAsync(cancellationToken);
-        
+
         // Find the best matching framework
         var libFramework = GetBestMatchingFramework(libItems, targetFramework);
         var refFramework = GetBestMatchingFramework(referenceItems, targetFramework);
-        
+
         // Collect assemblies from lib
         if (libFramework != null)
         {
@@ -340,7 +340,7 @@ public class NuGetAssetsResolver
                 });
             }
         }
-        
+
         // Collect assemblies from ref (compile-time references)
         if (refFramework != null)
         {
@@ -373,7 +373,7 @@ public class NuGetAssetsResolver
         var frameworkFolders = Directory.GetDirectories(libPath);
         string? bestMatch = null;
         var bestFramework = NuGetFramework.UnsupportedFramework;
-        
+
         foreach (var folder in frameworkFolders)
         {
             var folderName = Path.GetFileName(folder);
@@ -463,7 +463,7 @@ public class AssemblyInfo
     public string? Culture { get; set; }
     public string? PublicKeyToken { get; set; }
     public Version? Version { get; set; }
-    
+
     public string FullName
     {
         get
@@ -488,7 +488,7 @@ public class AssemblyInfoComparer : IEqualityComparer<AssemblyInfo>
     {
         if (ReferenceEquals(x, y)) return true;
         if (x == null || y == null) return false;
-        
+
         // Compare by name primarily, but also consider version if available
         return string.Equals(x.Name, y.Name, StringComparison.OrdinalIgnoreCase) &&
                (x.Version == null || y.Version == null || x.Version.Equals(y.Version));

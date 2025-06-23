@@ -22,9 +22,9 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
     public async Task GenerateDirectoryBuildPropsAsync(string rootDirectory, Dictionary<string, AssemblyProperties> projectProperties, CancellationToken cancellationToken = default)
     {
         var filePath = Path.Combine(rootDirectory, "Directory.Build.props");
-        
+
         var commonProperties = ExtractCommonProperties(projectProperties);
-        
+
         // Always create Directory.Build.props for binding redirects and other settings
         // even if there are no common assembly properties
 
@@ -53,7 +53,7 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         }
 
         var assemblyPropGroup = projectElement.Elements("PropertyGroup")
-            .FirstOrDefault(pg => pg.Elements().Any(e => 
+            .FirstOrDefault(pg => pg.Elements().Any(e =>
                 e.Name.LocalName == "GenerateAssemblyInfo" ||
                 e.Name.LocalName.StartsWith("Assembly") ||
                 e.Name.LocalName == "Company" ||
@@ -62,12 +62,12 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
                 e.Name.LocalName == "FileVersion" ||
                 e.Name.LocalName == "NeutralResourcesLanguage" ||
                 e.Name.LocalName == "ComVisible"));
-                
+
         if (assemblyPropGroup == null)
         {
             assemblyPropGroup = new XElement("PropertyGroup");
             assemblyPropGroup.Add(new XComment("Assembly Information"));
-            
+
             var firstPropGroup = projectElement.Elements("PropertyGroup").FirstOrDefault();
             if (firstPropGroup != null)
             {
@@ -80,44 +80,44 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         }
 
         AddOrUpdateProperty(assemblyPropGroup, "GenerateAssemblyInfo", "true");
-        
+
         // Add assembly properties if they exist
         if (!string.IsNullOrEmpty(commonProperties.Company))
             AddOrUpdateProperty(assemblyPropGroup, "Company", commonProperties.Company);
-        
+
         if (!string.IsNullOrEmpty(commonProperties.Product))
             AddOrUpdateProperty(assemblyPropGroup, "Product", commonProperties.Product);
-        
+
         if (!string.IsNullOrEmpty(commonProperties.Copyright))
             AddOrUpdateProperty(assemblyPropGroup, "Copyright", commonProperties.Copyright);
-        
+
         if (!string.IsNullOrEmpty(commonProperties.Trademark))
             AddOrUpdateProperty(assemblyPropGroup, "Trademark", commonProperties.Trademark);
-        
+
         if (!string.IsNullOrEmpty(commonProperties.AssemblyVersion))
             AddOrUpdateProperty(assemblyPropGroup, "AssemblyVersion", commonProperties.AssemblyVersion);
-        
+
         if (!string.IsNullOrEmpty(commonProperties.FileVersion))
             AddOrUpdateProperty(assemblyPropGroup, "FileVersion", commonProperties.FileVersion);
-        
+
         if (!string.IsNullOrEmpty(commonProperties.NeutralResourcesLanguage))
             AddOrUpdateProperty(assemblyPropGroup, "NeutralResourcesLanguage", commonProperties.NeutralResourcesLanguage);
-        
+
         if (commonProperties.ComVisible.HasValue)
             AddOrUpdateProperty(assemblyPropGroup, "ComVisible", commonProperties.ComVisible.Value.ToString().ToLower());
-        
+
         // Add automatic binding redirect generation
         var bindingRedirectPropGroup = projectElement.Elements("PropertyGroup")
-            .FirstOrDefault(pg => pg.Elements().Any(e => 
+            .FirstOrDefault(pg => pg.Elements().Any(e =>
                 e.Name.LocalName == "AutoGenerateBindingRedirects"));
-                
+
         if (bindingRedirectPropGroup == null)
         {
             bindingRedirectPropGroup = new XElement("PropertyGroup");
             bindingRedirectPropGroup.Add(new XComment("Binding Redirect Configuration"));
             assemblyPropGroup.AddAfterSelf(bindingRedirectPropGroup);
         }
-        
+
         AddOrUpdateProperty(bindingRedirectPropGroup, "AutoGenerateBindingRedirects", "true");
         AddOrUpdateProperty(bindingRedirectPropGroup, "GenerateBindingRedirectsOutputType", "true");
 
@@ -135,7 +135,7 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
                 NewLineChars = Environment.NewLine,
                 NewLineHandling = NewLineHandling.Replace
             };
-            
+
             using (var writer = XmlWriter.Create(filePath, settings))
             {
                 doc.Save(writer);
@@ -181,28 +181,28 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         var allProps = projectProperties.Values.ToList();
 
         var firstProps = allProps.First();
-        
+
         if (allProps.All(p => p.Company == firstProps.Company))
             common.Company = firstProps.Company;
-        
+
         if (allProps.All(p => p.Product == firstProps.Product))
             common.Product = firstProps.Product;
-        
+
         if (allProps.All(p => p.Copyright == firstProps.Copyright))
             common.Copyright = firstProps.Copyright;
-        
+
         if (allProps.All(p => p.Trademark == firstProps.Trademark))
             common.Trademark = firstProps.Trademark;
-        
+
         if (allProps.All(p => p.AssemblyVersion == firstProps.AssemblyVersion))
             common.AssemblyVersion = firstProps.AssemblyVersion;
-        
+
         if (allProps.All(p => p.FileVersion == firstProps.FileVersion))
             common.FileVersion = firstProps.FileVersion;
-        
+
         if (allProps.All(p => p.NeutralResourcesLanguage == firstProps.NeutralResourcesLanguage))
             common.NeutralResourcesLanguage = firstProps.NeutralResourcesLanguage;
-        
+
         if (allProps.All(p => p.ComVisible == firstProps.ComVisible))
             common.ComVisible = firstProps.ComVisible;
 

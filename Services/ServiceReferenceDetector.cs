@@ -18,29 +18,29 @@ public class ServiceReferenceDetector
     {
         var result = new ServiceReferenceInfo();
         var projectDir = Path.GetDirectoryName(project.FullPath) ?? "";
-        
+
         // Check for Service References folder
         var serviceReferencesPath = Path.Combine(projectDir, "Service References");
         var connectedServicesPath = Path.Combine(projectDir, "Connected Services");
-        
+
         if (Directory.Exists(serviceReferencesPath))
         {
             result.HasServiceReferences = true;
             result.ServiceReferencePath = serviceReferencesPath;
-            
+
             // Find .svcmap files
             var svcmapFiles = Directory.GetFiles(serviceReferencesPath, "*.svcmap", SearchOption.AllDirectories);
             foreach (var svcmap in svcmapFiles)
             {
                 var serviceName = Path.GetFileNameWithoutExtension(svcmap);
                 result.ServiceReferenceNames.Add(serviceName);
-                
+
                 // Try to find the WSDL URL
                 try
                 {
                     var content = File.ReadAllText(svcmap);
-                    var urlMatch = System.Text.RegularExpressions.Regex.Match(content, 
-                        @"<MetadataSource.*?Address=""([^""]+)""", 
+                    var urlMatch = System.Text.RegularExpressions.Regex.Match(content,
+                        @"<MetadataSource.*?Address=""([^""]+)""",
                         System.Text.RegularExpressions.RegexOptions.Singleline);
                     if (urlMatch.Success)
                     {
@@ -53,20 +53,20 @@ public class ServiceReferenceDetector
                 }
             }
         }
-        
+
         if (Directory.Exists(connectedServicesPath))
         {
             result.HasConnectedServices = true;
             result.ConnectedServicesPath = connectedServicesPath;
         }
-        
+
         // Check for WCF client configuration in app.config
         var appConfigPath = Path.Combine(projectDir, "app.config");
         if (!File.Exists(appConfigPath))
         {
             appConfigPath = Path.Combine(projectDir, "App.config");
         }
-        
+
         if (File.Exists(appConfigPath))
         {
             try
@@ -82,7 +82,7 @@ public class ServiceReferenceDetector
                     })
                     .Where(e => e.Name != null)
                     .ToList();
-                    
+
                 foreach (var endpoint in clientEndpoints)
                 {
                     result.ConfiguredEndpoints.Add(new WcfEndpoint
@@ -98,26 +98,26 @@ public class ServiceReferenceDetector
                 _logger.LogDebug(ex, "Error parsing app.config for WCF endpoints");
             }
         }
-        
+
         // Check for generated Reference.cs files
         var referenceFiles = Directory.GetFiles(projectDir, "Reference.cs", SearchOption.AllDirectories)
             .Where(f => f.Contains("Service References", StringComparison.OrdinalIgnoreCase))
             .ToList();
         result.GeneratedFiles.AddRange(referenceFiles);
-        
+
         return result;
     }
-    
+
     public void AddServiceReferenceWarnings(ServiceReferenceInfo info, MigrationResult result)
     {
         if (!info.HasServiceReferences && !info.HasConnectedServices) return;
-        
+
         var warning = new StringBuilder();
         warning.AppendLine("⚠️ Service References Detected");
         warning.AppendLine();
         warning.AppendLine("Legacy WCF Service References are not compatible with SDK-style projects.");
         warning.AppendLine();
-        
+
         if (info.ServiceReferenceNames.Any())
         {
             warning.AppendLine("Found service references:");
@@ -131,13 +131,13 @@ public class ServiceReferenceDetector
             }
             warning.AppendLine();
         }
-        
+
         warning.AppendLine("REQUIRED ACTIONS:");
         warning.AppendLine("1. Install dotnet-svcutil tool:");
         warning.AppendLine("   dotnet tool install --global dotnet-svcutil");
         warning.AppendLine();
         warning.AppendLine("2. Regenerate service proxies for each service:");
-        
+
         foreach (var name in info.ServiceReferenceNames)
         {
             if (info.ServiceEndpoints.TryGetValue(name, out var endpoint))
@@ -149,7 +149,7 @@ public class ServiceReferenceDetector
                 warning.AppendLine($"   dotnet-svcutil [WSDL_URL] --outputDir Services/{name}");
             }
         }
-        
+
         warning.AppendLine();
         warning.AppendLine("3. Update your code to use the new generated proxies");
         warning.AppendLine();
@@ -160,15 +160,15 @@ public class ServiceReferenceDetector
         warning.AppendLine("   - System.ServiceModel.Security");
         warning.AppendLine();
         warning.AppendLine("Alternative: Consider migrating to REST/HTTP clients if the service supports it.");
-        
+
         result.Warnings.Add(warning.ToString());
-        
+
         // Mark files for removal
         foreach (var file in info.GeneratedFiles)
         {
             result.RemovedElements.Add($"Service Reference file: {Path.GetFileName(file)}");
         }
-        
+
         if (info.HasServiceReferences)
         {
             result.RemovedElements.Add($"Service References folder: {info.ServiceReferencePath}");

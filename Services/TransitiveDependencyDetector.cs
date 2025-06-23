@@ -7,7 +7,7 @@ namespace SdkMigrator.Services;
 public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 {
     private readonly ILogger<TransitiveDependencyDetector> _logger;
-    
+
     // Essential packages that should never be marked as transitive
     private readonly HashSet<string> _essentialPackages = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -36,7 +36,7 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "Microsoft.NETCore.App",
         "NETStandard.Library"
     };
-    
+
     private readonly HashSet<string> _commonTransitiveDependencies = new(StringComparer.OrdinalIgnoreCase)
     {
         "System.Runtime",
@@ -107,7 +107,7 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
     {
         return DetectTransitiveDependenciesAsync(packageReferences, null, cancellationToken);
     }
-    
+
     public Task<IEnumerable<PackageReference>> DetectTransitiveDependenciesAsync(
         IEnumerable<PackageReference> packageReferences,
         string? projectDirectory,
@@ -124,7 +124,7 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
                 _logger.LogDebug("Keeping {Package} as it's an essential package", package.PackageId);
                 continue;
             }
-            
+
             if (_commonTransitiveDependencies.Contains(package.PackageId))
             {
                 package.IsTransitive = true;
@@ -140,7 +140,7 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
                 {
                     package.IsTransitive = true;
                     transitivePackages.Add(package);
-                    _logger.LogDebug("Marked {Package} as potentially transitive (dependency of {Parent})", 
+                    _logger.LogDebug("Marked {Package} as potentially transitive (dependency of {Parent})",
                         package.PackageId, kvp.Key);
                     break;
                 }
@@ -153,7 +153,7 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
                 {
                     package.IsTransitive = true;
                     transitivePackages.Add(package);
-                    _logger.LogDebug("Marked {Package} as potentially transitive (System package with Microsoft packages present)", 
+                    _logger.LogDebug("Marked {Package} as potentially transitive (System package with Microsoft packages present)",
                         package.PackageId);
                 }
             }
@@ -164,7 +164,7 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
 
         return Task.FromResult<IEnumerable<PackageReference>>(packages);
     }
-    
+
     public void Dispose()
     {
         // Nothing to dispose in the heuristic implementation

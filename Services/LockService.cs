@@ -11,37 +11,37 @@ public class LockService : ILockService, IDisposable
     private const string LockFileName = ".sdkmigrator.lock";
     private FileStream? _lockFileStream;
     private string? _lockFilePath;
-    
+
     public LockService(ILogger<LockService> logger)
     {
         _logger = logger;
     }
-    
+
     public async Task<bool> TryAcquireLockAsync(string directory, CancellationToken cancellationToken = default)
     {
         _lockFilePath = Path.Combine(directory, LockFileName);
-        
+
         try
         {
             // First check if there's an existing lock
             var existingLock = await GetLockInfoAsync(directory, cancellationToken);
             if (existingLock != null && !existingLock.IsStale)
             {
-                _logger.LogWarning("Migration already in progress by process {ProcessId} ({ProcessName}) started at {StartTime}", 
+                _logger.LogWarning("Migration already in progress by process {ProcessId} ({ProcessName}) started at {StartTime}",
                     existingLock.ProcessId, existingLock.ProcessName, existingLock.AcquiredAt);
                 return false;
             }
-            
+
             // If there's a stale lock, try to clean it
             if (existingLock?.IsStale == true)
             {
                 _logger.LogInformation("Found stale lock from process {ProcessId}, attempting cleanup", existingLock.ProcessId);
                 await CleanStaleLockAsync(directory, cancellationToken);
             }
-            
+
             // Try to create the lock file with exclusive access
             _lockFileStream = new FileStream(_lockFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
-            
+
             // Write lock information
             var lockInfo = new LockInfo
             {
@@ -51,13 +51,13 @@ public class LockService : ILockService, IDisposable
                 MachineName = Environment.MachineName,
                 UserName = Environment.UserName
             };
-            
+
             var json = JsonSerializer.Serialize(lockInfo, new JsonSerializerOptions { WriteIndented = true });
             var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-            
+
             await _lockFileStream.WriteAsync(bytes, 0, bytes.Length, cancellationToken);
             await _lockFileStream.FlushAsync(cancellationToken);
-            
+
             _logger.LogInformation("Lock acquired successfully for process {ProcessId}", lockInfo.ProcessId);
             return true;
         }
@@ -72,7 +72,7 @@ public class LockService : ILockService, IDisposable
             return false;
         }
     }
-    
+
     public async Task ReleaseLockAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -82,7 +82,7 @@ public class LockService : ILockService, IDisposable
                 await _lockFileStream.DisposeAsync();
                 _lockFileStream = null;
             }
-            
+
             if (!string.IsNullOrEmpty(_lockFilePath) && File.Exists(_lockFilePath))
             {
                 File.Delete(_lockFilePath);
@@ -94,27 +94,27 @@ public class LockService : ILockService, IDisposable
             _logger.LogError(ex, "Failed to release lock");
         }
     }
-    
+
     public async Task<LockInfo?> GetLockInfoAsync(string directory, CancellationToken cancellationToken = default)
     {
         var lockFilePath = Path.Combine(directory, LockFileName);
-        
+
         if (!File.Exists(lockFilePath))
         {
             return null;
         }
-        
+
         try
         {
             // Try to read the lock file
             var json = await File.ReadAllTextAsync(lockFilePath, cancellationToken);
             var lockInfo = JsonSerializer.Deserialize<LockInfo>(json);
-            
+
             if (lockInfo != null)
             {
                 // Check if the process is still running
                 lockInfo.IsStale = !IsProcessRunning(lockInfo.ProcessId);
-                
+
                 // Also consider it stale if it's been held for more than 24 hours
                 var age = DateTime.UtcNow - lockInfo.AcquiredAt;
                 if (age.TotalHours > 24)
@@ -122,7 +122,7 @@ public class LockService : ILockService, IDisposable
                     lockInfo.IsStale = true;
                 }
             }
-            
+
             return lockInfo;
         }
         catch (Exception ex)
@@ -131,22 +131,22 @@ public class LockService : ILockService, IDisposable
             return null;
         }
     }
-    
+
     public async Task<bool> CleanStaleLockAsync(string directory, CancellationToken cancellationToken = default)
     {
         var lockInfo = await GetLockInfoAsync(directory, cancellationToken);
-        
+
         if (lockInfo == null)
         {
             return true; // No lock to clean
         }
-        
+
         if (!lockInfo.IsStale)
         {
             _logger.LogWarning("Cannot clean lock held by active process {ProcessId}", lockInfo.ProcessId);
             return false;
         }
-        
+
         try
         {
             var lockFilePath = Path.Combine(directory, LockFileName);
@@ -160,7 +160,7 @@ public class LockService : ILockService, IDisposable
             return false;
         }
     }
-    
+
     private bool IsProcessRunning(int processId)
     {
         try
@@ -180,7 +180,7 @@ public class LockService : ILockService, IDisposable
             return true;
         }
     }
-    
+
     public void Dispose()
     {
         ReleaseLockAsync().GetAwaiter().GetResult();

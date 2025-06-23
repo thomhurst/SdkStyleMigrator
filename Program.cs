@@ -16,61 +16,61 @@ class Program
     static async Task<int> Main(string[] args)
     {
         InitializeMSBuild();
-        
+
         var rootCommand = new RootCommand("SDK Migrator - Migrate legacy MSBuild project files to SDK-style format");
-        
+
         var directoryArgument = new Argument<string>(
             name: "directory",
             description: "The directory to scan for project files");
-        
+
         var dryRunOption = new Option<bool>(
             aliases: new[] { "--dry-run", "-d" },
             description: "Preview changes without modifying files");
-            
+
         var outputDirectoryOption = new Option<string?>(
             aliases: new[] { "--output-directory", "-o" },
             description: "Output directory for migrated projects");
-            
+
         var targetFrameworkOption = new Option<string?>(
             aliases: new[] { "--target-framework", "-t" },
             description: "Override target framework (e.g., net8.0)");
-            
+
         var targetFrameworksOption = new Option<string[]?>(
             aliases: new[] { "--target-frameworks", "-tf" },
             description: "Multi-targeting frameworks (e.g., net8.0 net472)")
         {
             AllowMultipleArgumentsPerToken = true
         };
-            
+
         var centralPackageManagementOption = new Option<bool>(
             aliases: new[] { "--central-package-management", "-cpm" },
             description: "Enable Central Package Management (Directory.Packages.props)");
-            
+
         var forceOption = new Option<bool>(
             aliases: new[] { "--force", "-f" },
             description: "Force migration without prompts");
-            
+
         var noBackupOption = new Option<bool>(
             aliases: new[] { "--no-backup" },
             description: "Skip creating backup files (not recommended)");
-            
+
         var parallelOption = new Option<int?>(
             aliases: new[] { "--parallel", "-p" },
             description: "Enable parallel processing (n = max threads)");
-            
+
         var logLevelOption = new Option<string>(
             aliases: new[] { "--log-level", "-l" },
             getDefaultValue: () => "Information",
             description: "Set log level (Trace|Debug|Information|Warning|Error)");
-            
+
         var offlineOption = new Option<bool>(
             aliases: new[] { "--offline" },
             description: "Use hardcoded package versions instead of querying NuGet (for offline scenarios)");
-            
+
         var nugetConfigOption = new Option<string?>(
             aliases: new[] { "--nuget-config", "-n" },
             description: "Path to a specific NuGet.config file to use for package sources");
-            
+
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
         rootCommand.AddOption(dryRunOption);
@@ -84,7 +84,7 @@ class Program
         rootCommand.AddOption(logLevelOption);
         rootCommand.AddOption(offlineOption);
         rootCommand.AddOption(nugetConfigOption);
-        
+
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
         var sessionIdOption = new Option<string?>(
@@ -93,55 +93,55 @@ class Program
         var rollbackDirectoryArgument = new Argument<string>(
             name: "directory",
             description: "The directory containing the backup to rollback");
-        
+
         rollbackCommand.AddArgument(rollbackDirectoryArgument);
         rollbackCommand.AddOption(sessionIdOption);
         rollbackCommand.AddOption(logLevelOption);
-        
+
         rollbackCommand.SetHandler(async (InvocationContext context) =>
         {
             var directory = context.ParseResult.GetValueForArgument(rollbackDirectoryArgument);
             var sessionId = context.ParseResult.GetValueForOption(sessionIdOption);
             var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
-            
+
             var options = new MigrationOptions
             {
                 DirectoryPath = Path.GetFullPath(directory),
                 LogLevel = logLevel
             };
-            
+
             var exitCode = await RunRollback(options, sessionId);
             context.ExitCode = exitCode;
         });
-        
+
         rootCommand.AddCommand(rollbackCommand);
-        
+
         // Analyze command
         var analyzeCommand = new Command("analyze", "Analyze projects for migration readiness without making changes");
         var analyzeDirectoryArgument = new Argument<string>(
             name: "directory",
             description: "The directory to analyze for migration readiness");
-        
+
         analyzeCommand.AddArgument(analyzeDirectoryArgument);
         analyzeCommand.AddOption(logLevelOption);
-        
+
         analyzeCommand.SetHandler(async (InvocationContext context) =>
         {
             var directory = context.ParseResult.GetValueForArgument(analyzeDirectoryArgument);
             var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
-            
+
             var options = new MigrationOptions
             {
                 DirectoryPath = Path.GetFullPath(directory),
                 LogLevel = logLevel
             };
-            
+
             var exitCode = await RunAnalysis(options);
             context.ExitCode = exitCode;
         });
-        
+
         rootCommand.AddCommand(analyzeCommand);
-        
+
         // Clean-deps command - Remove transitive dependencies
         var cleanDepsCommand = new Command("clean-deps", "Remove transitive package dependencies from SDK-style projects");
         var cleanDepsDirectoryArgument = new Argument<string>(
@@ -154,7 +154,7 @@ class Program
         var cleanDepsDryRunOption = new Option<bool>(
             aliases: new[] { "--dry-run", "-d" },
             description: "Preview changes without modifying files");
-        
+
         cleanDepsCommand.AddArgument(cleanDepsDirectoryArgument);
         cleanDepsCommand.AddOption(cleanDepsBackupOption);
         cleanDepsCommand.AddOption(cleanDepsDryRunOption);
@@ -162,7 +162,7 @@ class Program
         cleanDepsCommand.AddOption(parallelOption);
         cleanDepsCommand.AddOption(offlineOption);
         cleanDepsCommand.AddOption(nugetConfigOption);
-        
+
         cleanDepsCommand.SetHandler(async (InvocationContext context) =>
         {
             var directory = context.ParseResult.GetValueForArgument(cleanDepsDirectoryArgument);
@@ -172,7 +172,7 @@ class Program
             var parallel = context.ParseResult.GetValueForOption(parallelOption) ?? 1;
             var offline = context.ParseResult.GetValueForOption(offlineOption);
             var nugetConfig = context.ParseResult.GetValueForOption(nugetConfigOption);
-            
+
             var options = new MigrationOptions
             {
                 DirectoryPath = Path.GetFullPath(directory),
@@ -183,13 +183,13 @@ class Program
                 UseOfflineMode = offline,
                 NuGetConfigPath = nugetConfig
             };
-            
+
             var exitCode = await RunCleanDeps(options);
             context.ExitCode = exitCode;
         });
-        
+
         rootCommand.AddCommand(cleanDepsCommand);
-        
+
         // Clean-cpm command - Clean unused packages from Central Package Management
         var cleanCpmCommand = new Command("clean-cpm", "Remove unused packages from Directory.Packages.props");
         var cleanCpmDirectoryArgument = new Argument<string>(
@@ -198,30 +198,30 @@ class Program
         var cleanCpmDryRunOption = new Option<bool>(
             aliases: new[] { "--dry-run", "-d" },
             description: "Preview changes without modifying files");
-        
+
         cleanCpmCommand.AddArgument(cleanCpmDirectoryArgument);
         cleanCpmCommand.AddOption(cleanCpmDryRunOption);
         cleanCpmCommand.AddOption(logLevelOption);
-        
+
         cleanCpmCommand.SetHandler(async (InvocationContext context) =>
         {
             var directory = context.ParseResult.GetValueForArgument(cleanCpmDirectoryArgument);
             var dryRun = context.ParseResult.GetValueForOption(cleanCpmDryRunOption);
             var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
-            
+
             var options = new MigrationOptions
             {
                 DirectoryPath = Path.GetFullPath(directory),
                 DryRun = dryRun,
                 LogLevel = logLevel
             };
-            
+
             var exitCode = await RunCleanCpm(options);
             context.ExitCode = exitCode;
         });
-        
+
         rootCommand.AddCommand(cleanCpmCommand);
-        
+
         rootCommand.SetHandler(async (InvocationContext context) =>
         {
             var options = new MigrationOptions
@@ -239,21 +239,21 @@ class Program
                 UseOfflineMode = context.ParseResult.GetValueForOption(offlineOption),
                 NuGetConfigPath = context.ParseResult.GetValueForOption(nugetConfigOption)
             };
-            
+
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
-            
+
             if (!Directory.Exists(options.DirectoryPath))
             {
                 Console.Error.WriteLine($"Error: Directory '{options.DirectoryPath}' does not exist.");
                 context.ExitCode = 1;
                 return;
             }
-            
+
             if (options.OutputDirectory != null)
             {
                 options.OutputDirectory = Path.GetFullPath(options.OutputDirectory);
             }
-            
+
             if (options.NuGetConfigPath != null)
             {
                 options.NuGetConfigPath = Path.GetFullPath(options.NuGetConfigPath);
@@ -264,16 +264,16 @@ class Program
                     return;
                 }
             }
-            
+
             if (options.MaxDegreeOfParallelism == 0)
             {
                 options.MaxDegreeOfParallelism = Environment.ProcessorCount;
             }
-            
+
             var exitCode = await RunMigration(options);
             context.ExitCode = exitCode;
         });
-        
+
         rootCommand.Description = @"SDK Migrator - Migrate legacy MSBuild project files to SDK-style format
 
 This tool scans the specified directory and all subdirectories for
@@ -307,25 +307,25 @@ Examples:
   SdkMigrator rollback ./src --session-id 20250119_120000
   SdkMigrator clean-deps ./src --dry-run
   SdkMigrator clean-cpm ./src";
-        
+
         return await rootCommand.InvokeAsync(args);
     }
-    
+
     static async Task<int> RunAnalysis(MigrationOptions options)
     {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
-        
+
         using var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         var analyzer = serviceProvider.GetRequiredService<IMigrationAnalyzer>();
-        
+
         try
         {
             logger.LogInformation("Starting migration analysis for directory: {Directory}", options.DirectoryPath);
-            
+
             var analysis = await analyzer.AnalyzeProjectsAsync(options.DirectoryPath, CancellationToken.None);
-            
+
             // Display analysis results
             Console.WriteLine();
             Console.WriteLine("Migration Analysis Report");
@@ -336,7 +336,7 @@ Examples:
             Console.WriteLine($"Estimated manual effort: {analysis.EstimatedManualEffortHours} hours");
             Console.WriteLine($"Can proceed automatically: {(analysis.CanProceedAutomatically ? "Yes" : "No")}");
             Console.WriteLine();
-            
+
             // Show project-level details
             foreach (var project in analysis.ProjectAnalyses)
             {
@@ -344,7 +344,7 @@ Examples:
                 Console.WriteLine($"  Type: {project.ProjectType}");
                 Console.WriteLine($"  Risk: {project.RiskLevel}");
                 Console.WriteLine($"  Can migrate: {(project.CanMigrate ? "Yes" : "No")}");
-                
+
                 if (project.Issues.Any())
                 {
                     Console.WriteLine("  Issues:");
@@ -360,15 +360,15 @@ Examples:
                         Console.WriteLine($"    {severityIcon} {issue.Description}");
                     }
                 }
-                
+
                 if (project.CustomTargets.Any(t => !t.CanAutoMigrate))
                 {
                     Console.WriteLine($"  Custom targets requiring review: {project.CustomTargets.Count(t => !t.CanAutoMigrate)}");
                 }
-                
+
                 Console.WriteLine();
             }
-            
+
             // Show global recommendations
             if (analysis.GlobalRecommendations.Any())
             {
@@ -378,19 +378,19 @@ Examples:
                     Console.WriteLine($"  - {rec}");
                 }
             }
-            
+
             // Generate detailed report file
             var reportPath = Path.Combine(options.DirectoryPath, $"migration-analysis-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
             await WriteAnalysisReportAsync(analysis, reportPath);
             Console.WriteLine();
             Console.WriteLine($"Detailed analysis report written to: {reportPath}");
-            
+
             // Return appropriate exit code
             if (!analysis.CanProceedAutomatically)
                 return 1;
             if (analysis.OverallRisk >= MigrationRiskLevel.High)
                 return 2;
-            
+
             return 0;
         }
         catch (Exception ex)
@@ -399,23 +399,23 @@ Examples:
             return 1;
         }
     }
-    
+
     static async Task WriteAnalysisReportAsync(MigrationAnalysis analysis, string reportPath)
     {
         using var writer = new StreamWriter(reportPath);
-        
+
         await writer.WriteLineAsync("SDK Migration Analysis Report");
         await writer.WriteLineAsync($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         await writer.WriteLineAsync("=".PadRight(80, '='));
         await writer.WriteLineAsync();
-        
+
         await writer.WriteLineAsync($"Directory: {analysis.DirectoryPath}");
         await writer.WriteLineAsync($"Projects analyzed: {analysis.ProjectAnalyses.Count}");
         await writer.WriteLineAsync($"Overall risk level: {analysis.OverallRisk}");
         await writer.WriteLineAsync($"Estimated manual effort: {analysis.EstimatedManualEffortHours} hours");
         await writer.WriteLineAsync($"Can proceed with automatic migration: {analysis.CanProceedAutomatically}");
         await writer.WriteLineAsync();
-        
+
         foreach (var project in analysis.ProjectAnalyses)
         {
             await writer.WriteLineAsync($"Project: {project.ProjectPath}");
@@ -425,7 +425,7 @@ Examples:
             await writer.WriteLineAsync($"  Risk Level: {project.RiskLevel}");
             await writer.WriteLineAsync($"  Can Migrate: {project.CanMigrate}");
             await writer.WriteLineAsync($"  Estimated Effort: {project.EstimatedManualEffortHours} hours");
-            
+
             if (project.Issues.Any())
             {
                 await writer.WriteLineAsync("  Issues:");
@@ -438,7 +438,7 @@ Examples:
                     }
                 }
             }
-            
+
             if (project.CustomTargets.Any())
             {
                 await writer.WriteLineAsync($"  Custom MSBuild Targets ({project.CustomTargets.Count}):");
@@ -451,7 +451,7 @@ Examples:
                     }
                 }
             }
-            
+
             if (project.ManualStepsRequired.Any())
             {
                 await writer.WriteLineAsync("  Manual Steps Required:");
@@ -460,10 +460,10 @@ Examples:
                     await writer.WriteLineAsync($"    - {step}");
                 }
             }
-            
+
             await writer.WriteLineAsync();
         }
-        
+
         if (analysis.GlobalRecommendations.Any())
         {
             await writer.WriteLineAsync("Global Recommendations:");
@@ -473,21 +473,21 @@ Examples:
             }
         }
     }
-    
+
     static async Task<int> RunRollback(MigrationOptions options, string? sessionId)
     {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
-        
+
         using var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         var backupService = serviceProvider.GetRequiredService<IBackupService>();
         var auditService = serviceProvider.GetRequiredService<IAuditService>();
-        
+
         try
         {
             logger.LogInformation("Starting rollback process for directory: {Directory}", options.DirectoryPath);
-            
+
             BackupSession backupSession;
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -499,9 +499,9 @@ Examples:
                     logger.LogError("No backup sessions found in {Directory}", options.DirectoryPath);
                     return 1;
                 }
-                
+
                 backupSession = sessionsList.OrderByDescending(s => s.StartTime).First();
-                logger.LogInformation("Using latest backup session: {SessionId} from {Timestamp}", 
+                logger.LogInformation("Using latest backup session: {SessionId} from {Timestamp}",
                     backupSession.SessionId, backupSession.StartTime);
             }
             else
@@ -515,27 +515,27 @@ Examples:
                 }
                 backupSession = session;
             }
-            
+
             // Log rollback start
-            await auditService.LogMigrationStartAsync(new MigrationOptions 
-            { 
+            await auditService.LogMigrationStartAsync(new MigrationOptions
+            {
                 DirectoryPath = options.DirectoryPath,
                 LogLevel = options.LogLevel,
                 // Mark as rollback operation
                 DryRun = false,
                 CreateBackup = false
             }, CancellationToken.None);
-            
+
             logger.LogInformation("Rolling back {Count} files from session {SessionId}",
                 backupSession.BackedUpFiles.Count, backupSession.SessionId);
-            
+
             var rollbackResult = await backupService.RollbackAsync(backupSession.BackupDirectory, CancellationToken.None);
             var success = rollbackResult.Success;
-            
+
             if (success)
             {
                 logger.LogInformation("Rollback completed successfully");
-                
+
                 // Log successful rollback
                 await auditService.LogMigrationEndAsync(new MigrationReport
                 {
@@ -545,7 +545,7 @@ Examples:
                     TotalProjectsMigrated = backupSession.BackedUpFiles.Count,
                     TotalProjectsFailed = 0
                 }, CancellationToken.None);
-                
+
                 return 0;
             }
             else
@@ -561,12 +561,12 @@ Examples:
             return 1;
         }
     }
-    
+
     static async Task<int> RunMigration(MigrationOptions options)
     {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
-        
+
         using var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
@@ -577,7 +577,7 @@ Examples:
                 logger.LogWarning("DRY RUN MODE - No files will be modified");
                 Console.WriteLine();
             }
-            
+
             if (!options.DryRun && options.CreateBackup && string.IsNullOrEmpty(options.OutputDirectory))
             {
                 logger.LogInformation("Backup files will be created with .legacy extension");
@@ -586,12 +586,12 @@ Examples:
             {
                 logger.LogWarning("WARNING: Backup creation is disabled. Original files will be overwritten!");
             }
-            
+
             logger.LogInformation("SDK Migrator - Starting migration process");
-            
+
             var orchestrator = serviceProvider.GetRequiredService<IMigrationOrchestrator>();
             var cancellationTokenSource = new CancellationTokenSource();
-            
+
             Console.CancelKeyPress += (sender, e) =>
             {
                 e.Cancel = true;
@@ -600,7 +600,7 @@ Examples:
             };
 
             var report = await orchestrator.MigrateProjectsAsync(options.DirectoryPath, cancellationTokenSource.Token);
-            
+
             Console.WriteLine();
             Console.WriteLine("Migration Summary:");
             Console.WriteLine($"  Total projects found: {report.TotalProjectsFound}");
@@ -618,7 +618,7 @@ Examples:
                     Console.WriteLine("DRY RUN: Migration would FAIL due to errors");
                     return 1;
                 }
-                
+
                 // Check for warnings that need review
                 if (report.Results.Any(r => r.Warnings.Any()))
                 {
@@ -626,7 +626,7 @@ Examples:
                     Console.WriteLine("DRY RUN: Migration would succeed with WARNINGS requiring review");
                     return 2;
                 }
-                
+
                 Console.WriteLine();
                 Console.WriteLine("DRY RUN: Migration would succeed without issues");
                 return 0;
@@ -645,11 +645,11 @@ Examples:
     static void ConfigureServices(IServiceCollection services, MigrationOptions options)
     {
         services.AddSingleton(options);
-        
+
         services.AddLogging(builder =>
         {
             builder.AddConsole();
-            
+
             var logLevel = options.LogLevel.ToLower() switch
             {
                 "trace" => LogLevel.Trace,
@@ -660,7 +660,7 @@ Examples:
                 "critical" => LogLevel.Critical,
                 _ => LogLevel.Information
             };
-            
+
             builder.SetMinimumLevel(logLevel);
         });
 
@@ -669,7 +669,7 @@ Examples:
         services.AddSingleton<IProjectParser>(provider => provider.GetRequiredService<ProjectParser>());
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();
         services.AddSingleton<ITransitiveDependencyDetector, NuGetTransitiveDependencyDetector>();
-        
+
         // Register package resolver based on offline mode
         if (options.UseOfflineMode)
         {
@@ -679,16 +679,16 @@ Examples:
         {
             services.AddSingleton<INuGetPackageResolver, NuGetPackageResolver>();
         }
-        
+
         services.AddSingleton<INuSpecExtractor, NuSpecExtractor>();
         services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
         services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
-        services.AddSingleton<IDirectoryBuildPropsGenerator>(provider => 
+        services.AddSingleton<IDirectoryBuildPropsGenerator>(provider =>
             new DirectoryBuildPropsGenerator(
                 provider.GetRequiredService<ILogger<DirectoryBuildPropsGenerator>>(),
                 provider.GetRequiredService<IAuditService>(),
                 provider.GetRequiredService<MigrationOptions>()));
-        services.AddSingleton<ISolutionFileUpdater>(provider => 
+        services.AddSingleton<ISolutionFileUpdater>(provider =>
             new SolutionFileUpdater(
                 provider.GetRequiredService<ILogger<SolutionFileUpdater>>(),
                 provider.GetRequiredService<IAuditService>(),
@@ -700,13 +700,13 @@ Examples:
         services.AddSingleton<ILocalPackageFilesCleaner, LocalPackageFilesCleaner>();
         services.AddSingleton<ICentralPackageManagementGenerator, CentralPackageManagementGenerator>();
         services.AddSingleton<IPostMigrationValidator, PostMigrationValidator>();
-        
+
         // Edge case detectors
         services.AddSingleton<ProjectTypeDetector>();
         services.AddSingleton<BuildEventMigrator>();
         services.AddSingleton<NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
-        
+
         // New analysis and migration services
         services.AddSingleton<CustomTargetAnalyzer>();
         services.AddSingleton<EntityFrameworkMigrationHandler>();
@@ -714,57 +714,57 @@ Examples:
         services.AddSingleton<IMigrationAnalyzer, MigrationAnalyzer>();
         services.AddSingleton<PackageAssemblyResolver>();
         services.AddSingleton<NuGetAssetsResolver>();
-        
+
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }
-    
+
     static async Task<int> RunCleanDeps(MigrationOptions options)
     {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
-        
+
         using var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         var transitiveDepsService = serviceProvider.GetRequiredService<ITransitiveDependencyDetector>();
         var projectScanner = serviceProvider.GetRequiredService<IProjectFileScanner>();
         var backupService = serviceProvider.GetRequiredService<IBackupService>();
-        
+
         try
         {
             if (options.DryRun)
             {
                 logger.LogWarning("DRY RUN MODE - No files will be modified");
             }
-            
+
             logger.LogInformation("Starting transitive dependency cleanup for directory: {Directory}", options.DirectoryPath);
-            
+
             var projectFiles = await projectScanner.ScanForProjectFilesAsync(options.DirectoryPath, CancellationToken.None);
             var sdkStyleProjects = projectFiles.Where(p => IsSdkStyleProject(p)).ToList();
-            
+
             if (!sdkStyleProjects.Any())
             {
                 logger.LogWarning("No SDK-style projects found in {Directory}", options.DirectoryPath);
                 return 0;
             }
-            
+
             logger.LogInformation("Found {Count} SDK-style projects to process", sdkStyleProjects.Count);
-            
+
             var totalRemoved = 0;
             var failedProjects = 0;
-            
+
             foreach (var projectPath in sdkStyleProjects)
             {
                 try
                 {
                     logger.LogInformation("Processing: {Project}", Path.GetFileName(projectPath));
-                    
+
                     var result = await CleanProjectDependenciesAsync(
-                        projectPath, 
-                        transitiveDepsService, 
+                        projectPath,
+                        transitiveDepsService,
                         backupService,
                         options,
                         logger);
-                        
+
                     if (result.Success)
                     {
                         totalRemoved += result.RemovedCount;
@@ -789,13 +789,13 @@ Examples:
                     logger.LogError(ex, "Error processing {Project}", projectPath);
                 }
             }
-            
+
             Console.WriteLine();
             Console.WriteLine("Transitive Dependency Cleanup Summary:");
             Console.WriteLine($"  Projects processed: {sdkStyleProjects.Count}");
             Console.WriteLine($"  Total dependencies removed: {totalRemoved}");
             Console.WriteLine($"  Failed projects: {failedProjects}");
-            
+
             return failedProjects > 0 ? 1 : 0;
         }
         catch (Exception ex)
@@ -804,27 +804,27 @@ Examples:
             return 1;
         }
     }
-    
+
     static async Task<int> RunCleanCpm(MigrationOptions options)
     {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
-        
+
         using var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         var cpmGenerator = serviceProvider.GetRequiredService<ICentralPackageManagementGenerator>();
-        
+
         try
         {
             if (options.DryRun)
             {
                 logger.LogWarning("DRY RUN MODE - No files will be modified");
             }
-            
+
             logger.LogInformation("Starting Central Package Management cleanup for directory: {Directory}", options.DirectoryPath);
-            
+
             var result = await cpmGenerator.CleanUnusedPackagesAsync(options.DirectoryPath, options.DryRun, CancellationToken.None);
-            
+
             if (result.Success)
             {
                 if (result.RemovedPackages.Any())
@@ -840,7 +840,7 @@ Examples:
                 {
                     Console.WriteLine("No unused packages found.");
                 }
-                
+
                 return 0;
             }
             else
@@ -855,7 +855,7 @@ Examples:
             return 1;
         }
     }
-    
+
     static bool IsSdkStyleProject(string projectPath)
     {
         try
@@ -868,7 +868,7 @@ Examples:
             return false;
         }
     }
-    
+
     static async Task<CleanDepsResult> CleanProjectDependenciesAsync(
         string projectPath,
         ITransitiveDependencyDetector transitiveDepsService,
@@ -883,15 +883,15 @@ Examples:
             var root = doc.Root;
             if (root == null)
                 return new CleanDepsResult { Success = false, Error = "Invalid project file" };
-            
+
             // Find all PackageReference elements
             var packageRefs = root.Descendants("PackageReference")
                 .Where(pr => pr.Attribute("Include") != null)
                 .ToList();
-                
+
             if (!packageRefs.Any())
                 return new CleanDepsResult { Success = true, RemovedCount = 0 };
-            
+
             // Convert to PackageReference models
             var packages = packageRefs.Select(pr => new Models.PackageReference
             {
@@ -899,7 +899,7 @@ Examples:
                 Version = pr.Attribute("Version")?.Value ?? pr.Element("Version")?.Value ?? "*",
                 IsTransitive = false
             }).ToList();
-            
+
             // Get project references to check their package dependencies
             var projectRefs = root.Descendants("ProjectReference")
                 .Select(pr => pr.Attribute("Include")?.Value)
@@ -907,7 +907,7 @@ Examples:
                 .Select(path => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectPath)!, path!)))
                 .Where(fullPath => File.Exists(fullPath))
                 .ToList();
-            
+
             // Collect packages that are directly referenced by project dependencies
             var projectDepPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var projRef in projectRefs)
@@ -918,7 +918,7 @@ Examples:
                     var depPackages = projDoc.Descendants("PackageReference")
                         .Select(pr => pr.Attribute("Include")?.Value)
                         .Where(id => !string.IsNullOrEmpty(id));
-                    
+
                     foreach (var pkg in depPackages)
                     {
                         projectDepPackages.Add(pkg!);
@@ -930,17 +930,17 @@ Examples:
                     logger.LogWarning(ex, "Failed to analyze project reference: {Project}", projRef);
                 }
             }
-            
+
             // Detect transitive dependencies
             var projectDirectory = Path.GetDirectoryName(projectPath);
             var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, projectDirectory, CancellationToken.None);
-            
+
             // Filter out packages that are transitive but also directly used by project references
             var transitiveDeps = analyzedPackages
                 .Where(p => p.IsTransitive)
                 .Where(p => !projectDepPackages.Contains(p.PackageId))
                 .ToList();
-            
+
             if (!transitiveDeps.Any())
             {
                 logger.LogInformation("  No removable transitive dependencies found");
@@ -951,7 +951,7 @@ Examples:
                 }
                 return new CleanDepsResult { Success = true, RemovedCount = 0 };
             }
-            
+
             if (!options.DryRun && options.CreateBackup)
             {
                 // Create simple backup
@@ -959,7 +959,7 @@ Examples:
                 File.Copy(projectPath, backupPath, overwrite: true);
                 logger.LogDebug("Created backup: {BackupPath}", backupPath);
             }
-            
+
             // Remove transitive dependencies from XML
             var removedCount = 0;
             foreach (var transitiveDep in transitiveDeps)
@@ -967,7 +967,7 @@ Examples:
                 var elementsToRemove = packageRefs
                     .Where(pr => pr.Attribute("Include")?.Value.Equals(transitiveDep.PackageId, StringComparison.OrdinalIgnoreCase) == true)
                     .ToList();
-                    
+
                 foreach (var element in elementsToRemove)
                 {
                     logger.LogDebug("  Removing transitive dependency: {Package}", transitiveDep.PackageId);
@@ -975,7 +975,7 @@ Examples:
                     removedCount++;
                 }
             }
-            
+
             // Clean up empty ItemGroups
             var emptyItemGroups = root.Descendants("ItemGroup")
                 .Where(ig => !ig.HasElements && !ig.HasAttributes)
@@ -984,7 +984,7 @@ Examples:
             {
                 ig.Remove();
             }
-            
+
             if (!options.DryRun && removedCount > 0)
             {
                 // Save the modified project file without XML declaration
@@ -995,13 +995,13 @@ Examples:
                     NewLineChars = Environment.NewLine,
                     NewLineHandling = NewLineHandling.Replace
                 };
-                
+
                 using (var writer = XmlWriter.Create(projectPath, settings))
                 {
                     doc.Save(writer);
                 }
             }
-            
+
             return new CleanDepsResult { Success = true, RemovedCount = removedCount };
         }
         catch (Exception ex)
@@ -1009,29 +1009,29 @@ Examples:
             return new CleanDepsResult { Success = false, Error = ex.Message };
         }
     }
-    
+
     class CleanDepsResult
     {
         public bool Success { get; set; }
         public int RemovedCount { get; set; }
         public string? Error { get; set; }
     }
-    
+
     static void InitializeMSBuild()
     {
         try
         {
             var instances = MSBuildLocator.QueryVisualStudioInstances().ToArray();
-            
+
             if (instances.Length == 0)
             {
                 Console.Error.WriteLine("No MSBuild instances found. Please ensure .NET SDK is installed.");
                 Environment.Exit(1);
             }
-            
+
             var instance = instances.OrderByDescending(x => x.Version).First();
             Console.WriteLine($"Using MSBuild from: {instance.MSBuildPath}");
-            
+
             MSBuildLocator.RegisterInstance(instance);
         }
         catch (Exception ex)

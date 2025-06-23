@@ -8,17 +8,17 @@ public interface INuGetPackageResolver
     /// Resolves the latest stable version of a NuGet package
     /// </summary>
     Task<string?> GetLatestStableVersionAsync(string packageId, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Resolves the latest version of a NuGet package (including prerelease)
     /// </summary>
     Task<string?> GetLatestVersionAsync(string packageId, bool includePrerelease = false, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Gets all available versions of a package
     /// </summary>
     Task<IEnumerable<string>> GetAllVersionsAsync(string packageId, bool includePrerelease = false, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Resolves assembly references to NuGet packages
     /// </summary>

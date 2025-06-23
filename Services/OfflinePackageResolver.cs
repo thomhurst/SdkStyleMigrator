@@ -7,7 +7,7 @@ namespace SdkMigrator.Services;
 public class OfflinePackageResolver : INuGetPackageResolver
 {
     private readonly ILogger<OfflinePackageResolver> _logger;
-    
+
     // Hardcoded package versions for offline use
     private readonly Dictionary<string, string> _packageVersions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -18,40 +18,40 @@ public class OfflinePackageResolver : INuGetPackageResolver
         ["xunit.runner.visualstudio"] = "2.5.6",
         ["NUnit"] = "3.13.3",
         ["NUnit3TestAdapter"] = "4.5.0",
-        
+
         // Mocking and testing tools
         ["Moq"] = "4.20.70",
         ["Castle.Core"] = "5.1.1",
         ["FluentAssertions"] = "6.12.0",
-        
+
         // Logging
         ["log4net"] = "2.0.15",
         ["Serilog"] = "3.1.1",
         ["NLog"] = "5.2.7",
-        
+
         // JSON and serialization
         ["Newtonsoft.Json"] = "13.0.3",
         ["System.Text.Json"] = "8.0.0",
-        
+
         // Data access
         ["EntityFramework"] = "6.4.4",
         ["Microsoft.EntityFrameworkCore"] = "8.0.0",
         ["Dapper"] = "2.1.24",
         ["Microsoft.Data.SqlClient"] = "5.1.2",
         ["System.Data.SqlClient"] = "4.8.6",
-        
+
         // Web frameworks
         ["Microsoft.AspNet.Mvc"] = "5.2.9",
         ["Microsoft.AspNet.WebApi.Core"] = "5.2.9",
         ["Microsoft.AspNet.WebApi.WebHost"] = "5.2.9",
         ["Microsoft.AspNet.WebApi.Client"] = "5.2.9",
-        
+
         // Dependency injection
         ["Unity"] = "5.11.10",
         ["Ninject"] = "3.3.6",
         ["SimpleInjector"] = "5.4.3",
         ["CommonServiceLocator"] = "2.0.7",
-        
+
         // Other common packages
         ["AutoMapper"] = "12.0.1",
         ["FluentValidation"] = "11.8.1",
@@ -59,13 +59,13 @@ public class OfflinePackageResolver : INuGetPackageResolver
         ["MediatR"] = "12.2.0",
         ["StackExchange.Redis"] = "2.7.10",
         ["RabbitMQ.Client"] = "6.8.1",
-        
+
         // System packages
         ["System.Configuration.ConfigurationManager"] = "8.0.0",
         ["System.Drawing.Common"] = "8.0.0",
         ["System.Windows.Forms"] = "4.0.0-preview3.19504.8"
     };
-    
+
     private readonly Dictionary<string, (string PackageId, string? Notes)> _assemblyMappings = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Microsoft.VisualStudio.QualityTools.UnitTestFramework"] = ("MSTest.TestFramework", "Also requires MSTest.TestAdapter"),
@@ -93,7 +93,7 @@ public class OfflinePackageResolver : INuGetPackageResolver
         {
             return Task.FromResult<string?>(version);
         }
-        
+
         _logger.LogWarning("Package {PackageId} not found in offline cache", packageId);
         return Task.FromResult<string?>(null);
     }
@@ -109,7 +109,7 @@ public class OfflinePackageResolver : INuGetPackageResolver
         {
             return Task.FromResult<IEnumerable<string>>(new[] { version });
         }
-        
+
         return Task.FromResult<IEnumerable<string>>(Array.Empty<string>());
     }
 
@@ -145,7 +145,7 @@ public class OfflinePackageResolver : INuGetPackageResolver
                 return Task.FromResult<PackageResolutionResult?>(result);
             }
         }
-        
+
         // Try direct package name match
         if (_packageVersions.TryGetValue(assemblyName, out var directVersion))
         {
@@ -155,7 +155,7 @@ public class OfflinePackageResolver : INuGetPackageResolver
                 Version = directVersion
             });
         }
-        
+
         _logger.LogWarning("Could not resolve assembly {AssemblyName} to a package in offline mode", assemblyName);
         return Task.FromResult<PackageResolutionResult?>(null);
     }

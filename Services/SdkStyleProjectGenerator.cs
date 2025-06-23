@@ -59,8 +59,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
-        Project legacyProject, 
-        string outputPath, 
+        Project legacyProject,
+        string outputPath,
         CancellationToken cancellationToken = default)
     {
         var result = new MigrationResult
@@ -72,11 +72,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         try
         {
             _logger.LogInformation("Starting migration for {ProjectPath}", legacyProject.FullPath);
-            
+
             // Check if project is already SDK-style
             if (!string.IsNullOrEmpty(legacyProject.Xml.Sdk))
             {
-                _logger.LogInformation("Project {ProjectPath} is already SDK-style (SDK: {Sdk}), no migration needed", 
+                _logger.LogInformation("Project {ProjectPath} is already SDK-style (SDK: {Sdk}), no migration needed",
                     legacyProject.FullPath, legacyProject.Xml.Sdk);
                 result.Success = true;
                 result.Warnings.Add($"Project is already SDK-style with SDK '{legacyProject.Xml.Sdk}' - no migration needed");
@@ -86,7 +86,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // 1. Detect project type first
             var projectTypeInfo = _projectTypeDetector.DetectProjectType(legacyProject);
             result.DetectedProjectType = projectTypeInfo;
-            
+
             if (!projectTypeInfo.CanMigrate)
             {
                 result.Success = false;
@@ -120,15 +120,15 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             var sdkProject = new XDocument();
             var projectElement = new XElement("Project");
-            
+
             // Use detected SDK or fall back to heuristics
             var sdk = projectTypeInfo.SuggestedSdk ?? DetermineSdk(legacyProject);
             projectElement.Add(new XAttribute("Sdk", sdk));
-            
+
             sdkProject.Add(projectElement);
 
             var propertyGroup = MigrateProperties(legacyProject, result);
-            
+
             // Add required properties from project type detection
             if (projectTypeInfo.RequiredProperties.Any())
             {
@@ -141,7 +141,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     }
                 }
             }
-            
+
             // Extract and migrate NuSpec metadata if present
             var nuspecPath = await _nuspecExtractor.FindNuSpecFileAsync(legacyProject.FullPath, cancellationToken);
             if (!string.IsNullOrEmpty(nuspecPath))
@@ -153,7 +153,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     result.RemovedElements.Add($"NuSpec file: {Path.GetFileName(nuspecPath)} (metadata migrated to project file)");
                 }
             }
-            
+
             if (propertyGroup.HasElements)
             {
                 projectElement.Add(propertyGroup);
@@ -162,9 +162,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var packages = await _packageReferenceMigrator.MigratePackagesAsync(legacyProject, cancellationToken);
             var projectDirectory = Path.GetDirectoryName(legacyProject.FullPath);
             packages = await _transitiveDependencyDetector.DetectTransitiveDependenciesAsync(packages, projectDirectory, cancellationToken);
-            
+
             var packagesToInclude = packages.Where(p => !p.IsTransitive).ToList();
-            
+
             // Add required package references from project type detection
             if (projectTypeInfo.RequiredPackageReferences.Any())
             {
@@ -181,7 +181,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     }
                 }
             }
-            
+
             if (packagesToInclude.Any())
             {
                 var packageGroup = new XElement("ItemGroup");
@@ -189,18 +189,18 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     var packageElement = new XElement("PackageReference",
                         new XAttribute("Include", package.PackageId));
-                    
+
                     // Only add Version if not using Central Package Management
                     if (!_options.EnableCentralPackageManagement)
                     {
                         packageElement.Add(new XAttribute("Version", package.Version));
                     }
-                    
+
                     foreach (var metadata in package.Metadata)
                     {
                         packageElement.Add(new XAttribute(metadata.Key, metadata.Value));
                     }
-                    
+
                     packageGroup.Add(packageElement);
                 }
                 projectElement.Add(packageGroup);
@@ -218,14 +218,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 projectElement.Add(compileItems);
             }
-            
+
             // Handle linked files separately to ensure they're preserved
             var linkedItems = MigrateLinkedItems(legacyProject, result);
             if (linkedItems.HasElements)
             {
                 projectElement.Add(linkedItems);
             }
-            
+
             var wpfWinFormsItems = MigrateWpfWinFormsItems(legacyProject);
             if (wpfWinFormsItems.HasElements)
             {
@@ -237,7 +237,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 projectElement.Add(contentItems);
             }
-            
+
             var otherItems = await MigrateOtherItemsAsync(legacyProject, result, projectElement, cancellationToken);
             if (otherItems != null && otherItems.Name == "MergedItemGroups")
             {
@@ -254,36 +254,36 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 projectElement.Add(otherItems);
             }
-            
+
             // Migrate native dependencies
             if (nativeDeps.Any())
             {
                 _nativeDependencyHandler.MigrateNativeDependencies(nativeDeps, projectElement, result);
             }
-            
+
             // Handle Entity Framework
             var efInfo = await _entityFrameworkHandler.DetectEntityFrameworkAsync(legacyProject, cancellationToken);
             if (efInfo.UsesEntityFramework)
             {
                 _entityFrameworkHandler.AddEntityFrameworkSupport(efInfo, projectElement, result);
             }
-            
+
             // Handle T4 Templates
             var t4Info = _t4TemplateHandler.DetectT4Templates(legacyProject);
             if (t4Info.HasT4Templates)
             {
                 _t4TemplateHandler.MigrateT4Templates(t4Info, projectElement, result);
             }
-            
+
             // Migrate build events before custom targets
             _buildEventMigrator.MigrateBuildEvents(legacyProject, projectElement, result);
-            
+
             // Migrate complex build configurations
             MigrateComplexBuildConfigurations(legacyProject, projectElement, result);
-            
+
             // Migrate custom targets with enhanced analyzer
             MigrateCustomTargetsWithAnalysis(legacyProject, projectElement, result);
-            
+
             MigrateCustomTargetsAndImports(legacyProject, projectElement, result);
 
             if (!_options.DryRun)
@@ -305,7 +305,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     NewLineChars = Environment.NewLine,
                     NewLineHandling = NewLineHandling.Replace
                 };
-                
+
                 using (var writer = XmlWriter.Create(outputPath, settings))
                 {
                     sdkProject.Save(writer);
@@ -317,7 +317,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 _logger.LogInformation("[DRY RUN] Would migrate project to {OutputPath}", outputPath);
                 _logger.LogDebug("[DRY RUN] Generated project content:\n{Content}", sdkProject.ToString());
             }
-            
+
             // Add special handling notes from project type detection
             if (projectTypeInfo.RequiresSpecialHandling && projectTypeInfo.SpecialHandlingNotes.Any())
             {
@@ -326,7 +326,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     result.Warnings.Add($"[Project Type] {note}");
                 }
             }
-            
+
             result.Success = true;
         }
         catch (Exception ex)
@@ -342,39 +342,39 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private string DetermineSdk(Project legacyProject)
     {
         var projectPath = legacyProject.FullPath;
-        
-        var hasWpfItems = legacyProject.Items.Any(i => 
-            i.ItemType == "ApplicationDefinition" || 
+
+        var hasWpfItems = legacyProject.Items.Any(i =>
+            i.ItemType == "ApplicationDefinition" ||
             i.ItemType == "Page" ||
             (i.ItemType == "Compile" && i.EvaluatedInclude.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase)));
-            
-        var hasWinFormsReferences = legacyProject.Items.Any(i => 
-            i.ItemType == "Reference" && 
+
+        var hasWinFormsReferences = legacyProject.Items.Any(i =>
+            i.ItemType == "Reference" &&
             (i.EvaluatedInclude.StartsWith("System.Windows.Forms", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.StartsWith("System.Drawing", StringComparison.OrdinalIgnoreCase)));
-             
+
         if (hasWpfItems || hasWinFormsReferences)
         {
             return "Microsoft.NET.Sdk.WindowsDesktop";
         }
-        
+
         var hasWebContent = legacyProject.Items.Any(i =>
             (i.ItemType == "Content" || i.ItemType == "None") &&
             (i.EvaluatedInclude.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.EndsWith(".aspx", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.EndsWith(".ascx", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.Equals("web.config", StringComparison.OrdinalIgnoreCase)));
-             
+
         var hasWebReferences = legacyProject.Items.Any(i =>
             i.ItemType == "Reference" &&
             (i.EvaluatedInclude.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.StartsWith("Microsoft.AspNet", StringComparison.OrdinalIgnoreCase)));
-             
+
         if (hasWebContent || hasWebReferences)
         {
             return "Microsoft.NET.Sdk.Web";
         }
-        
+
         return "Microsoft.NET.Sdk";
     }
 
@@ -389,7 +389,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Multi-targeting requested
             propertyGroup.Add(new XElement("TargetFrameworks", string.Join(";", _options.TargetFrameworks)));
             _logger.LogInformation("Using multi-targeting: {Frameworks}", string.Join(";", _options.TargetFrameworks));
-            
+
             // Add warning if this is a library project
             var outputType = legacyProject.GetPropertyValue("OutputType");
             if (string.IsNullOrEmpty(outputType) || outputType.Equals("Library", StringComparison.OrdinalIgnoreCase))
@@ -409,7 +409,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         // OutputType - only add if NOT "Library" (which is the default)
         var projectOutputType = legacyProject.GetPropertyValue("OutputType");
-        if (!string.IsNullOrEmpty(projectOutputType) && 
+        if (!string.IsNullOrEmpty(projectOutputType) &&
             !projectOutputType.Equals("Library", StringComparison.OrdinalIgnoreCase))
         {
             propertyGroup.Add(new XElement("OutputType", projectOutputType));
@@ -446,7 +446,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "AllowUnsafeBlocks"
             // Removed "Prefer32Bit" - irrelevant for libraries, only matters for .exe with AnyCPU
         };
-        
+
         foreach (var propName in importantProperties)
         {
             var value = legacyProject.GetPropertyValue(propName);
@@ -455,7 +455,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 propertyGroup.Add(new XElement(propName, value));
             }
         }
-        
+
         // Handle special properties that might be needed
         // ProjectGuid - not needed in SDK-style projects, skip it
         // SignAssembly, AssemblyOriginatorKeyFile, DelaySign - keep if present for signing
@@ -469,26 +469,26 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 _logger.LogDebug("Preserved signing property: {PropertyName}", propName);
             }
         }
-        
+
         // IsPublishable - handle after ClickOnce and signing properties
         // Will be added below if needed
 
         foreach (var property in legacyProject.Properties)
         {
-            if (LegacyProjectElements.PropertiesToRemove.Contains(property.Name) || 
+            if (LegacyProjectElements.PropertiesToRemove.Contains(property.Name) ||
                 LegacyProjectElements.AssemblyPropertiesToExtract.Contains(property.Name))
             {
                 result.RemovedElements.Add($"Property: {property.Name}");
                 _logger.LogDebug("Removed legacy property: {PropertyName}", property.Name);
             }
         }
-        
+
         // IsPublishable - only add for libraries if explicitly set to true
         // (default is true for exe, false for library)
         var isPublishable = legacyProject.GetPropertyValue("IsPublishable");
         bool isLibrary = string.IsNullOrEmpty(projectOutputType) || projectOutputType.Equals("Library", StringComparison.OrdinalIgnoreCase);
         bool needsIsPublishable = !string.IsNullOrEmpty(isPublishable) && isPublishable.Equals("true", StringComparison.OrdinalIgnoreCase) && isLibrary;
-        
+
         if (needsIsPublishable && propertyGroup.Element("IsPublishable") == null)
         {
             propertyGroup.Add(new XElement("IsPublishable", "true"));
@@ -503,27 +503,27 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Common file types that are often included in packages
         var packagingExtensions = new[] { ".txt", ".md", ".json", ".xml", ".config", ".props", ".targets", ".ps1", ".psm1" };
         var extension = Path.GetExtension(path).ToLowerInvariant();
-        
+
         // Check common packaging locations
         var directoryName = Path.GetDirectoryName(path)?.ToLowerInvariant() ?? "";
         var packagingDirectories = new[] { "content", "contentfiles", "build", "buildMultitargeting", "tools", "lib" };
-        
-        return packagingExtensions.Contains(extension) || 
+
+        return packagingExtensions.Contains(extension) ||
                packagingDirectories.Any(d => directoryName.Contains(d));
     }
-    
+
     private string GetPackagePath(string itemPath)
     {
         // Try to infer package path from item path
         var directoryName = Path.GetDirectoryName(itemPath)?.ToLowerInvariant() ?? "";
-        
+
         if (directoryName.Contains("content"))
             return "content";
         if (directoryName.Contains("tools"))
             return "tools";
         if (directoryName.Contains("build"))
             return "build";
-            
+
         // Default to content
         return "content";
     }
@@ -535,7 +535,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             _logger.LogInformation("Using override target framework: {TargetFramework}", _options.TargetFramework);
             return _options.TargetFramework;
         }
-        
+
         var targetFrameworkVersion = project.GetPropertyValue("TargetFrameworkVersion");
         if (string.IsNullOrEmpty(targetFrameworkVersion))
         {
@@ -545,7 +545,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (targetFrameworkVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
         {
             var version = targetFrameworkVersion.Substring(1);
-            
+
             var tfmMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["2.0"] = "net20",
@@ -564,12 +564,12 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 ["4.8"] = "net48",
                 ["4.8.1"] = "net481"
             };
-            
+
             if (tfmMappings.TryGetValue(version, out var tfm))
             {
                 return tfm;
             }
-            
+
             _logger.LogWarning("Unknown TargetFrameworkVersion: {Version}, defaulting to net48", targetFrameworkVersion);
             return "net48";
         }
@@ -585,7 +585,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var targetFramework = pg.Element("TargetFramework")?.Value;
             if (!string.IsNullOrEmpty(targetFramework))
                 return targetFramework;
-                
+
             var targetFrameworks = pg.Element("TargetFrameworks")?.Value;
             if (!string.IsNullOrEmpty(targetFrameworks))
             {
@@ -595,7 +595,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
         return null;
     }
-    
+
     private XElement MigrateProjectReferences(Project legacyProject, MigrationResult result)
     {
         var itemGroup = new XElement("ItemGroup");
@@ -604,27 +604,27 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         // Group references by condition to handle conditional references
         var refGroups = projectReferences.GroupBy(r => r.Xml.Condition ?? "");
-        
+
         foreach (var group in refGroups)
         {
             var condition = group.Key;
             var currentItemGroup = string.IsNullOrEmpty(condition) ? itemGroup : new XElement("ItemGroup");
-            
+
             if (!string.IsNullOrEmpty(condition))
             {
                 currentItemGroup.Add(new XAttribute("Condition", condition));
             }
-            
+
             foreach (var reference in group)
             {
                 var includeValue = reference.EvaluatedInclude;
                 var resolvedPath = ResolveProjectReferencePath(projectDir, includeValue, result);
-                
+
                 if (resolvedPath != includeValue)
                 {
                     _logger.LogInformation("Fixed project reference path: {OldPath} -> {NewPath}", includeValue, resolvedPath);
                 }
-                
+
                 var element = new XElement("ProjectReference",
                     new XAttribute("Include", resolvedPath));
 
@@ -640,7 +640,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
                 currentItemGroup.Add(element);
             }
-            
+
             // If this was a conditional group, return it separately
             if (!string.IsNullOrEmpty(condition) && currentItemGroup.HasElements)
             {
@@ -664,14 +664,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var itemGroup = new XElement("ItemGroup");
         var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
-        
+
         var compileItems = legacyProject.Items.Where(i => i.ItemType == "Compile").ToList();
-        
+
         foreach (var item in compileItems)
         {
             var include = item.EvaluatedInclude;
             var extension = Path.GetExtension(include);
-            
+
             // Skip AssemblyInfo files as they will be auto-generated or moved to Directory.Build.props
             if (IsAssemblyInfoFile(include))
             {
@@ -679,14 +679,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 result.RemovedElements.Add($"Compile item: {include} (AssemblyInfo file)");
                 continue;
             }
-            
+
             if (LegacyProjectElements.ImplicitlyIncludedExtensions.Contains(extension))
             {
                 var fullPath = Path.GetFullPath(Path.Combine(projectDir, include));
                 if (fullPath.StartsWith(projectDir, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (item.HasMetadata("Link") || 
-                        item.HasMetadata("DependentUpon") || 
+                    if (item.HasMetadata("Link") ||
+                        item.HasMetadata("DependentUpon") ||
                         item.HasMetadata("AutoGen") ||
                         item.HasMetadata("DesignTime") ||
                         item.GetMetadataValue("Visible") == "false")
@@ -698,38 +698,38 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     continue;
                 }
             }
-            
+
             var compileElement = new XElement("Compile", new XAttribute("Include", include));
             CopyMetadata(item, compileElement);
             itemGroup.Add(compileElement);
         }
-        
+
         var removedFiles = legacyProject.Items
             .Where(i => i.ItemType == "Compile" && i.GetMetadataValue("Exclude") == "true")
             .ToList();
-            
+
         foreach (var item in removedFiles)
         {
-            itemGroup.Add(new XElement("Compile", 
+            itemGroup.Add(new XElement("Compile",
                 new XAttribute("Remove", item.EvaluatedInclude)));
         }
-        
+
         return itemGroup;
     }
-    
+
     private XElement MigrateLinkedItems(Project legacyProject, MigrationResult result)
     {
         var itemGroup = new XElement("ItemGroup");
         var projectDir = Path.GetDirectoryName(legacyProject.FullPath)!;
-        
+
         // Find all items with Link metadata that point outside the project directory
         var linkedItems = legacyProject.Items
             .Where(i => !IsEvaluationArtifact(i.ItemType))
-            .Where(i => i.HasMetadata("Link") || 
+            .Where(i => i.HasMetadata("Link") ||
                        (!Path.GetFullPath(Path.Combine(projectDir, i.EvaluatedInclude))
                         .StartsWith(projectDir, StringComparison.OrdinalIgnoreCase)))
             .ToList();
-            
+
         foreach (var item in linkedItems)
         {
             // Skip MSBuild evaluation artifacts
@@ -738,17 +738,29 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 _logger.LogDebug("Skipping MSBuild evaluation artifact in linked items: {ItemType}", item.ItemType);
                 continue;
             }
-            
+
+            // Skip items from NuGet cache
+            var path = item.EvaluatedInclude;
+            if (path.Contains(@"\.nuget\cache\", StringComparison.OrdinalIgnoreCase) ||
+                path.Contains(@"/.nuget/cache/", StringComparison.OrdinalIgnoreCase) ||
+                (path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) && path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase)) ||
+                (path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) && path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase)) ||
+                (path.Contains(@"C:\Users\", StringComparison.OrdinalIgnoreCase) && path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogDebug("Skipping NuGet cache item in linked items: {Path}", path);
+                continue;
+            }
+
             // Skip if already handled in other methods
-            if (item.ItemType == "Compile" && 
+            if (item.ItemType == "Compile" &&
                 LegacyProjectElements.ImplicitlyIncludedExtensions.Contains(Path.GetExtension(item.EvaluatedInclude)))
             {
                 continue; // Already handled in MigrateCompileItems
             }
-            
+
             var element = new XElement(item.ItemType,
                 new XAttribute("Include", item.EvaluatedInclude));
-                
+
             // Ensure Link metadata is preserved
             var linkValue = item.GetMetadataValue("Link");
             if (string.IsNullOrEmpty(linkValue))
@@ -770,48 +782,48 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     }
                 }
             }
-            
+
             if (!string.IsNullOrEmpty(linkValue))
             {
                 element.Add(new XElement("Link", linkValue));
             }
-            
+
             // Copy other metadata
             CopyMetadata(item, element, "Link"); // Exclude Link since we already added it
-            
+
             itemGroup.Add(element);
-            _logger.LogDebug("Migrated linked item: {ItemType} {Include} -> {Link}", 
+            _logger.LogDebug("Migrated linked item: {ItemType} {Include} -> {Link}",
                 item.ItemType, item.EvaluatedInclude, linkValue);
         }
-        
+
         if (linkedItems.Any())
         {
             result.Warnings.Add($"Migrated {linkedItems.Count} linked files. Verify paths are correct after migration.");
         }
-        
+
         return itemGroup;
     }
-    
+
     private XElement MigrateWpfWinFormsItems(Project legacyProject)
     {
         var itemGroup = new XElement("ItemGroup");
-        
+
         // Migrate WPF/WinForms specific items
         foreach (var itemType in LegacyProjectElements.WpfWinFormsItemTypes)
         {
             var items = legacyProject.Items
                 .Where(i => i.ItemType == itemType)
                 .Where(i => !IsEvaluationArtifact(i.ItemType));
-            
+
             foreach (var item in items)
             {
-                var element = new XElement(itemType, 
+                var element = new XElement(itemType,
                     new XAttribute("Include", item.EvaluatedInclude));
                 CopyMetadata(item, element);
                 itemGroup.Add(element);
             }
         }
-        
+
         return itemGroup;
     }
 
@@ -821,7 +833,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var sdk = DetermineSdk(legacyProject);
         var isPackable = !string.IsNullOrEmpty(legacyProject.GetPropertyValue("GeneratePackageOnBuild")) ||
                         !string.IsNullOrEmpty(legacyProject.GetPropertyValue("IsPackable"));
-        
+
         var contentItems = legacyProject.Items
             .Where(i => i.ItemType == "Content")
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
@@ -829,7 +841,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 var path = i.EvaluatedInclude;
                 var fileName = Path.GetFileName(path);
-                
+
                 // Skip DLL files from packages or NuGet cache
                 if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
                     (path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) ||
@@ -837,14 +849,20 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     return false;
                 }
-                
+
+                // Skip items from NuGet cache (various patterns)
+                if (path.Contains(@"\.nuget\cache\", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"/.nuget/cache/", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) && path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) && path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"C:\Users\", StringComparison.OrdinalIgnoreCase) && path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
                 // Skip items from NuGet packages or .nuget folders
                 return !path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains("packages", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase);
+                       !path.Contains("packages", StringComparison.OrdinalIgnoreCase);
             });
 
         foreach (var item in contentItems)
@@ -852,7 +870,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var copyToOutput = item.GetMetadataValue("CopyToOutputDirectory");
             var packValue = item.GetMetadataValue("Pack");
             var packagePath = item.GetMetadataValue("PackagePath");
-            
+
             // For web projects, Content is implicit
             if (sdk == "Microsoft.NET.Sdk.Web")
             {
@@ -861,14 +879,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     var element = new XElement("Content",
                         new XAttribute("Include", item.EvaluatedInclude));
-                    
+
                     if (!string.IsNullOrEmpty(copyToOutput))
                         element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
                     if (!string.IsNullOrEmpty(packValue))
                         element.Add(new XElement("Pack", packValue));
                     if (!string.IsNullOrEmpty(packagePath))
                         element.Add(new XElement("PackagePath", packagePath));
-                    
+
                     CopyMetadata(item, element, "CopyToOutputDirectory", "Pack", "PackagePath");
                     itemGroup.Add(element);
                 }
@@ -880,10 +898,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     var element = new XElement("None",
                         new XAttribute("Include", item.EvaluatedInclude));
-                    
+
                     element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
                     CopyMetadata(item, element, "CopyToOutputDirectory");
-                    
+
                     itemGroup.Add(element);
                     _logger.LogDebug("Migrated Content item as None with CopyToOutput: {Include}", item.EvaluatedInclude);
                 }
@@ -892,7 +910,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     // This content item might be for packaging
                     var element = new XElement("None",
                         new XAttribute("Include", item.EvaluatedInclude));
-                    
+
                     element.Add(new XElement("Pack", "true"));
                     if (!string.IsNullOrEmpty(packagePath))
                     {
@@ -907,18 +925,18 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                             element.Add(new XElement("PackagePath", inferredPath));
                         }
                     }
-                    
+
                     CopyMetadata(item, element, "Pack", "PackagePath");
                     itemGroup.Add(element);
                     _logger.LogDebug("Migrated Content item as None for packaging: {Include}", item.EvaluatedInclude);
                 }
             }
         }
-        
+
         var noneItems = legacyProject.Items
             .Where(i => i.ItemType == "None")
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
-            .Where(i => 
+            .Where(i =>
             {
                 var copyToOutput = i.GetMetadataValue("CopyToOutputDirectory");
                 return !string.IsNullOrEmpty(copyToOutput) && copyToOutput != "Never";
@@ -927,7 +945,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 var path = i.EvaluatedInclude;
                 var fileName = Path.GetFileName(path);
-                
+
                 // Skip DLL files from packages or NuGet cache
                 if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
                     (path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) ||
@@ -935,14 +953,20 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     return false;
                 }
-                
+
+                // Skip items from NuGet cache (various patterns)
+                if (path.Contains(@"\.nuget\cache\", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"/.nuget/cache/", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) && path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) && path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase) ||
+                    path.Contains(@"C:\Users\", StringComparison.OrdinalIgnoreCase) && path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
                 // Skip items from NuGet packages or .nuget folders
                 return !path.Contains(".nuget", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains("packages", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase) &&
-                       !path.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase);
+                       !path.Contains("packages", StringComparison.OrdinalIgnoreCase);
             });
 
         foreach (var item in noneItems)
@@ -960,77 +984,77 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         return itemGroup;
     }
-    
+
     private async Task<XElement> MigrateOtherItemsAsync(Project legacyProject, MigrationResult result, XElement projectElement, CancellationToken cancellationToken = default)
     {
         var itemGroup = new XElement("ItemGroup");
         var packageItemGroup = new XElement("ItemGroup");
         var addedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var convertedAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        
+
         // Get all packages that were already migrated from packages.config
         var existingPackages = result.MigratedPackages.ToList();
-        
+
         // Get the SDK from the project element
         var sdk = projectElement.Attribute("Sdk")?.Value ?? "Microsoft.NET.Sdk";
-        
+
         // Get the target framework for assembly resolution
         var targetFramework = GetTargetFrameworkFromProject(projectElement) ?? "net8.0";
-        
+
         // Use NuGetAssetsResolver to get all assemblies provided by the migrated packages
         var projectDirectory = Path.GetDirectoryName(legacyProject.FullPath) ?? "";
         var resolutionResult = await _nugetAssetsResolver.ResolvePackageAssembliesAsync(
             existingPackages, targetFramework, projectDirectory, cancellationToken);
-        
-        _logger.LogInformation("Resolved {Count} assemblies from packages using {Method}. IsPartial: {IsPartial}", 
+
+        _logger.LogInformation("Resolved {Count} assemblies from packages using {Method}. IsPartial: {IsPartial}",
             resolutionResult.ResolvedAssemblies.Count, resolutionResult.ResolutionMethod, resolutionResult.IsPartialResolution);
-        
+
         // Add any warnings from resolution to the result
         foreach (var warning in resolutionResult.Warnings)
         {
             result.Warnings.Add($"[Package Resolution] {warning}");
         }
-        
+
         // Migrate assembly references that are not part of the implicit framework references
         var assemblyReferences = legacyProject.Items.Where(i => i.ItemType == "Reference");
         var removedReferences = new List<string>();
-        
+
         foreach (var reference in assemblyReferences)
         {
             var referenceName = reference.EvaluatedInclude;
-            
+
             // Extract just the assembly name without version info
             var assemblyName = referenceName.Split(',')[0].Trim();
-            
+
             // Get the HintPath for this reference (we'll need it in multiple places)
             var referenceHintPath = reference.GetMetadataValue("HintPath");
-            
+
             // First check if this assembly is already provided by a migrated package
-            var isProvidedByPackage = resolutionResult.ResolvedAssemblies.Any(a => 
+            var isProvidedByPackage = resolutionResult.ResolvedAssemblies.Any(a =>
                 a.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase));
-            
+
             if (isProvidedByPackage)
             {
                 var providingPackage = resolutionResult.ResolvedAssemblies
                     .FirstOrDefault(a => a.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase));
-                
-                _logger.LogInformation("Removing assembly reference '{AssemblyName}' - provided by package '{PackageId}' {Transitive}", 
-                    assemblyName, 
+
+                _logger.LogInformation("Removing assembly reference '{AssemblyName}' - provided by package '{PackageId}' {Transitive}",
+                    assemblyName,
                     providingPackage?.PackageId ?? "unknown",
                     providingPackage?.IsTransitive == true ? "(transitive)" : "");
-                
+
                 removedReferences.Add(assemblyName);
-                
+
                 // Collect hint path if this reference has one for cleanup
                 if (!string.IsNullOrEmpty(referenceHintPath))
                 {
                     result.ConvertedHintPaths.Add(referenceHintPath);
                     _logger.LogDebug("Collected hint path for cleanup: {HintPath}", referenceHintPath);
                 }
-                
+
                 continue;
             }
-            
+
             // Check if this reference has a package HintPath - if so, skip it
             if (!string.IsNullOrEmpty(referenceHintPath) && IsPackageHintPath(referenceHintPath))
             {
@@ -1041,7 +1065,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 removedReferences.Add($"{assemblyName} (package HintPath)");
                 continue;
             }
-            
+
             // Check if this assembly should be converted to a package reference
             var packageResolution = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyName, cancellationToken: cancellationToken);
             if (packageResolution != null)
@@ -1063,26 +1087,26 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     convertedAssemblies.Add(assemblyName); // Track that this assembly was converted
                     // Also track the full reference name in case it includes version info
                     convertedAssemblies.Add(referenceName);
-                    
+
                     // Track all assemblies included in this package
                     foreach (var includedAssembly in packageResolution.IncludedAssemblies)
                     {
                         convertedAssemblies.Add(includedAssembly);
-                        _logger.LogDebug("Package '{PackageName}' includes assembly '{AssemblyName}'", 
+                        _logger.LogDebug("Package '{PackageName}' includes assembly '{AssemblyName}'",
                             packageResolution.PackageId, includedAssembly);
                     }
-                    
-                    _logger.LogInformation("Converted assembly reference '{AssemblyName}' to package reference '{PackageName}' version {Version}", 
+
+                    _logger.LogInformation("Converted assembly reference '{AssemblyName}' to package reference '{PackageName}' version {Version}",
                         assemblyName, packageResolution.PackageId, packageResolution.Version);
-                    
-                    result.MigratedPackages.Add(new PackageReference 
-                    { 
-                        PackageId = packageResolution.PackageId, 
+
+                    result.MigratedPackages.Add(new PackageReference
+                    {
+                        PackageId = packageResolution.PackageId,
                         Version = packageResolution.Version,
                         IsTransitive = false
                     });
                 }
-                
+
                 // Add additional packages if needed (e.g., test adapters)
                 foreach (var additionalPackageId in packageResolution.AdditionalPackages)
                 {
@@ -1096,23 +1120,23 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                                 new XAttribute("Version", additionalVersion));
                             packageItemGroup.Add(packageElement);
                             addedPackages.Add(additionalPackageId);
-                            _logger.LogInformation("Added additional package '{PackageName}' version {Version}", 
+                            _logger.LogInformation("Added additional package '{PackageName}' version {Version}",
                                 additionalPackageId, additionalVersion);
                         }
                     }
                 }
-                
+
                 if (!string.IsNullOrEmpty(packageResolution.Notes))
                 {
                     result.Warnings.Add($"Package migration note for '{assemblyName}': {packageResolution.Notes}");
                 }
-                
+
                 continue;
             }
-            
+
             // Skip references that are implicitly included in the framework or were already converted to packages
             var implicitFrameworkReferences = GetImplicitReferences(sdk, targetFramework);
-            
+
             if (implicitFrameworkReferences.Contains(assemblyName) || convertedAssemblies.Contains(assemblyName))
             {
                 if (implicitFrameworkReferences.Contains(assemblyName))
@@ -1126,7 +1150,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
                 continue;
             }
-            
+
             // Framework extensions and special references that need to be preserved
             var frameworkExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -1134,8 +1158,8 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 "System.Configuration", "System.ServiceModel", "System.Runtime.Serialization",
                 "System.ComponentModel.DataAnnotations"
             };
-            
-            if ((frameworkExtensions.Contains(assemblyName) || 
+
+            if ((frameworkExtensions.Contains(assemblyName) ||
                 assemblyName.StartsWith("Microsoft.VisualStudio", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Windows", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
@@ -1146,25 +1170,25 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 var element = new XElement("Reference",
                     new XAttribute("Include", assemblyName));
-                
+
                 // Copy important metadata
                 if (!string.IsNullOrEmpty(referenceHintPath))
                 {
                     element.Add(new XElement("HintPath", referenceHintPath));
                 }
-                
+
                 var privateValue = reference.GetMetadataValue("Private");
                 if (!string.IsNullOrEmpty(privateValue))
                 {
                     element.Add(new XElement("Private", privateValue));
                 }
-                
+
                 var specificVersion = reference.GetMetadataValue("SpecificVersion");
                 if (!string.IsNullOrEmpty(specificVersion))
                 {
                     element.Add(new XElement("SpecificVersion", specificVersion));
                 }
-                
+
                 itemGroup.Add(element);
                 _logger.LogInformation("Preserved framework extension reference: {Reference}", assemblyName);
             }
@@ -1174,20 +1198,20 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 // This is likely a third-party assembly with a HintPath - preserve it
                 var element = new XElement("Reference",
                     new XAttribute("Include", assemblyName));
-                
+
                 element.Add(new XElement("HintPath", referenceHintPath));
-                
+
                 var privateValue = reference.GetMetadataValue("Private");
                 if (!string.IsNullOrEmpty(privateValue))
                 {
                     element.Add(new XElement("Private", privateValue));
                 }
-                
+
                 itemGroup.Add(element);
                 _logger.LogInformation("Preserved assembly reference with HintPath: {Reference}", assemblyName);
             }
         }
-        
+
         var comReferences = legacyProject.Items.Where(i => i.ItemType == "COMReference");
         foreach (var comRef in comReferences)
         {
@@ -1195,17 +1219,17 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 new XAttribute("Include", comRef.EvaluatedInclude));
             CopyMetadata(comRef, element);
             itemGroup.Add(element);
-            
+
             result.Warnings.Add($"COM Reference '{comRef.EvaluatedInclude}' needs manual review - COM references can be problematic in SDK-style projects");
         }
-        
+
         var embeddedResources = legacyProject.Items
             .Where(i => i.ItemType == "EmbeddedResource")
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
-            .Where(i => i.HasMetadata("Generator") || 
+            .Where(i => i.HasMetadata("Generator") ||
                        i.HasMetadata("LastGenOutput") ||
                        i.HasMetadata("SubType"));
-                       
+
         foreach (var resource in embeddedResources)
         {
             var element = new XElement("EmbeddedResource",
@@ -1213,7 +1237,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             CopyMetadata(resource, element);
             itemGroup.Add(element);
         }
-        
+
         // Log summary of removed references
         if (removedReferences.Any())
         {
@@ -1224,13 +1248,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 result.RemovedElements.Add($"Assembly reference: {removed} (provided by package)");
             }
         }
-        
+
         // Merge packageItemGroup with existing package references if they exist
         if (packageItemGroup.HasElements)
         {
             var existingPackageGroup = projectElement.Elements("ItemGroup")
                 .FirstOrDefault(ig => ig.Elements("PackageReference").Any());
-            
+
             if (existingPackageGroup != null)
             {
                 // Add to existing package reference group
@@ -1245,15 +1269,15 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 return new XElement("MergedItemGroups", packageItemGroup, itemGroup);
             }
         }
-        
+
         return itemGroup;
     }
-    
+
     private void CopyMetadata(ProjectItem source, XElement target, params string[] excludeMetadata)
     {
         var metadataToSkip = new HashSet<string>(excludeMetadata, StringComparer.OrdinalIgnoreCase);
         metadataToSkip.Add("Include");
-        
+
         foreach (var metadata in source.Metadata)
         {
             if (!metadataToSkip.Contains(metadata.Name))
@@ -1262,7 +1286,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
         }
     }
-    
+
     private void MigrateComplexBuildConfigurations(Project legacyProject, XElement projectElement, MigrationResult result)
     {
         var configPropertyGroups = legacyProject.Xml.PropertyGroups
@@ -1276,14 +1300,14 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         // Group by configuration
         var configGroups = new Dictionary<string, List<Microsoft.Build.Construction.ProjectPropertyGroupElement>>();
-        
+
         foreach (var group in configPropertyGroups)
         {
             // Extract configuration name from condition
             var configMatch = System.Text.RegularExpressions.Regex.Match(
                 group.Condition,
                 @"'\$\(Configuration\)'(\s*==\s*|\s*\.Equals\s*\(\s*)'([^']+)'");
-            
+
             if (configMatch.Success)
             {
                 var configName = configMatch.Groups[2].Value;
@@ -1296,7 +1320,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 // Complex condition - preserve as-is
                 var newPropGroup = new XElement("PropertyGroup",
                     new XAttribute("Condition", group.Condition));
-                
+
                 foreach (var prop in group.Properties)
                 {
                     // Skip properties already in main PropertyGroup
@@ -1305,7 +1329,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         newPropGroup.Add(new XElement(prop.Name, prop.Value));
                     }
                 }
-                
+
                 if (newPropGroup.HasElements)
                 {
                     projectElement.Add(newPropGroup);
@@ -1320,7 +1344,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var condition = $"'$(Configuration)' == '{configName}'";
             var configPropGroup = new XElement("PropertyGroup",
                 new XAttribute("Condition", condition));
-            
+
             // Merge all properties for this configuration
             var addedProps = new HashSet<string>();
             foreach (var group in groups)
@@ -1335,7 +1359,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     }
                 }
             }
-            
+
             if (configPropGroup.HasElements)
             {
                 projectElement.Add(configPropGroup);
@@ -1347,12 +1371,12 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var conditionalItemGroups = legacyProject.Xml.ItemGroups
             .Where(ig => !string.IsNullOrEmpty(ig.Condition))
             .ToList();
-            
+
         foreach (var itemGroup in conditionalItemGroups)
         {
             var newItemGroup = new XElement("ItemGroup",
                 new XAttribute("Condition", itemGroup.Condition));
-                
+
             foreach (var item in itemGroup.Items)
             {
                 // Skip MSBuild evaluation artifacts
@@ -1361,21 +1385,21 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     _logger.LogDebug("Skipping MSBuild evaluation artifact: {ItemType}", item.ItemType);
                     continue;
                 }
-                
+
                 var itemElement = new XElement(item.ItemType,
                     new XAttribute("Include", item.Include));
-                    
+
                 if (!string.IsNullOrEmpty(item.Exclude))
                     itemElement.Add(new XAttribute("Exclude", item.Exclude));
-                    
+
                 foreach (var metadata in item.Metadata)
                 {
                     itemElement.Add(new XElement(metadata.Name, metadata.Value));
                 }
-                
+
                 newItemGroup.Add(itemElement);
             }
-            
+
             if (newItemGroup.HasElements)
             {
                 projectElement.Add(newItemGroup);
@@ -1388,19 +1412,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var mainPropGroup = projectElement.Elements("PropertyGroup")
             .FirstOrDefault(pg => pg.Attribute("Condition") == null);
-            
+
         return mainPropGroup?.Element(propertyName) != null;
     }
 
     private void MigrateCustomTargetsWithAnalysis(Project legacyProject, XElement projectElement, MigrationResult result)
     {
         var targetAnalyses = _customTargetAnalyzer.AnalyzeTargets(legacyProject);
-        
+
         foreach (var analysis in targetAnalyses)
         {
             var target = legacyProject.Xml.Targets.FirstOrDefault(t => t.Name == analysis.TargetName);
             if (target == null) continue;
-            
+
             if (analysis.CanAutoMigrate)
             {
                 var migratedTarget = _customTargetAnalyzer.MigrateTarget(target, analysis);
@@ -1423,7 +1447,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     Reason = "Custom target requires manual migration",
                     SuggestedMigrationPath = analysis.ManualMigrationGuidance ?? "Review and migrate manually"
                 };
-                
+
                 result.RemovedMSBuildElements.Add(removedTarget);
                 result.Warnings.Add($"Custom target '{analysis.TargetName}' requires manual migration - see removed elements for guidance");
                 _logger.LogWarning("Custom target requires manual migration: {TargetName}", analysis.TargetName);
@@ -1439,7 +1463,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var importPath = import.Project;
             result.RemovedElements.Add($"Import: {importPath}");
             _logger.LogDebug("Removed import: {Import}", importPath);
-            
+
             // Capture the import details
             var removedImport = new RemovedMSBuildElement
             {
@@ -1449,9 +1473,9 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 Condition = import.Condition,
                 Reason = "SDK-style projects use implicit imports"
             };
-            
+
             // Add a warning and suggestion if this looks like a custom project import
-            if (!string.IsNullOrEmpty(importPath) && 
+            if (!string.IsNullOrEmpty(importPath) &&
                 !importPath.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) &&
                 !importPath.Contains("MSBuild", StringComparison.OrdinalIgnoreCase) &&
                 !importPath.Contains("VisualStudio", StringComparison.OrdinalIgnoreCase) &&
@@ -1464,24 +1488,24 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 removedImport.SuggestedMigrationPath = "No migration needed - handled by SDK";
             }
-            
+
             result.RemovedMSBuildElements.Add(removedImport);
         }
-        
+
         foreach (var target in legacyProject.Xml.Targets)
         {
             // Check if this is a common MSBuild target that should be removed
-            var commonTargets = new[] 
-            { 
+            var commonTargets = new[]
+            {
                 "BeforeBuild", "AfterBuild", "BeforeCompile", "AfterCompile",
                 "BeforePublish", "AfterPublish", "BeforeResolveReferences", "AfterResolveReferences",
                 "EnsureNuGetPackageBuildImports", "BuildPackage", "BeforeClean", "AfterClean"
             };
-            
+
             if (commonTargets.Contains(target.Name, StringComparer.OrdinalIgnoreCase))
             {
                 result.RemovedElements.Add($"Target: {target.Name}");
-                
+
                 // Capture the target content
                 var removedTarget = new RemovedMSBuildElement
                 {
@@ -1491,7 +1515,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     Condition = target.Condition,
                     Reason = "Common build target handled by SDK"
                 };
-                
+
                 // Provide specific migration guidance based on target name
                 switch (target.Name.ToLower())
                 {
@@ -1511,16 +1535,16 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         removedTarget.SuggestedMigrationPath = "Use SDK extensibility points (BeforeTargets/AfterTargets attributes)";
                         break;
                 }
-                
+
                 result.RemovedMSBuildElements.Add(removedTarget);
                 result.Warnings.Add($"Removed '{target.Name}' target - {removedTarget.SuggestedMigrationPath}");
                 _logger.LogDebug("Removed MSBuild target: {Target}", target.Name);
                 continue;
             }
-            
+
             // For any other targets, add a strong warning but preserve them
             var targetElement = new XElement("Target", new XAttribute("Name", target.Name));
-            
+
             if (!string.IsNullOrEmpty(target.BeforeTargets))
                 targetElement.Add(new XAttribute("BeforeTargets", target.BeforeTargets));
             if (!string.IsNullOrEmpty(target.AfterTargets))
@@ -1529,29 +1553,29 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 targetElement.Add(new XAttribute("DependsOnTargets", target.DependsOnTargets));
             if (!string.IsNullOrEmpty(target.Condition))
                 targetElement.Add(new XAttribute("Condition", target.Condition));
-            
+
             projectElement.Add(targetElement);
             result.Warnings.Add($"Target '{target.Name}' was preserved but should be reviewed for SDK-style compatibility");
         }
-        
+
         foreach (var propertyGroup in legacyProject.Xml.PropertyGroups.Where(pg => !string.IsNullOrEmpty(pg.Condition)))
         {
             result.Warnings.Add($"Conditional PropertyGroup with condition '{propertyGroup.Condition}' needs manual review");
         }
     }
-    
+
     private bool IsAssemblyInfoFile(string filePath)
     {
         var fileName = Path.GetFileName(filePath);
-        return LegacyProjectElements.AssemblyInfoFilePatterns.Any(pattern => 
+        return LegacyProjectElements.AssemblyInfoFilePatterns.Any(pattern =>
             fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
     }
-    
+
     private int CalculatePathSimilarity(string fullPath, List<string> originalSegments)
     {
         var pathSegments = fullPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
         var score = 0;
-        
+
         // Check how many segments from the original path appear in the found path
         foreach (var segment in originalSegments)
         {
@@ -1560,7 +1584,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 score++;
             }
         }
-        
+
         // Bonus points if segments appear in the same order
         var lastIndex = -1;
         foreach (var segment in originalSegments)
@@ -1572,27 +1596,27 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 lastIndex = index;
             }
         }
-        
+
         return score;
     }
-    
+
     private string ResolveProjectReferencePath(string currentProjectDir, string referencePath, MigrationResult result)
     {
         try
         {
             // Normalize the reference path first
             referencePath = referencePath.Replace('\\', Path.DirectorySeparatorChar);
-            
+
             // First try the path as-is
             var fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, referencePath));
             if (File.Exists(fullPath))
             {
                 return referencePath;
             }
-            
+
             // Get the filename to search for
             var fileName = Path.GetFileName(referencePath);
-            
+
             // If filename is empty or just an extension, the path is malformed
             if (string.IsNullOrWhiteSpace(fileName) || fileName.StartsWith("."))
             {
@@ -1600,7 +1624,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 result.Warnings.Add($"Invalid project reference path: '{referencePath}'");
                 return referencePath;
             }
-            
+
             // Check if this is an MSBuild variable-based path
             if (referencePath.Contains("$(") || referencePath.Contains("%"))
             {
@@ -1615,13 +1639,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         return expandedPath;
                     }
                 }
-                
+
                 result.Warnings.Add($"Project reference '{referencePath}' contains MSBuild variables that cannot be fully resolved");
                 _logger.LogWarning("Project reference contains unresolved MSBuild variables: {Path}", referencePath);
             }
-            
+
             // Try common patterns for fixing paths
-            
+
             // 1. Try looking in parent directories (up to 5 levels)
             var parentDir = currentProjectDir;
             for (int i = 0; i < 5; i++)
@@ -1629,12 +1653,12 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 parentDir = Path.GetDirectoryName(parentDir);
                 if (string.IsNullOrEmpty(parentDir))
                     break;
-                    
+
                 var foundFiles = Directory.GetFiles(parentDir, fileName, SearchOption.AllDirectories)
                     .Where(f => IsProjectFile(f))
                     .Where(f => !IsInExcludedDirectory(f))
                     .ToList();
-                    
+
                 if (foundFiles.Count == 1)
                 {
                     var relativePath = Path.GetRelativePath(currentProjectDir, foundFiles[0]);
@@ -1642,7 +1666,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     return NormalizePath(relativePath);
                 }
             }
-            
+
             // 2. Try removing extra path segments (e.g., "..\..\src\Project\Project.csproj" -> "..\Project\Project.csproj")
             var pathParts = referencePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
             if (pathParts.Length > 2)
@@ -1654,7 +1678,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         string.Join(Path.DirectorySeparatorChar.ToString(), pathParts.Take(pathParts.Length - skip - 1)),
                         pathParts.Last()
                     );
-                    
+
                     fullPath = Path.GetFullPath(Path.Combine(currentProjectDir, testPath));
                     if (File.Exists(fullPath))
                     {
@@ -1663,7 +1687,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     }
                 }
             }
-            
+
             // 3. Try common directory restructuring patterns
             var commonPatterns = GetCommonPathPatterns(referencePath, fileName);
             foreach (var pattern in commonPatterns)
@@ -1675,10 +1699,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     return NormalizePath(pattern);
                 }
             }
-            
+
             // 4. Last resort - search the entire repository for the project file
             _logger.LogInformation("Project reference '{Path}' not found at expected location. Searching repository for '{FileName}'...", referencePath, fileName);
-            
+
             // Find the repository root (look for .git directory or go up to a reasonable limit)
             var repoRoot = currentProjectDir;
             var searchDepth = 0;
@@ -1690,7 +1714,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 repoRoot = parent;
                 searchDepth++;
             }
-            
+
             // If we didn't find .git, use a reasonable parent directory (up to 5 levels)
             if (!Directory.Exists(Path.Combine(repoRoot, ".git")) && searchDepth >= 10)
             {
@@ -1704,21 +1728,21 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
                 _logger.LogDebug("No .git directory found, using parent directory as repository root: {Root}", repoRoot);
             }
-            
+
             // Search from repository root
             try
             {
                 _logger.LogDebug("Searching for project files in: {Root}", repoRoot);
-                
+
                 // Get project name without extension for better matching
                 var projectNameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-                
+
                 // First try exact filename match
                 var allProjectFiles = Directory.GetFiles(repoRoot, fileName, SearchOption.AllDirectories)
                     .Where(f => IsProjectFile(f))
                     .Where(f => !IsInExcludedDirectory(f))
                     .ToList();
-                
+
                 // If the original path had a specific project type but wasn't found, try other project types
                 if (!allProjectFiles.Any() && IsProjectFile(fileName))
                 {
@@ -1735,13 +1759,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         }
                     }
                 }
-                
+
                 // If no exact match, try with wildcards for common patterns
                 if (!allProjectFiles.Any() && !fileName.Contains("*"))
                 {
                     var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
                     var extension = Path.GetExtension(fileName);
-                    
+
                     // Try common variations
                     var patterns = new[]
                     {
@@ -1749,7 +1773,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         $"{fileNameWithoutExtension}.*proj",           // Any project type
                         $"*{fileNameWithoutExtension}.*proj"           // Any prefix and project type
                     };
-                    
+
                     foreach (var pattern in patterns)
                     {
                         _logger.LogDebug("Trying pattern: {Pattern}", pattern);
@@ -1757,19 +1781,19 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                             .Where(f => IsProjectFile(f))
                             .Where(f => !IsInExcludedDirectory(f))
                             .ToList();
-                            
+
                         if (foundFiles.Any())
                         {
                             allProjectFiles.AddRange(foundFiles);
                         }
                     }
-                    
+
                     // Remove duplicates
                     allProjectFiles = allProjectFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 }
-                
+
                 _logger.LogDebug("Found {Count} potential project matches", allProjectFiles.Count);
-                
+
                 if (allProjectFiles.Count == 1)
                 {
                     var relativePath = Path.GetRelativePath(currentProjectDir, allProjectFiles[0]);
@@ -1783,7 +1807,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     var originalSegments = referencePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries)
                         .Where(s => !s.Equals("..", StringComparison.OrdinalIgnoreCase) && !s.Equals(".", StringComparison.OrdinalIgnoreCase))
                         .ToList();
-                    
+
                     var bestMatch = allProjectFiles
                         .Select(f => new
                         {
@@ -1795,16 +1819,16 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         .OrderByDescending(x => x.Score)
                         .ThenBy(x => x.Distance)  // Prefer closer projects when scores are equal
                         .FirstOrDefault();
-                    
+
                     if (bestMatch != null && bestMatch.Score >= originalSegments.Count / 2) // At least half the segments match
                     {
                         var relativePath = Path.GetRelativePath(currentProjectDir, bestMatch.Path);
-                        _logger.LogInformation("Found best matching project reference in repository: {OldPath} -> {NewPath} (score: {Score})", 
+                        _logger.LogInformation("Found best matching project reference in repository: {OldPath} -> {NewPath} (score: {Score})",
                             referencePath, relativePath, bestMatch.Score);
                         result.Warnings.Add($"Fixed project reference path (best match): '{referencePath}' -> '{relativePath}'");
                         return NormalizePath(relativePath);
                     }
-                    
+
                     result.Warnings.Add($"Multiple projects named '{fileName}' found in repository - could not determine correct reference");
                     _logger.LogWarning("Multiple projects found with name {FileName}: {Paths}", fileName, string.Join(", ", allProjectFiles));
                 }
@@ -1813,7 +1837,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 _logger.LogWarning(ex, "Error searching repository for project file: {FileName}", fileName);
             }
-            
+
             result.Warnings.Add($"Could not resolve project reference path: '{referencePath}' - please verify manually");
             _logger.LogWarning("Could not resolve project reference path: {Path}", referencePath);
             return referencePath; // Return original if we can't fix it
@@ -1824,39 +1848,39 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             return referencePath;
         }
     }
-    
+
     private void MigrateNuSpecMetadata(XElement propertyGroup, NuSpecMetadata nuspec, MigrationResult result)
     {
         _logger.LogInformation("Migrating NuSpec metadata to MSBuild properties");
-        
+
         // Always make the project packable when there's a nuspec
         AddOrUpdateProperty(propertyGroup, "IsPackable", "true");
-        
+
         // Basic package metadata
         if (!string.IsNullOrEmpty(nuspec.Id))
             AddOrUpdateProperty(propertyGroup, "PackageId", nuspec.Id);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Version))
             AddOrUpdateProperty(propertyGroup, "PackageVersion", nuspec.Version);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Authors))
             AddOrUpdateProperty(propertyGroup, "Authors", nuspec.Authors);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Description))
             AddOrUpdateProperty(propertyGroup, "PackageDescription", nuspec.Description);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Copyright))
             AddOrUpdateProperty(propertyGroup, "Copyright", nuspec.Copyright);
-            
+
         if (!string.IsNullOrEmpty(nuspec.ProjectUrl))
             AddOrUpdateProperty(propertyGroup, "PackageProjectUrl", nuspec.ProjectUrl);
-            
+
         if (!string.IsNullOrEmpty(nuspec.LicenseUrl))
         {
             AddOrUpdateProperty(propertyGroup, "PackageLicenseUrl", nuspec.LicenseUrl);
             result.Warnings.Add("PackageLicenseUrl is deprecated. Consider using PackageLicenseExpression or PackageLicenseFile instead.");
         }
-        
+
         if (!string.IsNullOrEmpty(nuspec.License))
         {
             if (nuspec.License.StartsWith("LICENSE_FILE:"))
@@ -1869,73 +1893,73 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 AddOrUpdateProperty(propertyGroup, "PackageLicenseExpression", nuspec.License);
             }
         }
-        
+
         if (!string.IsNullOrEmpty(nuspec.IconUrl))
         {
             AddOrUpdateProperty(propertyGroup, "PackageIconUrl", nuspec.IconUrl);
             result.Warnings.Add("PackageIconUrl is deprecated. Consider using PackageIcon with an embedded icon file instead.");
         }
-        
+
         if (!string.IsNullOrEmpty(nuspec.Icon))
             AddOrUpdateProperty(propertyGroup, "PackageIcon", nuspec.Icon);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Tags))
             AddOrUpdateProperty(propertyGroup, "PackageTags", nuspec.Tags);
-            
+
         if (!string.IsNullOrEmpty(nuspec.ReleaseNotes))
             AddOrUpdateProperty(propertyGroup, "PackageReleaseNotes", nuspec.ReleaseNotes);
-            
+
         if (nuspec.RequireLicenseAcceptance.HasValue)
             AddOrUpdateProperty(propertyGroup, "PackageRequireLicenseAcceptance", nuspec.RequireLicenseAcceptance.Value.ToString().ToLower());
-            
+
         if (!string.IsNullOrEmpty(nuspec.RepositoryUrl))
             AddOrUpdateProperty(propertyGroup, "RepositoryUrl", nuspec.RepositoryUrl);
-            
+
         if (!string.IsNullOrEmpty(nuspec.RepositoryType))
             AddOrUpdateProperty(propertyGroup, "RepositoryType", nuspec.RepositoryType);
-            
+
         if (!string.IsNullOrEmpty(nuspec.RepositoryBranch))
             AddOrUpdateProperty(propertyGroup, "RepositoryBranch", nuspec.RepositoryBranch);
-            
+
         if (!string.IsNullOrEmpty(nuspec.RepositoryCommit))
             AddOrUpdateProperty(propertyGroup, "RepositoryCommit", nuspec.RepositoryCommit);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Title))
             AddOrUpdateProperty(propertyGroup, "Title", nuspec.Title);
-            
+
         if (!string.IsNullOrEmpty(nuspec.Summary))
         {
             AddOrUpdateProperty(propertyGroup, "PackageSummary", nuspec.Summary);
             result.Warnings.Add("PackageSummary is not commonly used in SDK-style projects. Consider using just PackageDescription.");
         }
-        
+
         if (nuspec.DevelopmentDependency.HasValue && nuspec.DevelopmentDependency.Value)
             AddOrUpdateProperty(propertyGroup, "DevelopmentDependency", "true");
-            
+
         if (nuspec.Serviceable.HasValue)
             AddOrUpdateProperty(propertyGroup, "Serviceable", nuspec.Serviceable.Value.ToString().ToLower());
-            
+
         // Handle dependencies - they should already be in PackageReference format
         if (nuspec.Dependencies.Any())
         {
             result.Warnings.Add($"NuSpec contained {nuspec.Dependencies.Count} dependencies. Ensure these are properly represented as PackageReference items.");
         }
-        
+
         // Handle files
         if (nuspec.Files.Any())
         {
             result.Warnings.Add($"NuSpec contained {nuspec.Files.Count} file entries. You may need to add corresponding Content/None items with Pack=\"true\" and PackagePath attributes.");
         }
-        
+
         // Handle contentFiles
         if (nuspec.ContentFiles.Any())
         {
             result.Warnings.Add($"NuSpec contained {nuspec.ContentFiles.Count} contentFiles entries. These should be migrated to Content items with appropriate metadata.");
         }
-        
+
         _logger.LogInformation("Successfully migrated NuSpec metadata to project file");
     }
-    
+
     private void AddOrUpdateProperty(XElement propertyGroup, string name, string value)
     {
         var existing = propertyGroup.Elements(name).FirstOrDefault();
@@ -1950,11 +1974,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             _logger.LogDebug("Added property {Name} with value '{Value}'", name, value);
         }
     }
-    
+
     private string GetTargetXmlString(Microsoft.Build.Construction.ProjectTargetElement target)
     {
         var attributes = new List<string> { $"Name=\"{target.Name}\"" };
-        
+
         if (!string.IsNullOrEmpty(target.BeforeTargets))
             attributes.Add($"BeforeTargets=\"{target.BeforeTargets}\"");
         if (!string.IsNullOrEmpty(target.AfterTargets))
@@ -1963,40 +1987,40 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             attributes.Add($"DependsOnTargets=\"{target.DependsOnTargets}\"");
         if (!string.IsNullOrEmpty(target.Condition))
             attributes.Add($"Condition=\"{target.Condition}\"");
-            
+
         return $"<Target {string.Join(" ", attributes)}>...</Target>";
     }
-    
+
     private bool IsEvaluationArtifact(string itemType)
     {
         // Check known evaluation artifacts
         if (LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(itemType))
             return true;
-            
+
         // Check patterns that indicate evaluation artifacts
         if (itemType.StartsWith("_", StringComparison.Ordinal)) // Internal MSBuild items often start with _
             return true;
-            
-        if (itemType.Contains("MSBuild", StringComparison.OrdinalIgnoreCase) && 
+
+        if (itemType.Contains("MSBuild", StringComparison.OrdinalIgnoreCase) &&
             !itemType.Equals("MSBuildAllProjects", StringComparison.OrdinalIgnoreCase)) // MSBuildAllProjects is sometimes used
             return true;
-            
-        if (itemType.EndsWith("Paths", StringComparison.OrdinalIgnoreCase) && 
+
+        if (itemType.EndsWith("Paths", StringComparison.OrdinalIgnoreCase) &&
             (itemType.Contains("Reference", StringComparison.OrdinalIgnoreCase) ||
              itemType.Contains("Assembly", StringComparison.OrdinalIgnoreCase)))
             return true;
-            
+
         if (itemType.Contains("Analyzer", StringComparison.OrdinalIgnoreCase) &&
             itemType.Contains("Config", StringComparison.OrdinalIgnoreCase))
             return true;
-            
+
         return false;
     }
-    
+
     private HashSet<string> GetImplicitReferences(string sdk, string targetFramework)
     {
         var implicitRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        
+
         // Basic .NET SDK implicit references (common to all SDKs)
         implicitRefs.Add("System");
         implicitRefs.Add("System.Core");
@@ -2005,7 +2029,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         implicitRefs.Add("System.Xml.Linq");
         implicitRefs.Add("Microsoft.CSharp");
         implicitRefs.Add("mscorlib");
-        
+
         // .NET Framework specific
         if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase) ||
             targetFramework.StartsWith("net3", StringComparison.OrdinalIgnoreCase) ||
@@ -2016,7 +2040,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             implicitRefs.Add("System.Net.Http");
             implicitRefs.Add("System.IO.Compression.FileSystem");
         }
-        
+
         // SDK-specific implicit references
         if (sdk.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase))
         {
@@ -2030,7 +2054,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // WindowsDesktop SDK includes WPF/WinForms references implicitly based on UseWPF/UseWindowsForms
             // These are handled by the SDK based on project properties
         }
-        
+
         // .NET Core / .NET 5+ implicit references
         if (targetFramework.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) ||
             targetFramework.StartsWith("net5", StringComparison.OrdinalIgnoreCase) ||
@@ -2072,18 +2096,18 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             implicitRefs.Add("System.Xml.ReaderWriter");
             implicitRefs.Add("System.Xml.XDocument");
         }
-        
+
         return implicitRefs;
     }
-    
+
     private bool IsPackageHintPath(string hintPath)
     {
         if (string.IsNullOrEmpty(hintPath))
             return false;
-            
+
         // Normalize the path for comparison
         var normalizedPath = hintPath.Replace('\\', '/').ToLowerInvariant();
-        
+
         // Check for common package directory patterns
         return normalizedPath.Contains("/packages/") ||
                normalizedPath.Contains("\\packages\\") ||
@@ -2096,36 +2120,36 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                normalizedPath.EndsWith("/packages") ||
                normalizedPath.EndsWith("\\packages");
     }
-    
+
     private bool IsProjectFile(string path)
     {
         return path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
                path.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase) ||
                path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase);
     }
-    
+
     private bool IsInExcludedDirectory(string path)
     {
         var excludedDirs = new[] { "bin", "obj", "packages", "node_modules", ".git", ".vs", "artifacts", "publish", "TestResults", ".nuget", "backup", "_backup", ".sonarqube" };
         var normalizedPath = path.Replace('\\', '/').ToLowerInvariant();
-        
-        return excludedDirs.Any(dir => 
-            normalizedPath.Contains($"/{dir}/") || 
+
+        return excludedDirs.Any(dir =>
+            normalizedPath.Contains($"/{dir}/") ||
             normalizedPath.Contains($"/{dir}\\") ||
             normalizedPath.EndsWith($"/{dir}"));
     }
-    
+
     private string NormalizePath(string path)
     {
         return path.Replace('\\', Path.DirectorySeparatorChar)
                    .Replace('/', Path.DirectorySeparatorChar);
     }
-    
+
     private int GetPathDistance(string fromPath, string toPath)
     {
         var fromParts = fromPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
         var toParts = toPath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-        
+
         // Find common ancestor
         int commonCount = 0;
         for (int i = 0; i < Math.Min(fromParts.Length, toParts.Length); i++)
@@ -2135,11 +2159,11 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             else
                 break;
         }
-        
+
         // Distance = steps up from source + steps down to target
         return (fromParts.Length - commonCount) + (toParts.Length - commonCount);
     }
-    
+
     private string TryExpandMSBuildVariables(string path, string projectDir)
     {
         // Common MSBuild variables that might appear in project references
@@ -2150,27 +2174,27 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             { "$(MSBuildProjectDirectory)", "." },
             { "$(MSBuildThisFileDirectory)", "." }
         };
-        
+
         var expandedPath = path;
         foreach (var replacement in replacements)
         {
             expandedPath = expandedPath.Replace(replacement.Key, replacement.Value);
         }
-        
+
         // Handle relative solution directory patterns like $(SolutionDir)..\
         expandedPath = System.Text.RegularExpressions.Regex.Replace(
-            expandedPath, 
-            @"\$\(SolutionDir\)(\\|/)?\.\.(\1)?", 
+            expandedPath,
+            @"\$\(SolutionDir\)(\\|/)?\.\.(\1)?",
             @"..\..\");
-            
+
         return expandedPath;
     }
-    
+
     private List<string> GetCommonPathPatterns(string originalPath, string fileName)
     {
         var patterns = new List<string>();
         var projectName = Path.GetFileNameWithoutExtension(fileName);
-        
+
         // Common patterns for project organization
         patterns.Add($@"..\{projectName}\{fileName}");
         patterns.Add($@"..\..\{projectName}\{fileName}");
@@ -2178,7 +2202,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         patterns.Add($@"..\..\src\{projectName}\{fileName}");
         patterns.Add($@"..\Source\{projectName}\{fileName}");
         patterns.Add($@"..\..\Source\{projectName}\{fileName}");
-        
+
         // If the original path contains "test" or "tests", try test-specific patterns
         if (originalPath.ToLowerInvariant().Contains("test"))
         {
@@ -2187,13 +2211,13 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             patterns.Add($@"..\test\{projectName}\{fileName}");
             patterns.Add($@"..\..\test\{projectName}\{fileName}");
         }
-        
+
         // Try without nested folder (project might have been moved up a level)
         if (originalPath.Contains($@"\{projectName}\{projectName}"))
         {
             patterns.Add(originalPath.Replace($@"\{projectName}\{projectName}", $@"\{projectName}"));
         }
-        
+
         return patterns.Distinct().ToList();
     }
 }

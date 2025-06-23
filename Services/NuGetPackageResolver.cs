@@ -17,11 +17,11 @@ public class NuGetPackageResolver : INuGetPackageResolver
     private readonly SourceCacheContext _cache;
     private readonly IEnumerable<SourceRepository> _repositories;
     private readonly NuGetLogger _nugetLogger;
-    
+
     // Cache for package versions to avoid repeated API calls
     private readonly ConcurrentDictionary<string, List<NuGetVersion>> _versionCache = new();
     private readonly ConcurrentDictionary<string, PackageResolutionResult> _assemblyCache = new();
-    
+
     // Well-known assembly to package mappings that don't follow standard naming
     private readonly Dictionary<string, (string PackageId, string? Notes)> _knownAssemblyMappings = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -59,7 +59,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
         ["StructureMap"] = ("StructureMap", "No longer maintained, consider alternatives"),
         ["CommonServiceLocator"] = ("CommonServiceLocator", null)
     };
-    
+
     // Known packages that include multiple assemblies
     private readonly Dictionary<string, List<string>> _packageAssemblyMappings = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -95,13 +95,13 @@ public class NuGetPackageResolver : INuGetPackageResolver
         _options = options;
         _cache = new SourceCacheContext();
         _nugetLogger = new NuGetLogger(logger);
-        
+
         // Initialize NuGet repositories from system configuration
         var providers = Repository.Provider.GetCoreV3();
         var packageSources = DiscoverNuGetSources();
-        
+
         _repositories = packageSources.Select(source => new SourceRepository(source, providers)).ToList();
-        
+
         _logger.LogInformation("NuGet package resolver initialized with {Count} repositories:", _repositories.Count());
         foreach (var repo in _repositories)
         {
@@ -112,11 +112,11 @@ public class NuGetPackageResolver : INuGetPackageResolver
     private List<PackageSource> DiscoverNuGetSources()
     {
         var sources = new List<PackageSource>();
-        
+
         try
         {
             ISettings settings;
-            
+
             // Check if a specific NuGet config file was provided
             if (!string.IsNullOrEmpty(_options?.NuGetConfigPath) && File.Exists(_options.NuGetConfigPath))
             {
@@ -132,28 +132,28 @@ public class NuGetPackageResolver : INuGetPackageResolver
                 settings = Settings.LoadDefaultSettings(root: workingDirectory);
                 _logger.LogDebug("Loading NuGet settings from directory: {Directory}", workingDirectory);
             }
-            
+
             // Get all enabled package sources from the configuration
             var sourceProvider = new PackageSourceProvider(settings);
             var configuredSources = sourceProvider.LoadPackageSources()
                 .Where(s => s.IsEnabled)
                 .ToList();
-            
+
             if (configuredSources.Any())
             {
                 _logger.LogInformation("Found {Count} configured NuGet sources from system settings", configuredSources.Count);
-                
+
                 // The credentials should already be loaded with the sources
                 // Just log which sources have credentials
                 foreach (var source in configuredSources)
                 {
                     if (source.Credentials != null && !string.IsNullOrEmpty(source.Credentials.Username))
                     {
-                        _logger.LogInformation("Source {Source} has credentials configured for user: {User}", 
+                        _logger.LogInformation("Source {Source} has credentials configured for user: {User}",
                             source.Name, source.Credentials.Username);
                     }
                 }
-                
+
                 sources.AddRange(configuredSources);
             }
             else
@@ -161,7 +161,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
                 _logger.LogWarning("No NuGet sources found in configuration, adding default NuGet.org source");
                 sources.Add(new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org"));
             }
-            
+
             // Ensure NuGet.org is included if not already present
             if (!sources.Any(s => s.Source.Contains("nuget.org", StringComparison.OrdinalIgnoreCase)))
             {
@@ -175,7 +175,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
             sources.Clear();
             sources.Add(new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org"));
         }
-        
+
         return sources;
     }
 
@@ -194,7 +194,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
     public async Task<IEnumerable<string>> GetAllVersionsAsync(string packageId, bool includePrerelease = false, CancellationToken cancellationToken = default)
     {
         var cacheKey = $"{packageId}_{includePrerelease}";
-        
+
         // Check cache first
         if (_versionCache.TryGetValue(cacheKey, out var cachedVersions))
         {
@@ -208,30 +208,30 @@ public class NuGetPackageResolver : INuGetPackageResolver
         {
             try
             {
-                _logger.LogDebug("Searching for package {PackageId} in repository {Repository}", 
+                _logger.LogDebug("Searching for package {PackageId} in repository {Repository}",
                     packageId, repository.PackageSource.Name);
-                    
+
                 var resource = await repository.GetResourceAsync<FindPackageByIdResource>(cancellationToken);
                 if (resource == null)
                 {
-                    _logger.LogWarning("Could not get FindPackageByIdResource from repository {Repository}", 
+                    _logger.LogWarning("Could not get FindPackageByIdResource from repository {Repository}",
                         repository.PackageSource.Name);
                     continue;
                 }
-                
+
                 var versions = await resource.GetAllVersionsAsync(packageId, _cache, _nugetLogger, cancellationToken);
-                
+
                 if (versions != null && versions.Any())
                 {
                     allVersions.AddRange(versions);
                     searchedSources.Add(repository.PackageSource.Name);
-                    _logger.LogDebug("Found {Count} versions of {PackageId} in {Repository}", 
+                    _logger.LogDebug("Found {Count} versions of {PackageId} in {Repository}",
                         versions.Count(), packageId, repository.PackageSource.Name);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get versions for package {PackageId} from repository {Repository}", 
+                _logger.LogWarning(ex, "Failed to get versions for package {PackageId} from repository {Repository}",
                     packageId, repository.PackageSource.Name);
             }
         }
@@ -245,7 +245,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
 
         if (filteredVersions.Any())
         {
-            _logger.LogInformation("Package {PackageId} found in repositories: {Sources}", 
+            _logger.LogInformation("Package {PackageId} found in repositories: {Sources}",
                 packageId, string.Join(", ", searchedSources));
         }
         else
@@ -280,7 +280,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
                     Version = version,
                     Notes = knownMapping.Notes
                 };
-                
+
                 // Add included assemblies if known
                 if (_packageAssemblyMappings.TryGetValue(knownMapping.PackageId, out var includedAssemblies))
                 {
@@ -309,7 +309,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
 
         // Try common patterns for assembly to package resolution
         var packageIdsToTry = GeneratePackageIdCandidates(assemblyName);
-        
+
         foreach (var candidateId in packageIdsToTry)
         {
             var version = await GetLatestStableVersionAsync(candidateId, cancellationToken);
@@ -320,7 +320,7 @@ public class NuGetPackageResolver : INuGetPackageResolver
                     PackageId = candidateId,
                     Version = version
                 };
-                
+
                 // Add included assemblies if known
                 if (_packageAssemblyMappings.TryGetValue(candidateId, out var includedAssemblies))
                 {
@@ -339,17 +339,17 @@ public class NuGetPackageResolver : INuGetPackageResolver
     private List<string> GeneratePackageIdCandidates(string assemblyName)
     {
         var candidates = new List<string>();
-        
+
         // Direct match
         candidates.Add(assemblyName);
-        
+
         // Without version suffix (e.g., "Assembly.1.0" -> "Assembly")
         var withoutVersion = System.Text.RegularExpressions.Regex.Replace(assemblyName, @"\.\d+(\.\d+)*$", "");
         if (withoutVersion != assemblyName)
         {
             candidates.Add(withoutVersion);
         }
-        
+
         // Common Microsoft patterns
         if (assemblyName.StartsWith("System.", StringComparison.OrdinalIgnoreCase))
         {
@@ -359,16 +359,16 @@ public class NuGetPackageResolver : INuGetPackageResolver
         else if (assemblyName.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase))
         {
             candidates.Add(assemblyName);
-            
+
             // Try without Microsoft prefix for some packages
             var withoutPrefix = assemblyName.Substring("Microsoft.".Length);
             candidates.Add(withoutPrefix);
         }
-        
+
         // Try with common suffixes
         candidates.Add($"{assemblyName}.Core");
         candidates.Add($"{assemblyName}.Abstractions");
-        
+
         return candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 

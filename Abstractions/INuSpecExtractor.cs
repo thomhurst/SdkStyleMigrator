@@ -8,7 +8,7 @@ public interface INuSpecExtractor
     /// Extracts metadata from a .nuspec file
     /// </summary>
     Task<NuSpecMetadata?> ExtractMetadataAsync(string nuspecPath, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Finds .nuspec file associated with a project
     /// </summary>

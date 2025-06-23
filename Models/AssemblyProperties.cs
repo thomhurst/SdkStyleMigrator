@@ -15,7 +15,7 @@ public class AssemblyProperties
     public bool? ComVisible { get; set; }
     public string? Guid { get; set; }
     public Dictionary<string, string> OtherProperties { get; set; } = new();
-    
+
     public bool HasProperties()
     {
         return !string.IsNullOrEmpty(Company) ||

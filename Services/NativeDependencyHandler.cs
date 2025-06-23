@@ -10,15 +10,16 @@ namespace SdkMigrator.Services;
 public class NativeDependencyHandler
 {
     private readonly ILogger<NativeDependencyHandler> _logger;
-    
+
     private static readonly string[] NativeExtensions = new[]
     {
         ".dll", ".so", ".dylib", ".a", ".lib", ".ocx"
     };
-    
+
     private static readonly string[] ManagedAssemblyPaths = new[]
     {
-        "packages", ".nuget", "bin\\debug", "bin\\release", "obj"
+        "packages", ".nuget", "bin\\debug", "bin\\release", "obj",
+        @"\.nuget\cache\", @"/.nuget/cache/", @"\Users\", @"/Users/"
     };
 
     public NativeDependencyHandler(ILogger<NativeDependencyHandler> logger)
@@ -30,18 +31,18 @@ public class NativeDependencyHandler
     {
         var dependencies = new List<NativeDependency>();
         var projectDir = Path.GetDirectoryName(project.FullPath) ?? "";
-        
+
         // Check References with HintPath
         var references = project.Items.Where(i => i.ItemType == "Reference");
         foreach (var reference in references)
         {
             var hintPath = reference.GetMetadataValue("HintPath");
             if (string.IsNullOrEmpty(hintPath)) continue;
-            
+
             // Skip if it's in a managed location
             if (ManagedAssemblyPaths.Any(p => hintPath.Contains(p, StringComparison.OrdinalIgnoreCase)))
                 continue;
-                
+
             var fullPath = Path.GetFullPath(Path.Combine(projectDir, hintPath));
             if (File.Exists(fullPath) && IsLikelyNativeDependency(fullPath))
             {
@@ -54,12 +55,12 @@ public class NativeDependencyHandler
                 });
             }
         }
-        
+
         // Check Content/None items that might be native DLLs
-        var contentItems = project.Items.Where(i => 
+        var contentItems = project.Items.Where(i =>
             (i.ItemType == "Content" || i.ItemType == "None") &&
             NativeExtensions.Any(ext => i.EvaluatedInclude.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
-            
+
         foreach (var item in contentItems)
         {
             var copyToOutput = item.GetMetadataValue("CopyToOutputDirectory");
@@ -79,12 +80,12 @@ public class NativeDependencyHandler
                 }
             }
         }
-        
+
         // Check for P/Invoke DllImport attributes in code (heuristic)
         var dllImportPattern = @"\[DllImport\s*\(\s*""([^""]+)""";
-        var csFiles = project.Items.Where(i => i.ItemType == "Compile" && 
+        var csFiles = project.Items.Where(i => i.ItemType == "Compile" &&
             i.EvaluatedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase));
-            
+
         foreach (var csFile in csFiles.Take(100)) // Limit to avoid performance issues
         {
             try
@@ -99,7 +100,7 @@ public class NativeDependencyHandler
                         if (match.Groups.Count > 1)
                         {
                             var dllName = match.Groups[1].Value;
-                            if (!dllName.StartsWith("kernel32") && !dllName.StartsWith("user32") && 
+                            if (!dllName.StartsWith("kernel32") && !dllName.StartsWith("user32") &&
                                 !dllName.StartsWith("advapi32") && !dllName.StartsWith("ole32"))
                             {
                                 dependencies.Add(new NativeDependency
@@ -120,32 +121,43 @@ public class NativeDependencyHandler
                 _logger.LogDebug(ex, "Error scanning file {File} for DllImport", csFile.EvaluatedInclude);
             }
         }
-        
+
         return dependencies.DistinctBy(d => d.FileName.ToLowerInvariant()).ToList();
     }
-    
+
     public void MigrateNativeDependencies(List<NativeDependency> dependencies, XElement projectRoot, MigrationResult result)
     {
         if (!dependencies.Any()) return;
-        
+
         var itemGroup = new XElement("ItemGroup");
         var hasItems = false;
-        
+
         foreach (var dep in dependencies.Where(d => !d.IsPInvoke && !string.IsNullOrEmpty(d.SourcePath)))
         {
+            // Skip items from NuGet cache
+            if (dep.SourcePath.Contains(@"\.nuget\cache\", StringComparison.OrdinalIgnoreCase) ||
+                dep.SourcePath.Contains(@"/.nuget/cache/", StringComparison.OrdinalIgnoreCase) ||
+                (dep.SourcePath.Contains(@"\Users\", StringComparison.OrdinalIgnoreCase) && dep.SourcePath.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase)) ||
+                (dep.SourcePath.Contains(@"/Users/", StringComparison.OrdinalIgnoreCase) && dep.SourcePath.Contains(@"/.nuget/", StringComparison.OrdinalIgnoreCase)) ||
+                (dep.SourcePath.Contains(@"C:\Users\", StringComparison.OrdinalIgnoreCase) && dep.SourcePath.Contains(@"\.nuget\", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogDebug("Skipping NuGet cache item: {Path}", dep.SourcePath);
+                continue;
+            }
+
             // For native dependencies, ensure they're copied to output
             var element = new XElement("None",
                 new XAttribute("Include", dep.SourcePath));
-                
+
             var copyToOutput = dep.CopyToOutputDirectory;
             if (string.IsNullOrEmpty(copyToOutput))
             {
                 copyToOutput = "PreserveNewest";
             }
-            
+
             element.Add(new XElement("CopyToOutputDirectory", copyToOutput));
             element.Add(new XElement("Visible", "false"));
-            
+
             // Add platform-specific conditions if needed
             if (dep.FileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
@@ -159,34 +171,34 @@ public class NativeDependencyHandler
             {
                 element.Add(new XAttribute("Condition", "'$(OS)' == 'Unix' And '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'"));
             }
-            
+
             itemGroup.Add(element);
             hasItems = true;
-            
+
             _logger.LogInformation("Migrated native dependency: {File}", dep.FileName);
         }
-        
+
         if (hasItems)
         {
             projectRoot.Add(itemGroup);
         }
-        
+
         // Add warnings
         var warning = new StringBuilder();
         warning.AppendLine("Native dependencies detected. Please verify:");
         warning.AppendLine();
-        
+
         foreach (var dep in dependencies)
         {
             warning.AppendLine($"- {dep.FileName} (detected from: {dep.DetectedFrom})");
         }
-        
+
         warning.AppendLine();
         warning.AppendLine("Ensure these files:");
         warning.AppendLine("1. Are available at build time");
         warning.AppendLine("2. Are deployed with your application");
         warning.AppendLine("3. Match the target platform architecture (x86/x64/ARM)");
-        
+
         if (dependencies.Any(d => d.IsPInvoke))
         {
             warning.AppendLine();
@@ -195,10 +207,10 @@ public class NativeDependencyHandler
             warning.AppendLine("- Setting up runtimes folder for platform-specific assets");
             warning.AppendLine("- Using SetDllDirectory or explicit paths for runtime resolution");
         }
-        
+
         result.Warnings.Add(warning.ToString());
     }
-    
+
     private bool IsLikelyNativeDependency(string filePath)
     {
         try
@@ -224,7 +236,7 @@ public class NativeDependencyHandler
         {
             // If we can't read it, assume it might be native
         }
-        
+
         return true;
     }
 }

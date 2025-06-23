@@ -10,7 +10,7 @@ namespace SdkMigrator.Services;
 public class AssemblyInfoExtractor : IAssemblyInfoExtractor
 {
     private readonly ILogger<AssemblyInfoExtractor> _logger;
-    
+
     private static readonly Regex AssemblyAttributeRegex = new(
         @"^\s*\[assembly\s*:\s*(?:System\.Reflection\.|AssemblyMetadata\s*\(\s*"")?(?<name>\w+)(?:""\s*,\s*)?(?:\()?""?(?<value>[^""\)]+)""?\)?\s*\]",
         RegexOptions.Multiline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -23,28 +23,28 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
     public async Task<AssemblyProperties> ExtractAssemblyPropertiesAsync(string projectDirectory, CancellationToken cancellationToken = default)
     {
         var properties = new AssemblyProperties();
-        
+
         foreach (var pattern in LegacyProjectElements.AssemblyInfoFilePatterns)
         {
             var assemblyInfoFiles = Directory.GetFiles(projectDirectory, pattern, SearchOption.AllDirectories);
-            
+
             foreach (var file in assemblyInfoFiles)
             {
                 if (cancellationToken.IsCancellationRequested)
                     break;
-                    
+
                 _logger.LogDebug("Extracting assembly properties from {File}", file);
                 await ExtractFromFileAsync(file, properties, cancellationToken);
             }
         }
-        
+
         return properties;
     }
 
     public Task<AssemblyProperties> ExtractFromProjectAsync(Project project, CancellationToken cancellationToken = default)
     {
         var properties = new AssemblyProperties();
-        
+
         foreach (var prop in project.Properties)
         {
             switch (prop.Name)
@@ -94,7 +94,7 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
                     break;
             }
         }
-        
+
         return Task.FromResult(properties);
     }
 
@@ -104,12 +104,12 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
         {
             var content = await File.ReadAllTextAsync(filePath, cancellationToken);
             var matches = AssemblyAttributeRegex.Matches(content);
-            
+
             foreach (Match match in matches)
             {
                 var name = match.Groups["name"].Value;
                 var value = match.Groups["value"].Value;
-                
+
                 switch (name)
                 {
                     case "AssemblyTitle":

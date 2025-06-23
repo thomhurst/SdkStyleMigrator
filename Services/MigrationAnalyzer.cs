@@ -57,7 +57,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
             {
                 var projectAnalysis = await AnalyzeProjectAsync(projectFile, cancellationToken);
                 analysis.ProjectAnalyses.Add(projectAnalysis);
-                
+
                 totalEffort += projectAnalysis.EstimatedManualEffortHours;
                 if (!projectAnalysis.CanMigrate)
                     canProceed = false;
@@ -239,14 +239,14 @@ public class MigrationAnalyzer : IMigrationAnalyzer
             var configMatch = System.Text.RegularExpressions.Regex.Match(
                 group.Condition,
                 @"'\$\(Configuration\)'(\s*==\s*|\s*\.Equals\s*\(\s*)'([^']+)'");
-            
+
             if (configMatch.Success)
             {
                 var configName = configMatch.Groups[2].Value;
                 if (!foundConfigs.Contains(configName))
                 {
                     foundConfigs.Add(configName);
-                    
+
                     var configAnalysis = new BuildConfigurationAnalysis
                     {
                         ConfigurationName = configName,
@@ -277,7 +277,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
             var configMatch = System.Text.RegularExpressions.Regex.Match(
                 itemGroup.Condition,
                 @"'\$\(Configuration\)'(\s*==\s*|\s*\.Equals\s*\(\s*)'([^']+)'");
-            
+
             if (configMatch.Success)
             {
                 var configName = configMatch.Groups[2].Value;
@@ -295,23 +295,23 @@ public class MigrationAnalyzer : IMigrationAnalyzer
     private async Task<List<PackageAnalysis>> AnalyzePackagesAsync(Project project, CancellationToken cancellationToken)
     {
         var packages = new List<PackageAnalysis>();
-        
+
         // Check packages.config
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
         var packagesConfigPath = Path.Combine(projectDir, "packages.config");
-        
+
         if (File.Exists(packagesConfigPath))
         {
             try
             {
                 var doc = XDocument.Load(packagesConfigPath);
                 var packageElements = doc.Root?.Elements("package") ?? Enumerable.Empty<XElement>();
-                
+
                 foreach (var package in packageElements)
                 {
                     var id = package.Attribute("id")?.Value;
                     var version = package.Attribute("version")?.Value;
-                    
+
                     if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(version))
                     {
                         var analysis = new PackageAnalysis
@@ -319,7 +319,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                             PackageId = id,
                             Version = version
                         };
-                        
+
                         // Check for known problematic packages
                         CheckPackageCompatibility(analysis);
                         packages.Add(analysis);
@@ -331,7 +331,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 _logger.LogWarning(ex, "Error reading packages.config");
             }
         }
-        
+
         // Check PackageReference items
         var packageRefs = project.Items.Where(i => i.ItemType == "PackageReference");
         foreach (var pkgRef in packageRefs)
@@ -341,11 +341,11 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 PackageId = pkgRef.EvaluatedInclude,
                 Version = pkgRef.GetMetadataValue("Version") ?? "Unknown"
             };
-            
+
             CheckPackageCompatibility(analysis);
             packages.Add(analysis);
         }
-        
+
         return packages;
     }
 
@@ -361,13 +361,13 @@ public class MigrationAnalyzer : IMigrationAnalyzer
             ["Microsoft.CodeDom.Providers.DotNetCompilerPlatform"] = "Not needed with SDK",
             ["Antlr"] = "May have issues with SDK-style projects, verify after migration"
         };
-        
+
         if (problematicPackages.TryGetValue(package.PackageId, out var notes))
         {
             package.HasKnownIssues = true;
             package.MigrationNotes = notes;
         }
-        
+
         // Check for packages that need manual intervention
         if (package.PackageId.StartsWith("EnterpriseLibrary", StringComparison.OrdinalIgnoreCase))
         {
@@ -380,19 +380,19 @@ public class MigrationAnalyzer : IMigrationAnalyzer
     {
         var references = new List<ProjectReferenceAnalysis>();
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
-        
+
         foreach (var projRef in project.Items.Where(i => i.ItemType == "ProjectReference"))
         {
             var refPath = projRef.EvaluatedInclude;
             var fullPath = Path.GetFullPath(Path.Combine(projectDir, refPath));
-            
+
             var analysis = new ProjectReferenceAnalysis
             {
                 ReferencePath = refPath,
                 Condition = projRef.Xml.Condition,
                 PathExists = File.Exists(fullPath)
             };
-            
+
             if (!analysis.PathExists)
             {
                 analysis.NeedsPathCorrection = true;
@@ -407,7 +407,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                             .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
                                        f.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase))
                             .ToList();
-                        
+
                         if (foundFiles.Count == 1)
                         {
                             analysis.SuggestedPath = Path.GetRelativePath(projectDir, foundFiles[0]);
@@ -419,10 +419,10 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                     }
                 }
             }
-            
+
             references.Add(analysis);
         }
-        
+
         return references;
     }
 
@@ -430,7 +430,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
     {
         var specialFiles = new List<SpecialFileAnalysis>();
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
-        
+
         // Check for T4 templates
         var t4Files = Directory.GetFiles(projectDir, "*.tt", SearchOption.AllDirectories);
         foreach (var t4File in t4Files)
@@ -444,14 +444,14 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 ManualSteps = "Verify T4 template generation after migration"
             });
         }
-        
+
         // Check for Entity Framework migrations
         var migrationFiles = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
             .Where(f => f.Contains("Migrations", StringComparison.OrdinalIgnoreCase) &&
                        (f.Contains("DbMigration", StringComparison.OrdinalIgnoreCase) ||
                         f.Contains("Migration.cs", StringComparison.OrdinalIgnoreCase)))
             .ToList();
-            
+
         if (migrationFiles.Any())
         {
             specialFiles.Add(new SpecialFileAnalysis
@@ -463,7 +463,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 ManualSteps = "Verify EF tooling works after migration (Add-Migration, Update-Database)"
             });
         }
-        
+
         // Check for .settings files
         var settingsFiles = Directory.GetFiles(projectDir, "*.settings", SearchOption.AllDirectories);
         foreach (var settingsFile in settingsFiles)
@@ -476,7 +476,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 MigrationApproach = "Settings files will be preserved with generators"
             });
         }
-        
+
         // Check for strong name key files
         var snkFiles = Directory.GetFiles(projectDir, "*.snk", SearchOption.AllDirectories);
         foreach (var snkFile in snkFiles)
@@ -489,7 +489,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 MigrationApproach = "Strong name key will be referenced in project"
             });
         }
-        
+
         return specialFiles;
     }
 
@@ -498,7 +498,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         var complexTargets = analysis.CustomTargets
             .Where(t => t.Complexity >= TargetComplexity.Complex && !t.CanAutoMigrate)
             .ToList();
-        
+
         if (complexTargets.Any())
         {
             analysis.Issues.Add(new MigrationIssue
@@ -508,15 +508,15 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 Severity = MigrationIssueSeverity.Warning,
                 Resolution = "Review generated target code and adjust as needed"
             });
-            
+
             analysis.EstimatedManualEffortHours += complexTargets.Count;
-            
+
             foreach (var target in complexTargets)
             {
                 analysis.ManualStepsRequired.Add($"Review and migrate target '{target.TargetName}'");
             }
         }
-        
+
         var autoMigratable = analysis.CustomTargets.Count(t => t.CanAutoMigrate);
         if (autoMigratable > 0)
         {
@@ -534,7 +534,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         var nonStandardConfigs = analysis.BuildConfigurations
             .Where(c => !c.IsStandard)
             .ToList();
-        
+
         if (nonStandardConfigs.Any())
         {
             analysis.Issues.Add(new MigrationIssue
@@ -545,11 +545,11 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 Resolution = "Custom configurations will be preserved"
             });
         }
-        
+
         var complexConditions = analysis.BuildConfigurations
             .Where(c => c.HasComplexConditions)
             .ToList();
-        
+
         if (complexConditions.Any())
         {
             analysis.Issues.Add(new MigrationIssue
@@ -559,7 +559,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 Severity = MigrationIssueSeverity.Warning,
                 Resolution = "Review conditional logic after migration to ensure correctness"
             });
-            
+
             analysis.EstimatedManualEffortHours += 1;
         }
     }
@@ -569,7 +569,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         var problematicPackages = analysis.Packages
             .Where(p => p.HasKnownIssues || p.RequiresManualIntervention)
             .ToList();
-        
+
         foreach (var package in problematicPackages)
         {
             analysis.Issues.Add(new MigrationIssue
@@ -580,7 +580,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                 Resolution = package.RequiresManualIntervention ? "Manual configuration may be needed" : "Package will be handled automatically"
             });
         }
-        
+
         if (problematicPackages.Any(p => p.RequiresManualIntervention))
         {
             analysis.EstimatedManualEffortHours += 1;
@@ -592,36 +592,36 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         var brokenRefs = analysis.ProjectReferences
             .Where(r => !r.PathExists)
             .ToList();
-        
+
         if (brokenRefs.Any())
         {
             foreach (var brokenRef in brokenRefs)
             {
-                var severity = brokenRef.SuggestedPath != null ? 
+                var severity = brokenRef.SuggestedPath != null ?
                     MigrationIssueSeverity.Warning : MigrationIssueSeverity.Error;
-                    
+
                 analysis.Issues.Add(new MigrationIssue
                 {
                     Category = "Project References",
                     Description = $"Project reference not found: {brokenRef.ReferencePath}",
                     Severity = severity,
-                    Resolution = brokenRef.SuggestedPath != null ? 
-                        $"Suggested path: {brokenRef.SuggestedPath}" : 
+                    Resolution = brokenRef.SuggestedPath != null ?
+                        $"Suggested path: {brokenRef.SuggestedPath}" :
                         "Manual path correction required",
                     BlocksMigration = severity == MigrationIssueSeverity.Error
                 });
             }
-            
+
             if (brokenRefs.Any(r => r.SuggestedPath == null))
             {
                 analysis.CanMigrate = false;
             }
         }
-        
+
         var conditionalRefs = analysis.ProjectReferences
             .Where(r => !string.IsNullOrEmpty(r.Condition))
             .ToList();
-        
+
         if (conditionalRefs.Any())
         {
             analysis.Issues.Add(new MigrationIssue
@@ -640,7 +640,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         {
             var fileType = fileGroup.Key;
             var files = fileGroup.ToList();
-            
+
             switch (fileType)
             {
                 case SpecialFileType.T4Template:
@@ -654,7 +654,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
                     analysis.ManualStepsRequired.Add("Test T4 template generation");
                     analysis.EstimatedManualEffortHours += 1;
                     break;
-                    
+
                 case SpecialFileType.EntityFrameworkMigration:
                     analysis.Issues.Add(new MigrationIssue
                     {
@@ -675,19 +675,19 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         var criticalIssues = analysis.Issues.Count(i => i.Severity == MigrationIssueSeverity.Critical);
         var errorIssues = analysis.Issues.Count(i => i.Severity == MigrationIssueSeverity.Error);
         var warningIssues = analysis.Issues.Count(i => i.Severity == MigrationIssueSeverity.Warning);
-        
+
         if (criticalIssues > 0 || !analysis.CanMigrate)
             return MigrationRiskLevel.Critical;
-        
+
         if (errorIssues > 0)
             return MigrationRiskLevel.High;
-        
+
         if (warningIssues > 3 || analysis.EstimatedManualEffortHours > 4)
             return MigrationRiskLevel.High;
-        
+
         if (warningIssues > 0 || analysis.EstimatedManualEffortHours > 2)
             return MigrationRiskLevel.Medium;
-        
+
         return MigrationRiskLevel.Low;
     }
 
@@ -695,40 +695,40 @@ public class MigrationAnalyzer : IMigrationAnalyzer
     {
         if (projectAnalyses.Any(p => p.RiskLevel == MigrationRiskLevel.Critical))
             return MigrationRiskLevel.Critical;
-        
+
         var highRiskCount = projectAnalyses.Count(p => p.RiskLevel == MigrationRiskLevel.High);
         if (highRiskCount > projectAnalyses.Count / 3)
             return MigrationRiskLevel.High;
-        
+
         var mediumRiskCount = projectAnalyses.Count(p => p.RiskLevel >= MigrationRiskLevel.Medium);
         if (mediumRiskCount > projectAnalyses.Count / 2)
             return MigrationRiskLevel.Medium;
-        
+
         return MigrationRiskLevel.Low;
     }
 
     private int EstimateManualEffort(ProjectAnalysis analysis)
     {
         var hours = 0;
-        
+
         // Base effort per issue severity
         hours += analysis.Issues.Count(i => i.Severity == MigrationIssueSeverity.Critical) * 4;
         hours += analysis.Issues.Count(i => i.Severity == MigrationIssueSeverity.Error) * 2;
         hours += analysis.Issues.Count(i => i.Severity == MigrationIssueSeverity.Warning) * 1;
-        
+
         // Add effort for complex targets
         hours += analysis.CustomTargets.Count(t => t.Complexity >= TargetComplexity.Complex && !t.CanAutoMigrate);
-        
+
         // Add effort for special files
         if (analysis.SpecialFiles.Any(f => f.FileType == SpecialFileType.T4Template))
             hours += 1;
-        
+
         if (analysis.SpecialFiles.Any(f => f.FileType == SpecialFileType.EntityFrameworkMigration))
             hours += 2;
-        
+
         // Add base testing effort
         hours += 1;
-        
+
         return Math.Max(hours, 1); // Minimum 1 hour
     }
 
@@ -739,28 +739,28 @@ public class MigrationAnalyzer : IMigrationAnalyzer
             analysis.GlobalRecommendations.Add(
                 "Review all custom MSBuild targets carefully. Consider moving common targets to Directory.Build.targets for reuse.");
         }
-        
+
         if (analysis.ProjectAnalyses.Any(p => p.BuildConfigurations.Count > 2))
         {
             analysis.GlobalRecommendations.Add(
                 "Multiple build configurations detected. Ensure your CI/CD pipeline is updated to use all configurations.");
         }
-        
+
         if (analysis.ProjectAnalyses.Any(p => p.Issues.Any(i => i.Category == "Service References")))
         {
             analysis.GlobalRecommendations.Add(
                 "WCF Service References found. Install dotnet-svcutil globally: dotnet tool install --global dotnet-svcutil");
         }
-        
+
         if (analysis.EstimatedManualEffortHours > 8)
         {
             analysis.GlobalRecommendations.Add(
                 "Significant manual effort required. Consider migrating projects incrementally and testing thoroughly.");
         }
-        
+
         analysis.GlobalRecommendations.Add(
             "Run 'dotnet build' after migration to verify all projects compile correctly.");
-        
+
         analysis.GlobalRecommendations.Add(
             "Update your .gitignore file to exclude SDK-style build outputs (bin/, obj/).");
     }

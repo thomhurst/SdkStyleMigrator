@@ -10,7 +10,7 @@ namespace SdkMigrator.Services;
 public class CustomTargetAnalyzer
 {
     private readonly ILogger<CustomTargetAnalyzer> _logger;
-    
+
     // Common target patterns that can be auto-migrated
     private static readonly Dictionary<string, TargetMigrationPattern> KnownPatterns = new()
     {
@@ -48,13 +48,13 @@ public class CustomTargetAnalyzer
     public List<CustomTargetAnalysis> AnalyzeTargets(Project project)
     {
         var analyses = new List<CustomTargetAnalysis>();
-        
+
         foreach (var target in project.Xml.Targets)
         {
             var analysis = AnalyzeTarget(target);
             analyses.Add(analysis);
         }
-        
+
         return analyses;
     }
 
@@ -117,12 +117,12 @@ public class CustomTargetAnalyzer
     private string GetTaskSummary(ProjectTaskElement task)
     {
         var summary = new StringBuilder();
-        
+
         // Get key parameters
         var command = task.GetParameter("Command");
         var files = task.GetParameter("SourceFiles") ?? task.GetParameter("Files");
         var destination = task.GetParameter("DestinationFolder") ?? task.GetParameter("DestinationFiles");
-        
+
         if (!string.IsNullOrEmpty(command))
         {
             summary.Append($"Command='{TruncateString(command, 50)}'");
@@ -137,7 +137,7 @@ public class CustomTargetAnalyzer
             if (summary.Length > 0) summary.Append(", ");
             summary.Append($"Destination='{TruncateString(destination, 30)}'");
         }
-        
+
         return summary.ToString();
     }
 
@@ -153,19 +153,19 @@ public class CustomTargetAnalyzer
         var hasComplexConditions = target.Children.Any(c => !string.IsNullOrWhiteSpace(c.Condition));
         var hasPropertyGroups = target.Children.Any(c => c.ElementName == "PropertyGroup");
         var hasItemGroups = target.Children.Any(c => c.ElementName == "ItemGroup");
-        
+
         if (taskCount == 0)
             return TargetComplexity.Simple;
-        
+
         if (taskCount == 1 && !hasComplexConditions && !hasPropertyGroups && !hasItemGroups)
             return TargetComplexity.Simple;
-        
+
         if (taskCount <= 3 && !hasPropertyGroups && !hasItemGroups)
             return TargetComplexity.Moderate;
-        
+
         if (taskCount > 5 || (hasPropertyGroups && hasItemGroups))
             return TargetComplexity.VeryComplex;
-        
+
         return TargetComplexity.Complex;
     }
 
@@ -177,7 +177,7 @@ public class CustomTargetAnalyzer
             "BeforePublish", "AfterPublish", "BeforeResolveReferences", "AfterResolveReferences",
             "BeforeClean", "AfterClean", "CoreCompile", "Compile", "Build"
         };
-        
+
         return standardTargets.Contains(targetName, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -185,13 +185,13 @@ public class CustomTargetAnalyzer
     {
         return targetName.ToLower() switch
         {
-            "beforebuild" or "afterbuild" => 
+            "beforebuild" or "afterbuild" =>
                 "Use a custom target with BeforeTargets='Build' or AfterTargets='Build'",
-            "beforecompile" or "aftercompile" => 
+            "beforecompile" or "aftercompile" =>
                 "Use a custom target with BeforeTargets='CoreCompile' or AfterTargets='CoreCompile'",
-            "beforepublish" or "afterpublish" => 
+            "beforepublish" or "afterpublish" =>
                 "Use a custom target with BeforeTargets='Publish' or AfterTargets='Publish'",
-            "beforeresolvereferences" or "afterresolvereferences" => 
+            "beforeresolvereferences" or "afterresolvereferences" =>
                 "Use a custom target with BeforeTargets='ResolveReferences' or AfterTargets='ResolveReferences'",
             _ => "This target is handled by the SDK, create a custom target with appropriate BeforeTargets/AfterTargets"
         };
@@ -201,43 +201,43 @@ public class CustomTargetAnalyzer
     {
         var tasks = target.Children.OfType<ProjectTaskElement>().ToList();
         if (!tasks.Any()) return null;
-        
+
         // Check for simple copy pattern
         if (tasks.All(t => t.Name == "Copy"))
         {
             return KnownPatterns["CopyFiles"];
         }
-        
+
         // Check for delete pattern
         if (tasks.All(t => t.Name == "Delete"))
         {
             return KnownPatterns["DeleteFiles"];
         }
-        
+
         // Check for exec pattern
         if (tasks.All(t => t.Name == "Exec"))
         {
             return KnownPatterns["RunTool"];
         }
-        
+
         // Check for code generation pattern
         if (tasks.Any(t => t.Name == "Exec" || t.Name == "WriteLinesToFile" || t.Name == "GenerateResource"))
         {
             return KnownPatterns["GenerateCode"];
         }
-        
+
         return null;
     }
 
     private string GenerateSdkStyleTarget(ProjectTargetElement target)
     {
         var sb = new StringBuilder();
-        
+
         // Generate a new target name if it's a standard one
         var targetName = IsStandardTarget(target.Name) ? $"Custom{target.Name}" : target.Name;
-        
+
         sb.AppendLine($"<Target Name=\"{targetName}\"");
-        
+
         // Add appropriate BeforeTargets/AfterTargets
         if (IsStandardTarget(target.Name))
         {
@@ -258,15 +258,15 @@ public class CustomTargetAnalyzer
             if (!string.IsNullOrEmpty(target.AfterTargets))
                 sb.AppendLine($"        AfterTargets=\"{target.AfterTargets}\"");
         }
-        
+
         if (!string.IsNullOrEmpty(target.DependsOnTargets))
             sb.AppendLine($"        DependsOnTargets=\"{target.DependsOnTargets}\"");
-        
+
         if (!string.IsNullOrEmpty(target.Condition))
             sb.AppendLine($"        Condition=\"{target.Condition}\"");
-        
+
         sb.AppendLine(">");
-        
+
         // Add tasks
         foreach (var child in target.Children)
         {
@@ -284,9 +284,9 @@ public class CustomTargetAnalyzer
                 sb.AppendLine("  />");
             }
         }
-        
+
         sb.AppendLine("</Target>");
-        
+
         return sb.ToString();
     }
 
@@ -307,10 +307,10 @@ public class CustomTargetAnalyzer
     {
         if (!analysis.CanAutoMigrate)
             return null;
-        
+
         var targetName = IsStandardTarget(target.Name) ? $"Custom{target.Name}" : target.Name;
         var newTarget = new XElement("Target", new XAttribute("Name", targetName));
-        
+
         // Set appropriate BeforeTargets/AfterTargets
         if (IsStandardTarget(target.Name))
         {
@@ -331,13 +331,13 @@ public class CustomTargetAnalyzer
             if (!string.IsNullOrEmpty(target.AfterTargets))
                 newTarget.Add(new XAttribute("AfterTargets", target.AfterTargets));
         }
-        
+
         if (!string.IsNullOrEmpty(target.DependsOnTargets))
             newTarget.Add(new XAttribute("DependsOnTargets", target.DependsOnTargets));
-        
+
         if (!string.IsNullOrEmpty(target.Condition))
             newTarget.Add(new XAttribute("Condition", target.Condition));
-        
+
         // Migrate tasks
         foreach (var child in target.Children)
         {
@@ -355,7 +355,7 @@ public class CustomTargetAnalyzer
                 newTarget.Add(newTask);
             }
         }
-        
+
         return newTarget;
     }
 }

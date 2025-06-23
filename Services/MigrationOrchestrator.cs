@@ -67,7 +67,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
         BackupSession? backupSession = null;
         var lockAcquired = false;
-        
+
         // Track cleanup information for each project
         var projectCleanupInfo = new System.Collections.Concurrent.ConcurrentBag<(string ProjectDir, List<PackageReference> Packages, List<string> HintPaths)>();
 
@@ -97,23 +97,23 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             {
                 _logger.LogInformation("Running pre-migration analysis...");
                 var analysis = await _migrationAnalyzer.AnalyzeProjectsAsync(directoryPath, cancellationToken);
-                
+
                 if (!analysis.CanProceedAutomatically)
                 {
                     _logger.LogError("Pre-migration analysis found critical issues that prevent automatic migration");
                     _logger.LogError("Overall risk level: {Risk}", analysis.OverallRisk);
                     _logger.LogError("Estimated manual effort: {Hours} hours", analysis.EstimatedManualEffortHours);
-                    
+
                     foreach (var project in analysis.ProjectAnalyses.Where(p => !p.CanMigrate))
                     {
-                        _logger.LogError("Project {Project} cannot be migrated: {Issues}", 
-                            project.ProjectName, 
+                        _logger.LogError("Project {Project} cannot be migrated: {Issues}",
+                            project.ProjectName,
                             string.Join(", ", project.Issues.Where(i => i.BlocksMigration).Select(i => i.Description)));
                     }
-                    
+
                     throw new InvalidOperationException("Migration cannot proceed due to critical issues. Use --force to override or fix the issues first.");
                 }
-                
+
                 if (analysis.OverallRisk >= MigrationRiskLevel.High)
                 {
                     _logger.LogWarning("Pre-migration analysis indicates HIGH RISK migration");
@@ -131,15 +131,15 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             var projectMappings = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
             var projectIndex = 0;
             var totalProjects = projectFilesList.Count;
-            
+
             if (_options.MaxDegreeOfParallelism > 1)
             {
                 _logger.LogInformation("Processing projects in parallel with max degree of parallelism: {MaxDegree}", _options.MaxDegreeOfParallelism);
-                
+
                 var semaphore = new SemaphoreSlim(_options.MaxDegreeOfParallelism);
                 var processedCount = 0;
                 var lockObj = new object();
-                
+
                 var migrationTasks = projectFilesList.Select(async projectFile =>
                 {
                     await semaphore.WaitAsync(cancellationToken);
@@ -150,13 +150,13 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                             _logger.LogWarning("Migration cancelled by user");
                             return;
                         }
-                        
+
                         int currentIndex;
                         lock (lockObj)
                         {
                             currentIndex = ++processedCount;
                         }
-                        
+
                         var progress = $"[{currentIndex}/{totalProjects}]";
                         await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, cancellationToken);
                     }
@@ -165,7 +165,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         semaphore.Release();
                     }
                 }).ToList();
-                
+
                 await Task.WhenAll(migrationTasks);
             }
             else
@@ -180,44 +180,44 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                     projectIndex++;
                     var progress = $"[{projectIndex}/{projectFilesList.Count}]";
-                    
+
                     await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, cancellationToken);
                 }
             }
-            
+
             if (projectAssemblyProperties.Any())
             {
-                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory) 
-                    ? _options.OutputDirectory 
+                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory)
+                    ? _options.OutputDirectory
                     : directoryPath;
-                    
+
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
                     outputDir, projectAssemblyProperties.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), cancellationToken);
             }
-            
+
             // Generate Central Package Management configuration if enabled
             if (_options.EnableCentralPackageManagement && report.Results.Any(r => r.Success))
             {
                 _logger.LogInformation("Generating Central Package Management configuration...");
-                
-                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory) 
-                    ? _options.OutputDirectory 
+
+                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory)
+                    ? _options.OutputDirectory
                     : directoryPath;
-                    
+
                 var cpmResult = await _centralPackageManagementGenerator.GenerateDirectoryPackagesPropsAsync(
-                    outputDir, 
-                    report.Results.Where(r => r.Success), 
+                    outputDir,
+                    report.Results.Where(r => r.Success),
                     cancellationToken);
-                    
+
                 if (cpmResult.Success)
                 {
                     _logger.LogInformation("Created Directory.Packages.props with {Count} packages", cpmResult.PackageCount);
-                    
+
                     if (cpmResult.VersionConflicts.Any())
                     {
                         _logger.LogWarning("Resolved {Count} package version conflicts", cpmResult.VersionConflicts.Count);
                     }
-                    
+
                     // Remove versions from project files
                     if (!_options.DryRun)
                     {
@@ -227,9 +227,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                             .Where(p => !string.IsNullOrEmpty(p))
                             .Cast<string>()
                             .ToList();
-                            
+
                         await _centralPackageManagementGenerator.RemoveVersionsFromProjectsAsync(
-                            migratedProjectFiles, 
+                            migratedProjectFiles,
                             cancellationToken);
                     }
                 }
@@ -241,16 +241,16 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     }
                 }
             }
-            
+
             // Clean up local package files after all projects are migrated (to avoid file lock issues)
             if (!_options.DryRun && projectCleanupInfo.Any())
             {
                 _logger.LogInformation("Starting cleanup of local package files for all migrated projects...");
-                
+
                 var totalCleanedFiles = 0;
                 var totalBytesFreed = 0L;
                 var cleanupErrors = new List<string>();
-                
+
                 foreach (var (projectDir, packages, hintPaths) in projectCleanupInfo)
                 {
                     try
@@ -260,15 +260,15 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                             packages,
                             hintPaths,
                             cancellationToken);
-                        
+
                         if (cleanupResult.Success)
                         {
                             totalCleanedFiles += cleanupResult.CleanedFiles.Count;
                             totalBytesFreed += cleanupResult.TotalBytesFreed;
-                            
+
                             if (cleanupResult.CleanedFiles.Any())
                             {
-                                _logger.LogInformation("Cleaned {Count} files in {ProjectDir}, freed {Size:N0} bytes", 
+                                _logger.LogInformation("Cleaned {Count} files in {ProjectDir}, freed {Size:N0} bytes",
                                     cleanupResult.CleanedFiles.Count, projectDir, cleanupResult.TotalBytesFreed);
                             }
                         }
@@ -283,13 +283,13 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         cleanupErrors.Add($"{projectDir}: {ex.Message}");
                     }
                 }
-                
+
                 if (totalCleanedFiles > 0)
                 {
-                    _logger.LogInformation("Total package cleanup: Cleaned {Count} files, freed {Size:N0} bytes", 
+                    _logger.LogInformation("Total package cleanup: Cleaned {Count} files, freed {Size:N0} bytes",
                         totalCleanedFiles, totalBytesFreed);
                 }
-                
+
                 if (cleanupErrors.Any())
                 {
                     _logger.LogWarning("Package cleanup encountered {Count} errors", cleanupErrors.Count);
@@ -299,7 +299,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     }
                 }
             }
-            
+
             // Clean packages folder if all projects have been migrated
             if (report.TotalProjectsMigrated > 0 && report.TotalProjectsFailed == 0 && !_options.DryRun)
             {
@@ -310,15 +310,15 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     _logger.LogInformation("Successfully cleaned packages folder");
                 }
             }
-            
+
             if (projectMappings.Any())
             {
                 _logger.LogInformation("Updating solution files with new project paths");
                 var solutionResult = await _solutionFileUpdater.UpdateSolutionFilesAsync(
-                    directoryPath, 
-                    projectMappings.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), 
+                    directoryPath,
+                    projectMappings.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
                     cancellationToken);
-                    
+
                 if (!solutionResult.Success)
                 {
                     foreach (var error in solutionResult.Errors)
@@ -328,37 +328,37 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
                 else if (solutionResult.UpdatedProjects.Any())
                 {
-                    _logger.LogInformation("Updated {Count} project references in solution files", 
+                    _logger.LogInformation("Updated {Count} project references in solution files",
                         solutionResult.UpdatedProjects.Count);
                 }
             }
-            
+
             // Run post-migration validation
             if (report.Results.Any(r => r.Success) && !_options.DryRun)
             {
                 _logger.LogInformation("Running post-migration validation...");
-                
+
                 var validationReport = await _postMigrationValidator.ValidateSolutionAsync(
                     directoryPath,
                     report.Results,
                     cancellationToken);
-                    
+
                 if (validationReport.ProjectsWithIssues > 0)
                 {
-                    _logger.LogWarning("Post-migration validation found issues in {Count} projects", 
+                    _logger.LogWarning("Post-migration validation found issues in {Count} projects",
                         validationReport.ProjectsWithIssues);
-                        
+
                     // Add validation issues to the migration report warnings
                     foreach (var projectResult in validationReport.ProjectResults.Where(r => r.Issues.Any()))
                     {
-                        var migrationResult = report.Results.FirstOrDefault(r => 
-                            r.OutputPath == projectResult.ProjectPath || 
+                        var migrationResult = report.Results.FirstOrDefault(r =>
+                            r.OutputPath == projectResult.ProjectPath ||
                             r.ProjectPath == projectResult.ProjectPath);
-                            
+
                         if (migrationResult != null)
                         {
-                            foreach (var issue in projectResult.Issues.Where(i => 
-                                i.Severity == ValidationSeverity.Warning || 
+                            foreach (var issue in projectResult.Issues.Where(i =>
+                                i.Severity == ValidationSeverity.Warning ||
                                 i.Severity == ValidationSeverity.Error))
                             {
                                 migrationResult.Warnings.Add($"[Validation] {issue.Message}");
@@ -401,10 +401,10 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
         return report;
     }
-    
+
     private async Task ProcessProjectAsync(
-        string projectFile, 
-        string progress, 
+        string projectFile,
+        string progress,
         System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyProperties> projectAssemblyProperties,
         System.Collections.Concurrent.ConcurrentDictionary<string, string> projectMappings,
         MigrationReport report,
@@ -420,7 +420,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (!_projectParser.IsLegacyProject(project))
             {
                 _logger.LogInformation("{Progress} Skipping {ProjectPath} - already SDK-style", progress, projectFile);
-                
+
                 // Add to report as successful but skipped
                 var skippedResult = new MigrationResult
                 {
@@ -429,22 +429,22 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     Success = true,
                     Warnings = { "Project is already in SDK-style format - no migration needed" }
                 };
-                
+
                 lock (report)
                 {
                     report.Results.Add(skippedResult);
                     report.TotalProjectsMigrated++; // Count as migrated since it's already in the desired format
                 }
-                
+
                 return;
             }
-            
+
             _logger.LogInformation("{Progress} Processing {ProjectPath}", progress, projectFile);
 
             var projectDir = Path.GetDirectoryName(projectFile)!;
             var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
             var projectProps = await _assemblyInfoExtractor.ExtractFromProjectAsync(project, cancellationToken);
-            
+
             foreach (var prop in typeof(AssemblyProperties).GetProperties())
             {
                 var projectValue = prop.GetValue(projectProps);
@@ -453,7 +453,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     prop.SetValue(assemblyProps, projectValue);
                 }
             }
-            
+
             projectAssemblyProperties[projectFile] = assemblyProps;
 
             var outputPath = await GenerateOutputPathAsync(projectFile, cancellationToken);
@@ -496,7 +496,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     projectCleanupInfo.Add((projectDir, result.MigratedPackages, result.ConvertedHintPaths));
                 }
             }
-            
+
             if (result.Success && outputPath != projectFile)
             {
                 projectMappings[projectFile] = outputPath;
@@ -521,14 +521,14 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         catch (Exception ex)
         {
             _logger.LogError(ex, "{Progress} Error processing project {ProjectPath}", progress, projectFile);
-            
+
             var result = new MigrationResult
             {
                 ProjectPath = projectFile,
                 Success = false,
                 Errors = { ex.Message }
             };
-            
+
             lock (report)
             {
                 report.Results.Add(result);
@@ -546,7 +546,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             {
                 if (cancellationToken.IsCancellationRequested)
                     break;
-                    
+
                 try
                 {
                     if (!_options.DryRun)
@@ -558,7 +558,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         {
                             await _backupService.BackupFileAsync(backupSession, file, cancellationToken);
                         }
-                        
+
                         File.Delete(file);
 
                         // Audit the file deletion
@@ -569,9 +569,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                             FileSize = fileSize,
                             DeletionReason = "AssemblyInfo auto-generated by SDK"
                         }, cancellationToken);
-                        
-                        _logger.LogInformation("Removed AssemblyInfo file: {File}{BackupInfo}", 
-                            file, 
+
+                        _logger.LogInformation("Removed AssemblyInfo file: {File}{BackupInfo}",
+                            file,
                             _options.CreateBackup ? $" (backup: {file}.legacy)" : "");
                     }
                     else
@@ -586,7 +586,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
         }
     }
-    
+
     private async Task HandleAppConfigFileAsync(string projectDirectory, MigrationResult result, CancellationToken cancellationToken)
     {
         var appConfigPath = Path.Combine(projectDirectory, "app.config");
@@ -596,19 +596,19 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (!File.Exists(appConfigPath))
                 return;
         }
-        
+
         try
         {
             var configContent = await File.ReadAllTextAsync(appConfigPath, cancellationToken);
             var doc = System.Xml.Linq.XDocument.Parse(configContent);
-            
+
             var configuration = doc.Root;
             if (configuration == null || configuration.Name != "configuration")
                 return;
-                
+
             var runtime = configuration.Element("runtime");
             var assemblyBinding = runtime?.Element(XName.Get("assemblyBinding", "urn:schemas-microsoft-com:asm.v1"));
-            
+
             // Remove assemblyBinding section if it exists
             if (assemblyBinding != null)
             {
@@ -616,12 +616,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 result.RemovedElements.Add("Assembly binding redirects from app.config");
                 _logger.LogInformation("Removed assembly binding redirects from {File}", appConfigPath);
             }
-            
+
             // Check if app.config has any other content
             var hasOtherContent = configuration.Elements()
-                .Any(e => e.Name != "runtime" || 
+                .Any(e => e.Name != "runtime" ||
                          (e.Name == "runtime" && e.Elements().Any()));
-            
+
             if (!hasOtherContent)
             {
                 // App.config only contained binding redirects, so we can remove it
@@ -630,7 +630,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     var backupPath = $"{appConfigPath}.legacy";
                     File.Copy(appConfigPath, backupPath, overwrite: true);
                 }
-                
+
                 File.Delete(appConfigPath);
                 result.RemovedElements.Add($"App.config file (contained only binding redirects)");
                 _logger.LogInformation("Removed {File} as it only contained binding redirects", appConfigPath);
@@ -654,7 +654,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         {
             var relativePath = Path.GetRelativePath(_options.DirectoryPath, projectFile);
             var outputPath = Path.Combine(_options.OutputDirectory, relativePath);
-            
+
             if (!_options.DryRun)
             {
                 var outputDir = Path.GetDirectoryName(outputPath);
@@ -663,10 +663,10 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     Directory.CreateDirectory(outputDir);
                 }
             }
-            
+
             return outputPath;
         }
-        
+
         if (_options.CreateBackup && !_options.DryRun)
         {
             if (File.Exists(projectFile))
@@ -682,7 +682,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
         return projectFile;
     }
-    
+
     private async Task HandleNuSpecFileAsync(string projectDirectory, MigrationResult result, BackupSession? backupSession, CancellationToken cancellationToken)
     {
         // Check if the result indicates a nuspec was migrated
@@ -695,7 +695,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (endIndex > startIndex)
             {
                 var nuspecFileName = nuspecEntry.Substring(startIndex, endIndex - startIndex);
-                
+
                 // Search for the nuspec file in common locations
                 var searchPaths = new[]
                 {
@@ -704,21 +704,21 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     Path.Combine(projectDirectory, "nuget", nuspecFileName),
                     Path.Combine(projectDirectory, "..", "nuget", nuspecFileName)
                 };
-                
+
                 foreach (var searchPath in searchPaths)
                 {
                     if (File.Exists(searchPath))
                     {
                         var beforeHash = await FileHashCalculator.CalculateHashAsync(searchPath, cancellationToken);
                         var fileSize = new FileInfo(searchPath).Length;
-                        
+
                         if (_options.CreateBackup && backupSession != null)
                         {
                             await _backupService.BackupFileAsync(backupSession, searchPath, cancellationToken);
                         }
-                        
+
                         File.Delete(searchPath);
-                        
+
                         await _auditService.LogFileDeletionAsync(new FileDeletionAudit
                         {
                             FilePath = searchPath,
@@ -726,7 +726,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                             FileSize = fileSize,
                             DeletionReason = "NuSpec metadata migrated to project file"
                         }, cancellationToken);
-                        
+
                         _logger.LogInformation("Removed NuSpec file: {File} (metadata migrated to project file)", searchPath);
                         break;
                     }
@@ -748,12 +748,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogWarning("Failed projects:");
             foreach (var failed in report.Results.Where(r => !r.Success))
             {
-                _logger.LogWarning("  - {ProjectPath}: {Errors}", 
-                    failed.ProjectPath, 
+                _logger.LogWarning("  - {ProjectPath}: {Errors}",
+                    failed.ProjectPath,
                     string.Join(", ", failed.Errors));
             }
         }
-        
+
         var projectsWithWarnings = report.Results.Where(r => r.Warnings.Any()).ToList();
         if (projectsWithWarnings.Any())
         {
@@ -768,56 +768,56 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
             }
         }
-        
+
         var totalRemovedElements = report.Results.Sum(r => r.RemovedElements.Count);
         if (totalRemovedElements > 0)
         {
             _logger.LogInformation("");
             _logger.LogInformation("Total legacy elements removed: {Count}", totalRemovedElements);
         }
-        
+
         if (!_options.DryRun)
         {
-            var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".", 
+            var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".",
                 $"migration-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
             WriteDetailedReport(report, reportPath);
             _logger.LogInformation("");
             _logger.LogInformation("Detailed migration report written to: {Path}", reportPath);
         }
     }
-    
+
     public async Task<MigrationAnalysis> AnalyzeProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting pre-migration analysis for directory: {DirectoryPath}", directoryPath);
         return await _migrationAnalyzer.AnalyzeProjectsAsync(directoryPath, cancellationToken);
     }
-    
+
     private void WriteDetailedReport(MigrationReport report, string reportPath)
     {
         using var writer = new StreamWriter(reportPath);
-        
+
         writer.WriteLine("SDK Migration Report");
         writer.WriteLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         writer.WriteLine($"Duration: {report.Duration}");
         writer.WriteLine();
-        
+
         writer.WriteLine("Summary:");
         writer.WriteLine($"  Total projects found: {report.TotalProjectsFound}");
         writer.WriteLine($"  Successfully migrated: {report.TotalProjectsMigrated}");
         writer.WriteLine($"  Failed: {report.TotalProjectsFailed}");
         writer.WriteLine();
-        
+
         // Add configuration migration guidance section
         var configLogger = new Microsoft.Extensions.Logging.LoggerFactory()
             .CreateLogger<ConfigurationMigrationAnalyzer>();
         var configAnalyzer = new ConfigurationMigrationAnalyzer(configLogger);
         var projectsWithConfig = new List<ConfigurationMigrationGuidance>();
-        
+
         foreach (var result in report.Results)
         {
             writer.WriteLine($"Project: {result.ProjectPath}");
             writer.WriteLine($"  Status: {(result.Success ? "Success" : "Failed")}");
-            
+
             if (result.Errors.Any())
             {
                 writer.WriteLine("  Errors:");
@@ -826,7 +826,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     writer.WriteLine($"    - {error}");
                 }
             }
-            
+
             if (result.Warnings.Any())
             {
                 writer.WriteLine("  Warnings (require manual review):");
@@ -835,7 +835,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     writer.WriteLine($"    - {warning}");
                 }
             }
-            
+
             if (result.RemovedElements.Any())
             {
                 writer.WriteLine("  Removed elements:");
@@ -844,7 +844,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     writer.WriteLine($"    - {element}");
                 }
             }
-            
+
             if (result.MigratedPackages.Any())
             {
                 writer.WriteLine("  Migrated packages:");
@@ -853,34 +853,34 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     writer.WriteLine($"    - {package.PackageId} {package.Version}");
                 }
             }
-            
+
             writer.WriteLine();
         }
-        
+
         // Write configuration migration guidance if any
         foreach (var result in report.Results.Where(r => r.Success))
         {
             var targetFramework = _options.TargetFramework ?? "net8.0";
             var configGuidance = configAnalyzer.AnalyzeConfiguration(result.OutputPath ?? result.ProjectPath, targetFramework);
-            
+
             if (configGuidance.Issues.Any())
             {
                 projectsWithConfig.Add(configGuidance);
             }
         }
-        
+
         if (projectsWithConfig.Any())
         {
             writer.WriteLine();
             writer.WriteLine("Configuration Migration Guidance:");
             writer.WriteLine("================================");
-            
+
             foreach (var guidance in projectsWithConfig)
             {
                 writer.WriteLine();
                 writer.WriteLine($"Project: {guidance.ProjectPath}");
                 writer.WriteLine($"Config Type: {guidance.ConfigType}");
-                
+
                 foreach (var issue in guidance.Issues)
                 {
                     writer.WriteLine();
@@ -891,7 +891,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     {
                         writer.WriteLine($"    - {step}");
                     }
-                    
+
                     if (!string.IsNullOrEmpty(issue.CodeExample))
                     {
                         writer.WriteLine("  Example:");

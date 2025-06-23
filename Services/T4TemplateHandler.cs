@@ -8,23 +8,23 @@ namespace SdkMigrator.Services;
 public class T4TemplateHandler
 {
     private readonly ILogger<T4TemplateHandler> _logger;
-    
+
     public T4TemplateHandler(ILogger<T4TemplateHandler> logger)
     {
         _logger = logger;
     }
-    
+
     public T4TemplateInfo DetectT4Templates(Project project)
     {
         var info = new T4TemplateInfo();
         var projectDir = Path.GetDirectoryName(project.FullPath) ?? "";
-        
+
         // Find all T4 templates in the project
         var t4Items = project.Items
             .Where(i => (i.ItemType == "None" || i.ItemType == "Content" || i.ItemType == "Compile") &&
                        i.EvaluatedInclude.EndsWith(".tt", StringComparison.OrdinalIgnoreCase))
             .ToList();
-            
+
         foreach (var t4Item in t4Items)
         {
             var template = new T4Template
@@ -35,13 +35,13 @@ public class T4TemplateHandler
                 LastGenOutput = t4Item.GetMetadataValue("LastGenOutput"),
                 CustomToolNamespace = t4Item.GetMetadataValue("CustomToolNamespace")
             };
-            
+
             // Check if it has the T4 generator
             if (string.IsNullOrEmpty(template.Generator))
             {
                 template.Generator = "TextTemplatingFileGenerator";
             }
-            
+
             // Check if output file exists
             if (!string.IsNullOrEmpty(template.LastGenOutput))
             {
@@ -56,79 +56,79 @@ public class T4TemplateHandler
                 template.OutputExists = File.Exists(outputPath);
                 template.LastGenOutput = Path.GetFileName(outputFile);
             }
-            
+
             info.Templates.Add(template);
         }
-        
+
         info.HasT4Templates = info.Templates.Any();
-        
+
         // Check if project already has T4 SDK reference
-        var hasT4Sdk = project.Items.Any(i => 
-            i.ItemType == "PackageReference" && 
+        var hasT4Sdk = project.Items.Any(i =>
+            i.ItemType == "PackageReference" &&
             (i.EvaluatedInclude.Equals("Microsoft.TextTemplating.Targets", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.Equals("T4SDK", StringComparison.OrdinalIgnoreCase)));
-             
+
         info.HasT4SdkReference = hasT4Sdk;
-        
+
         return info;
     }
-    
+
     public void MigrateT4Templates(T4TemplateInfo t4Info, XElement projectElement, MigrationResult result)
     {
         if (!t4Info.HasT4Templates)
             return;
-            
+
         _logger.LogInformation("Migrating {Count} T4 templates", t4Info.Templates.Count);
-        
+
         // Add T4 SDK package if not already present
         if (!t4Info.HasT4SdkReference)
         {
             var itemGroup = projectElement.Elements("ItemGroup")
                 .FirstOrDefault(ig => ig.Elements("PackageReference").Any());
-                
+
             if (itemGroup == null)
             {
                 itemGroup = new XElement("ItemGroup");
                 projectElement.Add(itemGroup);
             }
-            
+
             // Add T4 SDK package
             var t4Package = new XElement("PackageReference",
                 new XAttribute("Include", "Microsoft.TextTemplating.Targets"),
                 new XAttribute("Version", "17.0.0"));
             itemGroup.Add(t4Package);
-            
+
             _logger.LogInformation("Added Microsoft.TextTemplating.Targets package reference");
         }
-        
+
         // Create ItemGroup for T4 templates
         var t4ItemGroup = new XElement("ItemGroup");
         var hasItems = false;
-        
+
         foreach (var template in t4Info.Templates)
         {
             // T4 templates should be None items with proper metadata
             var t4Element = new XElement("None",
                 new XAttribute("Update", template.FilePath));
-                
+
             // Add generator metadata
             t4Element.Add(new XElement("Generator", template.Generator));
-            
+
             // Add output file metadata
             if (!string.IsNullOrEmpty(template.LastGenOutput))
             {
                 t4Element.Add(new XElement("LastGenOutput", template.LastGenOutput));
             }
-            
+
             // Add custom tool namespace if specified
             if (!string.IsNullOrEmpty(template.CustomToolNamespace))
             {
                 t4Element.Add(new XElement("CustomToolNamespace", template.CustomToolNamespace));
             }
-            
+
             t4ItemGroup.Add(t4Element);
             hasItems = true;
-            
+
             // If the generated file is included as Compile, update it to be DependentUpon
             if (!string.IsNullOrEmpty(template.LastGenOutput))
             {
@@ -139,15 +139,15 @@ public class T4TemplateHandler
                 outputElement.Add(new XElement("DesignTime", "True"));
                 t4ItemGroup.Add(outputElement);
             }
-            
+
             _logger.LogDebug("Migrated T4 template: {FilePath}", template.FilePath);
         }
-        
+
         if (hasItems)
         {
             projectElement.Add(t4ItemGroup);
         }
-        
+
         // Add warnings and guidance
         result.Warnings.Add($"T4 Templates: Migrated {t4Info.Templates.Count} templates");
         result.Warnings.Add("T4 Template migration notes:");
@@ -155,12 +155,12 @@ public class T4TemplateHandler
         result.Warnings.Add("- Templates will be processed at build time");
         result.Warnings.Add("- To transform manually: dotnet msbuild -t:TransformAll");
         result.Warnings.Add("- Visual Studio should continue to support design-time transformation");
-        
+
         if (t4Info.Templates.Any(t => !t.OutputExists))
         {
             result.Warnings.Add("- Some T4 outputs are missing - run transformation after migration");
         }
-        
+
         // Add MSBuild target for T4 transformation if needed
         var transformTarget = new XElement("Target",
             new XAttribute("Name", "TransformOnBuild"),
@@ -168,7 +168,7 @@ public class T4TemplateHandler
         transformTarget.Add(new XElement("Exec",
             new XAttribute("Command", "dotnet msbuild -t:TransformAll"),
             new XAttribute("Condition", "'$(DesignTimeBuild)' != 'true'")));
-            
+
         // Only add if user wants build-time transformation (optional)
         // projectElement.Add(transformTarget);
     }

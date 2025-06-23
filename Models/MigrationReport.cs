@@ -8,6 +8,6 @@ public class MigrationReport
     public int TotalProjectsMigrated { get; set; }
     public int TotalProjectsFailed { get; set; }
     public List<MigrationResult> Results { get; set; } = new();
-    
+
     public TimeSpan Duration => EndTime - StartTime;
 }

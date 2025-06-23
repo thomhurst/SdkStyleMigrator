@@ -7,7 +7,7 @@ namespace SdkMigrator.Services;
 public class ProjectTypeDetector
 {
     private readonly ILogger<ProjectTypeDetector> _logger;
-    
+
     // Common project type GUIDs
     private static readonly Dictionary<string, ProjectType> ProjectTypeGuids = new()
     {
@@ -47,7 +47,7 @@ public class ProjectTypeDetector
             var guids = projectTypeGuidsProperty.Split(';')
                 .Select(g => g.Trim())
                 .Where(g => !string.IsNullOrEmpty(g));
-                
+
             foreach (var guid in guids)
             {
                 if (ProjectTypeGuids.TryGetValue(guid.ToUpperInvariant(), out var projectType))
@@ -73,7 +73,7 @@ public class ProjectTypeDetector
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Azure Functions detection
-        if (packageRefs.Contains("Microsoft.NET.Sdk.Functions") || 
+        if (packageRefs.Contains("Microsoft.NET.Sdk.Functions") ||
             packageRefs.Contains("Microsoft.Azure.Functions.Extensions") ||
             packageRefs.Contains("Microsoft.Azure.WebJobs"))
         {
@@ -106,20 +106,20 @@ public class ProjectTypeDetector
         }
 
         // WPF/WinForms detection
-        var hasWpfItems = project.Items.Any(i => 
-            i.ItemType == "Page" || i.ItemType == "ApplicationDefinition" || 
+        var hasWpfItems = project.Items.Any(i =>
+            i.ItemType == "Page" || i.ItemType == "ApplicationDefinition" ||
             i.ItemType == "Resource" && i.EvaluatedInclude.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
-            
-        var hasWinFormsReferences = project.Items.Any(i => 
-            i.ItemType == "Reference" && 
+
+        var hasWinFormsReferences = project.Items.Any(i =>
+            i.ItemType == "Reference" &&
             (i.EvaluatedInclude.StartsWith("System.Windows.Forms", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.StartsWith("System.Drawing", StringComparison.OrdinalIgnoreCase)));
-             
+
         if (hasWpfItems || hasWinFormsReferences)
         {
             if (hasWpfItems) result.DetectedTypes.Add(ProjectType.WPF);
             if (hasWinFormsReferences) result.DetectedTypes.Add(ProjectType.WinForms);
-            
+
             // Check target framework to determine SDK
             var targetFramework = project.GetPropertyValue("TargetFrameworkVersion");
             if (targetFramework.StartsWith("v4") || targetFramework.StartsWith("net4"))
@@ -142,12 +142,12 @@ public class ProjectTypeDetector
              i.EvaluatedInclude.EndsWith(".aspx", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.EndsWith(".ascx", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.Equals("web.config", StringComparison.OrdinalIgnoreCase)));
-             
+
         var hasWebReferences = project.Items.Any(i =>
             i.ItemType == "Reference" &&
             (i.EvaluatedInclude.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.StartsWith("Microsoft.AspNet", StringComparison.OrdinalIgnoreCase)));
-             
+
         if (hasWebContent || hasWebReferences)
         {
             result.DetectedTypes.Add(ProjectType.WebApplication);
@@ -166,7 +166,7 @@ public class ProjectTypeDetector
         {
             result.DetectedTypes.Add(ProjectType.Library);
         }
-        
+
         result.SuggestedSdk = "Microsoft.NET.Sdk";
         return result;
     }

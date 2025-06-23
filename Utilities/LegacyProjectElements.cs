@@ -5,7 +5,7 @@ public static class LegacyProjectElements
     public static readonly HashSet<string> PropertiesToRemove = new(StringComparer.OrdinalIgnoreCase)
     {
         "ProjectGuid", // Not needed in SDK-style projects
-        "ProjectTypeGuids", 
+        "ProjectTypeGuids",
         "TargetFrameworkProfile",
         "FileAlignment",
         "AppDesignerFolder",
@@ -18,7 +18,7 @@ public static class LegacyProjectElements
         // Note: RootNamespace and AssemblyName removed from here - handled conditionally
         // Note: ClickOnce properties removed from here - handled separately
     };
-    
+
     // Properties handled conditionally elsewhere - this list is now empty
     // Signing properties are handled in SdkStyleProjectGenerator
     public static readonly HashSet<string> PropertiesToPreserve = new(StringComparer.OrdinalIgnoreCase)
@@ -109,7 +109,7 @@ public static class LegacyProjectElements
         "UseApplicationTrust",
         "BootstrapperEnabled"
     };
-    
+
     // MSBuild evaluation artifacts that should never be copied to the migrated project
     public static readonly HashSet<string> MSBuildEvaluationArtifacts = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -172,7 +172,7 @@ public static class LegacyProjectElements
         "_SatelliteAssemblyResourceFiles",
         "ReferenceSatellitePaths"
     };
-    
+
     public static readonly HashSet<string> WpfWinFormsItemTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "ApplicationDefinition",
@@ -185,7 +185,7 @@ public static class LegacyProjectElements
         "FontDefinition",
         "SplashScreen"
     };
-    
+
     public static readonly HashSet<string> ImplicitlyIncludedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".cs",

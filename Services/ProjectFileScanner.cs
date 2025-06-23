@@ -39,37 +39,37 @@ public class ProjectFileScanner : IProjectFileScanner
                            !f.EndsWith(".legacy.fsproj", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
             projectFiles.AddRange(files);
-            
+
             _logger.LogDebug("Found {Count} {Extension} files", files.Length, extension);
         }
 
         _logger.LogInformation("Found total of {Count} project files", projectFiles.Count);
-        
+
         // Check for Web Site Projects
         CheckForWebSiteProjects(directoryPath);
 
         return Task.FromResult<IEnumerable<string>>(projectFiles.OrderBy(f => f));
     }
-    
+
     private void CheckForWebSiteProjects(string directoryPath)
     {
         try
         {
             var directories = Directory.GetDirectories(directoryPath, "*", SearchOption.AllDirectories);
-            
+
             foreach (var dir in directories)
             {
                 // Check if this directory looks like a Web Site Project
-                bool hasWebSiteIndicators = _webSiteProjectIndicators.Any(indicator => 
+                bool hasWebSiteIndicators = _webSiteProjectIndicators.Any(indicator =>
                     Directory.Exists(Path.Combine(dir, indicator)));
-                    
+
                 if (hasWebSiteIndicators)
                 {
                     // Check if there's NO project file in this directory
                     var projectFileInDir = Directory.GetFiles(dir, "*.csproj", SearchOption.TopDirectoryOnly)
                         .Concat(Directory.GetFiles(dir, "*.vbproj", SearchOption.TopDirectoryOnly))
                         .Any();
-                        
+
                     if (!projectFileInDir)
                     {
                         _logger.LogWarning("Found Web Site Project at '{Directory}'. Web Site Projects cannot be migrated to SDK-style format. " +

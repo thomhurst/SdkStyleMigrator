@@ -152,11 +152,11 @@ var connectionString = Configuration.GetConnectionString(""DefaultConnection"");
                     Issue = "WCF configuration requires major changes for .NET 5+",
                     MigrationSteps = new List<string>()
                 };
-                
+
                 // Check if it's client or service
                 var clientSection = systemServiceModel.Element("client");
                 var servicesSection = systemServiceModel.Element("services");
-                
+
                 if (clientSection != null)
                 {
                     wcfIssue.MigrationSteps.Add("WCF CLIENT detected. Options:");
@@ -164,7 +164,7 @@ var connectionString = Configuration.GetConnectionString(""DefaultConnection"");
                     wcfIssue.MigrationSteps.Add("2. Regenerate service proxies using 'dotnet-svcutil' tool");
                     wcfIssue.MigrationSteps.Add("3. Consider migrating to REST/HTTP clients if the service supports it");
                     wcfIssue.MigrationSteps.Add("4. Configure bindings in code instead of config");
-                    
+
                     wcfIssue.CodeExample = @"// Install packages:
 // dotnet add package System.ServiceModel.Duplex
 // dotnet add package System.ServiceModel.Http
@@ -180,7 +180,7 @@ var binding = new BasicHttpBinding();
 var endpoint = new EndpointAddress(""https://service.com/service.svc"");
 var client = new ServiceClient(binding, endpoint);";
                 }
-                
+
                 if (servicesSection != null)
                 {
                     wcfIssue.MigrationSteps.Add("WCF SERVICE detected. Options:");
@@ -188,7 +188,7 @@ var client = new ServiceClient(binding, endpoint);";
                     wcfIssue.MigrationSteps.Add("2. Use CoreWCF for compatibility (community-supported)");
                     wcfIssue.MigrationSteps.Add("3. Consider gRPC for high-performance RPC scenarios");
                     wcfIssue.MigrationSteps.Add("4. Implement OpenAPI/Swagger for better API documentation");
-                    
+
                     wcfIssue.CodeExample = @"// Option 1: Migrate to Web API
 [ApiController]
 [Route(""api/[controller]"")]
@@ -205,7 +205,7 @@ public class MyServiceController : ControllerBase
 // dotnet add package CoreWCF.Http
 // dotnet add package CoreWCF.Primitives";
                 }
-                
+
                 guidance.Issues.Add(wcfIssue);
             }
 
@@ -226,7 +226,7 @@ public class MyServiceController : ControllerBase
                     }
                 });
             }
-            
+
             // Check for Entity Framework configuration
             var entityFramework = root.Element("entityFramework");
             if (entityFramework != null)
@@ -291,7 +291,7 @@ services.AddDbContext<MyContext>(options =>
                 return;
 
             // For .NET Core/5+ console apps, most app.config content should migrate
-            if (targetFramework.StartsWith("net5") || targetFramework.StartsWith("net6") || 
+            if (targetFramework.StartsWith("net5") || targetFramework.StartsWith("net6") ||
                 targetFramework.StartsWith("net7") || targetFramework.StartsWith("net8") ||
                 targetFramework.Contains("netcore"))
             {
