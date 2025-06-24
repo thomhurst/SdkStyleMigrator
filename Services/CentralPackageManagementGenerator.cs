@@ -406,30 +406,14 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 }
             }
 
-            // Second pass: Resolve transitive project dependencies
+            // Collect all directly referenced packages (no transitive project dependencies)
             foreach (var project in projectGraph.Values)
             {
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                CollectTransitiveProjectDependencies(project, projectGraph, visited);
-            }
-
-            // Third pass: Collect all packages (direct and from project references)
-            foreach (var project in projectGraph.Values)
-            {
-                // Add direct package references
+                // Only add direct package references from each project
                 referencedPackages.UnionWith(project.DirectPackageReferences);
-
-                // Add packages from all project dependencies
-                foreach (var depPath in project.AllProjectDependencies)
-                {
-                    if (projectGraph.TryGetValue(depPath, out var depProject))
-                    {
-                        referencedPackages.UnionWith(depProject.DirectPackageReferences);
-                    }
-                }
             }
 
-            _logger.LogInformation("Found {Count} unique package references across all projects (including project reference dependencies)", referencedPackages.Count);
+            _logger.LogInformation("Found {Count} unique package references directly referenced in projects", referencedPackages.Count);
 
             // Log detailed analysis if in debug mode
             if (_logger.IsEnabled(LogLevel.Debug))
@@ -438,8 +422,6 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 {
                     _logger.LogDebug("Project {Project}:", Path.GetFileName(project.FilePath));
                     _logger.LogDebug("  Direct packages: {Packages}", string.Join(", ", project.DirectPackageReferences));
-                    _logger.LogDebug("  Project refs: {Count}", project.ProjectReferences.Count);
-                    _logger.LogDebug("  All dependencies: {Count}", project.AllProjectDependencies.Count);
                 }
             }
 
@@ -468,19 +450,6 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                         if (project.DirectPackageReferences.Contains(packageId))
                         {
                             usedBy.Add(Path.GetFileName(project.FilePath));
-                        }
-                        else
-                        {
-                            // Check if used by a project dependency
-                            foreach (var depPath in project.AllProjectDependencies)
-                            {
-                                if (projectGraph.TryGetValue(depPath, out var depProject) &&
-                                    depProject.DirectPackageReferences.Contains(packageId))
-                                {
-                                    usedBy.Add($"{Path.GetFileName(project.FilePath)} -> {Path.GetFileName(depPath)}");
-                                    break;
-                                }
-                            }
                         }
                     }
 
