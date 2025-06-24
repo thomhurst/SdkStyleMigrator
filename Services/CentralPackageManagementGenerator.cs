@@ -381,9 +381,9 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                     var projectDoc = XDocument.Load(projectFile);
                     var projectInfo = new ProjectInfo { FilePath = projectFile };
 
-                    // Get package references
+                    // Get package references (both Include and Update attributes)
                     var packageRefs = projectDoc.Descendants("PackageReference")
-                        .Select(pr => pr.Attribute("Include")?.Value)
+                        .Select(pr => pr.Attribute("Include")?.Value ?? pr.Attribute("Update")?.Value)
                         .Where(id => !string.IsNullOrEmpty(id))
                         .ToList();
 
@@ -410,10 +410,22 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             foreach (var project in projectGraph.Values)
             {
                 // Only add direct package references from each project
+                if (project.DirectPackageReferences.Any())
+                {
+                    _logger.LogDebug("Project {Project} has {Count} direct package references: {Packages}",
+                        Path.GetFileName(project.FilePath),
+                        project.DirectPackageReferences.Count,
+                        string.Join(", ", project.DirectPackageReferences));
+                }
                 referencedPackages.UnionWith(project.DirectPackageReferences);
             }
 
             _logger.LogInformation("Found {Count} unique package references directly referenced in projects", referencedPackages.Count);
+            
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("All directly referenced packages: {Packages}", string.Join(", ", referencedPackages.OrderBy(p => p)));
+            }
 
             // Log detailed analysis if in debug mode
             if (_logger.IsEnabled(LogLevel.Debug))
