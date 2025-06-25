@@ -284,6 +284,16 @@ public class ProjectParser : IProjectParser, IDisposable
                 "{F5B4F3BC-B597-4E2B-B552-EF5D8A32436F}", // MonoTouch Binding Project
                 "{E097FAD1-6243-4DAD-9C02-E9B9EFC3FFC1}", // Xamarin.iOS
                 "{1E72D84B-E16E-4A2F-BE2F-88C25B3E33D9}", // Xamarin.Android
+                "{CB4CE8C6-1BDB-4DC7-A4D3-65A190314484}", // Setup and Deployment Project
+                "{06A35CCD-C46D-44D5-987B-CF40FF872267}", // Deployment Cab
+                "{3EA9E505-35AC-4774-B492-AD1749C4943A}", // Deployment Smart Device Cab
+                "{C8D11400-126E-41CD-887F-60BD40844F9E}", // Database project
+                "{32F31D43-81CC-4C15-9DE6-3FC5453562B6}", // Workflow Foundation
+                "{4D628B5B-2FBC-4AA6-8C16-197242AEB884}", // SharePoint (C#)
+                "{EC05E597-79D4-47F3-ADA0-324C4F7C7484}", // SharePoint (VB.NET)
+                "{593B0543-81F6-4436-BA1E-4747859CAAE2}", // SharePoint (Workflow)
+                "{349C5851-65DF-11DA-9384-00065B846F21}", // Web Application
+                "{BB1F664F-9266-4FD6-B973-E1E44974B511}", // SharePoint 2010 Project
             };
 
             // Check if any of the project type GUIDs are .NET types
@@ -296,6 +306,38 @@ public class ProjectParser : IProjectParser, IDisposable
                 _logger.LogInformation("Skipping non-.NET project with type GUIDs: {ProjectTypeGuids}", projectTypeGuids);
                 return false;
             }
+        }
+
+        // Additional checks for non-standard projects based on file extension and content
+        var extension = Path.GetExtension(project.FullPath).ToLowerInvariant();
+        
+        // Check for non-standard project extensions
+        var nonStandardExtensions = new HashSet<string> { ".vcxproj", ".sqlproj", ".wixproj", ".shproj", ".pyproj", ".njsproj", ".jsproj", ".dbproj", ".deployproj" };
+        if (nonStandardExtensions.Contains(extension))
+        {
+            _logger.LogInformation("Skipping non-standard project type: {Extension}", extension);
+            return false;
+        }
+
+        // Check for SQL Server Data Tools projects
+        if (project.Items.Any(i => i.ItemType == "SqlCmdVariable" || i.ItemType == "Build" && i.EvaluatedInclude.EndsWith(".sql", StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.LogInformation("Skipping SQL Server Data Tools project");
+            return false;
+        }
+
+        // Check for SharePoint projects
+        if (project.Items.Any(i => i.ItemType == "ProjectConfiguration" && i.EvaluatedInclude.Contains("SharePoint")))
+        {
+            _logger.LogInformation("Skipping SharePoint project");
+            return false;
+        }
+
+        // Check for Setup/Installer projects
+        if (project.GetPropertyValue("OutputType")?.Equals("Package", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger.LogInformation("Skipping installer/setup project");
+            return false;
         }
 
         var hasProjectGuid = project.Properties.Any(p => p.Name == "ProjectGuid");

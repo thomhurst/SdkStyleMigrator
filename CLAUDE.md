@@ -71,28 +71,46 @@ The codebase follows SOLID principles with dependency injection:
 
 ### Key Service Flow for Migration
 
-1. **IProjectFileScanner** (Services/ProjectFileScanner.cs:14) - Discovers project files
-2. **IProjectParser** (Services/ProjectParser.cs:17) - Parses and validates legacy projects
-3. **IPackageReferenceMigrator** (Services/PackageReferenceMigrator.cs:29) - Converts packages.config
-4. **ITransitiveDependencyDetector** (Services/TransitiveDependencyDetector.cs:49) - Identifies removable packages
-5. **ISdkStyleProjectGenerator** (Services/SdkStyleProjectGenerator.cs:48) - Generates new format
-6. **IMigrationOrchestrator** (Services/MigrationOrchestrator.cs:47) - Coordinates the process
+1. **IProjectFileScanner** (Services/ProjectFileScanner.cs) - Discovers project files
+2. **IProjectParser** (Services/ProjectParser.cs) - Parses and validates legacy projects
+3. **IPackageReferenceMigrator** (Services/PackageReferenceMigrator.cs) - Converts packages.config
+4. **ITransitiveDependencyDetector** (Services/TransitiveDependencyDetector.cs) - Identifies removable packages
+5. **CleanSdkStyleProjectGenerator** (Services/CleanSdkStyleProjectGenerator.cs) - Generates new format (replaced legacy 2300-line class)
+6. **IMigrationOrchestrator** (Services/MigrationOrchestrator.cs) - Coordinates the process
 
 ### Critical Services
 
-- **BackupService** (Services/BackupService.cs:29) - Creates centralized backups with manifest
-- **LockService** (Services/LockService.cs:13) - Prevents concurrent migrations
-- **NuGetAssetsResolver** (Services/NuGetAssetsResolver.cs:56) - Resolves package dependencies
-- **PostMigrationValidator** (Services/PostMigrationValidator.cs:16) - Validates migration results
+- **BackupService** (Services/BackupService.cs) - Creates centralized backups with manifest
+- **LockService** (Services/LockService.cs) - Prevents concurrent migrations
+- **NuGetAssetsResolver** (Services/NuGetAssetsResolver.cs) - Resolves package dependencies
+- **PostMigrationValidator** (Services/PostMigrationValidator.cs) - Validates migration results
+- **DirectoryBuildPropsReader** (Services/DirectoryBuildPropsReader.cs) - Reads inherited MSBuild properties
+- **DirectoryBuildPropsGenerator** (Services/DirectoryBuildPropsGenerator.cs) - Creates Directory.Build.props
 
 ### Edge Case Handlers
 
-- **ClickOnceHandler** (Services/ClickOnceHandler.cs:15) - Detects ClickOnce projects
-- **NativeDependencyHandler** (Services/NativeDependencyHandler.cs:14) - Manages native dependencies
-- **EntityFrameworkMigrationHandler** (Services/EntityFrameworkMigrationHandler.cs:16) - EF-specific handling
-- **ServiceReferenceHandler** (Services/ServiceReferenceHandler.cs:13) - WCF service references
+- **ClickOnceHandler** (Services/ClickOnceHandler.cs) - Detects ClickOnce projects
+- **NativeDependencyHandler** (Services/NativeDependencyHandler.cs) - Manages native dependencies
+- **EntityFrameworkMigrationHandler** (Services/EntityFrameworkMigrationHandler.cs) - EF-specific handling
+- **ServiceReferenceHandler** (Services/ServiceReferenceHandler.cs) - WCF service references
+- **T4TemplateHandler** (Services/T4TemplateHandler.cs) - Handles T4 text templates
+- **BuildEventMigrator** (Services/BuildEventMigrator.cs) - Migrates pre/post build events
 
 ## Important Implementation Details
+
+### Recent Major Refactoring
+The project recently underwent significant cleanup:
+- Replaced a 2300-line God class (`SdkStyleProjectGenerator`) with `CleanSdkStyleProjectGenerator` (300 lines)
+- Removed over-engineered clean architecture patterns (CQRS, Domain layers, etc.)
+- Now follows KISS principle while maintaining SOLID principles
+
+### Critical Migration Features
+1. **COM Reference Support** - Preserves all COM metadata including Guid, VersionMajor, EmbedInteropTypes
+2. **Strong Naming** - Handles SignAssembly and AssemblyOriginatorKeyFile with path resolution
+3. **Directory.Build.props Awareness** - Reads inherited properties to avoid duplication
+4. **Compile Exclusions** - Detects files that exist but weren't originally compiled
+5. **AssemblyInfo Conflicts** - Prevents duplicate attribute errors by detecting existing AssemblyInfo files
+6. **WPF/WinForms Detection** - Correctly sets SDK type based on target framework
 
 ### Package Version Resolution
 The system uses multiple strategies for resolving package versions:
@@ -120,7 +138,7 @@ The system uses multiple strategies for resolving package versions:
 
 ### Adding New Migration Rules
 1. Update `LegacyProjectElements.cs` for elements to remove/preserve
-2. Modify `SdkStyleProjectGenerator.cs` for generation logic
+2. Modify `CleanSdkStyleProjectGenerator.cs` for generation logic
 3. Add edge case handler if needed (implement interface, register in DI)
 
 ### Adding New Commands
@@ -131,15 +149,16 @@ The system uses multiple strategies for resolving package versions:
 ### Modifying Package Resolution
 1. Update `NuGetAssetsResolver.cs` for online resolution
 2. Modify `NuGetVersionProvider.cs` for offline/hardcoded versions
-3. Consider `CentralPackageManagementMigrator.cs` for CPM scenarios
+3. Consider `CentralPackageManagementGenerator.cs` for CPM scenarios
 
 ## Key Files to Understand
 
 - **Program.cs** - Entry point and CLI structure
 - **MigrationOrchestrator.cs** - Main migration workflow
 - **LegacyProjectElements.cs** - Defines what to remove/keep
-- **SdkStyleProjectGenerator.cs** - Creates new project format
-- **TransitiveDependencyDetector.cs** - Complex dependency analysis
+- **CleanSdkStyleProjectGenerator.cs** - Creates new project format (replaced legacy God class)
+- **NuGetTransitiveDependencyDetector.cs** - Complex dependency analysis
+- **DirectoryBuildPropsReader.cs** - Reads inherited MSBuild properties
 
 ## Development Tips
 

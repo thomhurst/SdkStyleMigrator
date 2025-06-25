@@ -6,8 +6,22 @@ namespace SdkMigrator.Services;
 public class ProjectFileScanner : IProjectFileScanner
 {
     private readonly ILogger<ProjectFileScanner> _logger;
-    private readonly string[] _projectFileExtensions = { "*.*proj" };
+    private readonly string[] _projectFileExtensions = { "*.csproj", "*.vbproj", "*.fsproj" };
     private readonly string[] _webSiteProjectIndicators = { "App_Code", "App_Data", "App_GlobalResources", "App_LocalResources" };
+    private readonly HashSet<string> _excludedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".vcxproj", // C++ projects
+        ".sqlproj", // SQL Server projects
+        ".wixproj", // WiX installer projects
+        ".shproj", // Shared projects
+        ".pyproj",  // Python projects
+        ".njsproj", // Node.js projects
+        ".jsproj",  // JavaScript projects
+        ".dbproj",  // Database projects
+        ".deployproj", // Deployment projects
+        ".modelproj", // Modeling projects
+        ".nativeproj", // Native projects
+    };
 
     public ProjectFileScanner(ILogger<ProjectFileScanner> logger)
     {
@@ -38,14 +52,39 @@ public class ProjectFileScanner : IProjectFileScanner
                            !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) && // Skip obj directories
                            !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase) && // Skip obj directories (Linux)
                            !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) && // Skip bin directories
-                           !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase)) // Skip bin directories (Linux)
+                           !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase) && // Skip bin directories (Linux)
+                           !_excludedExtensions.Contains(Path.GetExtension(f))) // Skip non-standard project types
                 .ToArray();
-            projectFiles.AddRange(files);
+            
+            if (files.Length > 0)
+            {
+                projectFiles.AddRange(files);
+            }
 
             _logger.LogDebug("Found {Count} {Extension} files", files.Length, extension);
         }
 
-        _logger.LogInformation("Found total of {Count} project files", projectFiles.Count);
+        // Check for non-standard project files that were skipped
+        var allProjectFiles = Directory.GetFiles(directoryPath, "*.*proj", SearchOption.AllDirectories)
+            .Where(f => !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) &&
+                       !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase) &&
+                       !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) &&
+                       !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase));
+
+        var skippedProjects = allProjectFiles
+            .Where(f => _excludedExtensions.Contains(Path.GetExtension(f)))
+            .ToList();
+
+        if (skippedProjects.Any())
+        {
+            _logger.LogWarning("Skipped {Count} non-standard project files:", skippedProjects.Count);
+            foreach (var skipped in skippedProjects.GroupBy(f => Path.GetExtension(f).ToLowerInvariant()))
+            {
+                _logger.LogWarning("  - {Count} {Extension} files", skipped.Count(), skipped.Key);
+            }
+        }
+
+        _logger.LogInformation("Found total of {Count} .NET project files eligible for migration", projectFiles.Count);
 
         // Check for Web Site Projects
         CheckForWebSiteProjects(directoryPath);
