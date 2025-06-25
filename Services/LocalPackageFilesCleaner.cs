@@ -2,6 +2,7 @@ using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
+using SdkMigrator.Utilities;
 
 namespace SdkMigrator.Services;
 
@@ -490,6 +491,160 @@ public class LocalPackageFilesCleaner : ILocalPackageFilesCleaner
             _logger.LogError(ex, "Failed to clean packages folder");
             return false;
         }
+    }
+
+    public async Task<bool> CleanPackagesConfigAsync(
+        string projectDirectory,
+        bool migrationSuccessful,
+        CancellationToken cancellationToken = default)
+    {
+        if (!migrationSuccessful)
+        {
+            _logger.LogDebug("Skipping packages.config cleanup - migration was not successful");
+            return false;
+        }
+
+        var packagesConfigPath = Path.Combine(projectDirectory, "packages.config");
+        if (!File.Exists(packagesConfigPath))
+        {
+            _logger.LogDebug("No packages.config found in {Directory}", projectDirectory);
+            return true;
+        }
+
+        try
+        {
+            if (!_options.DryRun)
+            {
+                // Backup the file before deletion
+                var backupSession = await _backupService.GetCurrentSessionAsync();
+                if (_options.CreateBackup && backupSession != null)
+                {
+                    await _backupService.BackupFileAsync(backupSession, packagesConfigPath, cancellationToken);
+                }
+
+                // Calculate file info before deletion for audit
+                var fileInfo = new FileInfo(packagesConfigPath);
+                var beforeHash = await FileHashCalculator.CalculateHashAsync(packagesConfigPath, cancellationToken);
+
+                File.Delete(packagesConfigPath);
+
+                // Audit the deletion
+                await _auditService.LogFileDeletionAsync(new FileDeletionAudit
+                {
+                    FilePath = packagesConfigPath,
+                    BeforeHash = beforeHash,
+                    FileSize = fileInfo.Length,
+                    DeletionReason = "Removed obsolete packages.config after migration to PackageReference"
+                }, cancellationToken);
+                _logger.LogInformation("Cleaned packages.config file: {Path}", packagesConfigPath);
+            }
+            else
+            {
+                _logger.LogInformation("[DRY RUN] Would delete packages.config: {Path}", packagesConfigPath);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clean packages.config file: {Path}", packagesConfigPath);
+            return false;
+        }
+    }
+
+    public async Task<LocalPackageCleanupResult> CleanLegacyProjectArtifactsAsync(
+        string projectDirectory,
+        bool assemblyInfoMigrated,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new LocalPackageCleanupResult();
+
+        _logger.LogDebug("Cleaning legacy project artifacts in {Directory}", projectDirectory);
+
+        var artifactsToClean = new List<string>();
+
+        // Project user files
+        var userFiles = Directory.GetFiles(projectDirectory, "*.csproj.user", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(projectDirectory, "*.vbproj.user", SearchOption.TopDirectoryOnly))
+            .Concat(Directory.GetFiles(projectDirectory, "*.fsproj.user", SearchOption.TopDirectoryOnly))
+            .ToList();
+
+        artifactsToClean.AddRange(userFiles);
+
+        // AssemblyInfo.cs if it was migrated to project properties
+        if (assemblyInfoMigrated)
+        {
+            var assemblyInfoPath = Path.Combine(projectDirectory, "Properties", "AssemblyInfo.cs");
+            if (File.Exists(assemblyInfoPath))
+            {
+                artifactsToClean.Add(assemblyInfoPath);
+            }
+        }
+
+        // NuGet-related legacy files (excluding packages.config which has its own cleanup method)
+        var nugetFiles = new[]
+        {
+            Path.Combine(projectDirectory, "repositories.config"),
+            Path.Combine(projectDirectory, "nuget.exe")
+        }.Where(File.Exists);
+
+        artifactsToClean.AddRange(nugetFiles);
+
+        foreach (var artifactPath in artifactsToClean)
+        {
+            await CleanFile(artifactPath, Path.GetFileName(artifactPath), "Legacy project artifact", result, cancellationToken);
+        }
+
+        _logger.LogInformation("Cleaned {Count} legacy project artifacts in {Directory}", 
+            result.CleanedFiles.Count, projectDirectory);
+
+        return result;
+    }
+
+    public async Task<LocalPackageCleanupResult> CleanConfigTransformationFilesAsync(
+        string projectDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new LocalPackageCleanupResult();
+
+        _logger.LogDebug("Cleaning configuration transformation files in {Directory}", projectDirectory);
+
+        var transformationPatterns = new[]
+        {
+            "web.config.transform",
+            "app.config.transform",
+            "web.*.config", // web.Debug.config, web.Release.config, etc.
+            "app.*.config"  // app.Debug.config, app.Release.config, etc.
+        };
+
+        var transformFiles = new List<string>();
+
+        foreach (var pattern in transformationPatterns)
+        {
+            try
+            {
+                var matchingFiles = Directory.GetFiles(projectDirectory, pattern, SearchOption.TopDirectoryOnly)
+                    .Where(f => !f.EndsWith("web.config", StringComparison.OrdinalIgnoreCase) && 
+                               !f.EndsWith("app.config", StringComparison.OrdinalIgnoreCase)) // Keep main config files
+                    .ToList();
+
+                transformFiles.AddRange(matchingFiles);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error searching for transformation files with pattern {Pattern}", pattern);
+            }
+        }
+
+        foreach (var transformFile in transformFiles.Distinct())
+        {
+            await CleanFile(transformFile, Path.GetFileName(transformFile), "Configuration transformation file", result, cancellationToken);
+        }
+
+        _logger.LogInformation("Cleaned {Count} configuration transformation files in {Directory}", 
+            result.CleanedFiles.Count, projectDirectory);
+
+        return result;
     }
 
     private long GetDirectorySize(string directory)

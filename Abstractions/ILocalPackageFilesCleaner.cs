@@ -19,4 +19,27 @@ public interface ILocalPackageFilesCleaner
     Task<bool> CleanPackagesFolderAsync(
         string solutionDirectory,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes packages.config files after successful migration to PackageReference
+    /// </summary>
+    Task<bool> CleanPackagesConfigAsync(
+        string projectDirectory,
+        bool migrationSuccessful,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cleans up legacy project artifacts like .user files, AssemblyInfo.cs (when migrated), etc.
+    /// </summary>
+    Task<LocalPackageCleanupResult> CleanLegacyProjectArtifactsAsync(
+        string projectDirectory,
+        bool assemblyInfoMigrated,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cleans up configuration transformation files that may be obsolete after migration
+    /// </summary>
+    Task<LocalPackageCleanupResult> CleanConfigTransformationFilesAsync(
+        string projectDirectory,
+        CancellationToken cancellationToken = default);
 }

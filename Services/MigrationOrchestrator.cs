@@ -282,17 +282,79 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         _logger.LogWarning(ex, "Failed to clean package files for {ProjectDir}", projectDir);
                         cleanupErrors.Add($"{projectDir}: {ex.Message}");
                     }
+
+                    // Additional cleanup: packages.config files
+                    try
+                    {
+                        var packagesConfigCleaned = await _localPackageFilesCleaner.CleanPackagesConfigAsync(
+                            projectDir, 
+                            true, // Migration was successful if we reached this point
+                            cancellationToken);
+
+                        if (packagesConfigCleaned)
+                        {
+                            _logger.LogDebug("Successfully cleaned packages.config in {ProjectDir}", projectDir);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to clean packages.config for {ProjectDir}", projectDir);
+                        cleanupErrors.Add($"{projectDir} (packages.config): {ex.Message}");
+                    }
+
+                    // Additional cleanup: legacy project artifacts
+                    try
+                    {
+                        var artifactCleanupResult = await _localPackageFilesCleaner.CleanLegacyProjectArtifactsAsync(
+                            projectDir,
+                            true, // Assume AssemblyInfo was migrated (could be enhanced to track this per project)
+                            cancellationToken);
+
+                        if (artifactCleanupResult.Success && artifactCleanupResult.CleanedFiles.Any())
+                        {
+                            totalCleanedFiles += artifactCleanupResult.CleanedFiles.Count;
+                            totalBytesFreed += artifactCleanupResult.TotalBytesFreed;
+                            _logger.LogDebug("Cleaned {Count} legacy artifacts in {ProjectDir}", 
+                                artifactCleanupResult.CleanedFiles.Count, projectDir);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to clean legacy artifacts for {ProjectDir}", projectDir);
+                        cleanupErrors.Add($"{projectDir} (artifacts): {ex.Message}");
+                    }
+
+                    // Additional cleanup: configuration transformation files
+                    try
+                    {
+                        var configCleanupResult = await _localPackageFilesCleaner.CleanConfigTransformationFilesAsync(
+                            projectDir,
+                            cancellationToken);
+
+                        if (configCleanupResult.Success && configCleanupResult.CleanedFiles.Any())
+                        {
+                            totalCleanedFiles += configCleanupResult.CleanedFiles.Count;
+                            totalBytesFreed += configCleanupResult.TotalBytesFreed;
+                            _logger.LogDebug("Cleaned {Count} config transformation files in {ProjectDir}", 
+                                configCleanupResult.CleanedFiles.Count, projectDir);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to clean config transformations for {ProjectDir}", projectDir);
+                        cleanupErrors.Add($"{projectDir} (config): {ex.Message}");
+                    }
                 }
 
                 if (totalCleanedFiles > 0)
                 {
-                    _logger.LogInformation("Total package cleanup: Cleaned {Count} files, freed {Size:N0} bytes",
+                    _logger.LogInformation("Total cleanup: Cleaned {Count} files (packages, configs, legacy artifacts), freed {Size:N0} bytes",
                         totalCleanedFiles, totalBytesFreed);
                 }
 
                 if (cleanupErrors.Any())
                 {
-                    _logger.LogWarning("Package cleanup encountered {Count} errors", cleanupErrors.Count);
+                    _logger.LogWarning("Post-migration cleanup encountered {Count} errors", cleanupErrors.Count);
                     foreach (var error in cleanupErrors.Take(10)) // Limit error output
                     {
                         _logger.LogWarning("  - {Error}", error);
