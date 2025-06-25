@@ -223,6 +223,93 @@ class Program
 
         rootCommand.AddCommand(cleanCpmCommand);
 
+        // Clean-sln command - Clean solution files
+        var cleanSlnCommand = new Command("clean-sln", "Clean and fix common issues in solution files");
+        var cleanSlnPathArgument = new Argument<string>(
+            name: "solution",
+            description: "Path to the .sln file to clean");
+        var fixMissingOption = new Option<bool>(
+            aliases: new[] { "--fix-missing", "-m" },
+            description: "Remove references to non-existent projects");
+        var removeDuplicatesOption = new Option<bool>(
+            aliases: new[] { "--remove-duplicates", "-d" },
+            description: "Remove duplicate project entries");
+        var fixConfigsOption = new Option<bool>(
+            aliases: new[] { "--fix-configs", "-c" },
+            description: "Fix orphaned configurations and add missing ones");
+        var removeSccOption = new Option<bool>(
+            aliases: new[] { "--remove-scc", "-s" },
+            description: "Remove source control bindings");
+        var removeEmptyOption = new Option<bool>(
+            aliases: new[] { "--remove-empty", "-e" },
+            description: "Remove empty solution folders");
+        var removeNonStandardOption = new Option<bool>(
+            aliases: new[] { "--remove-non-standard", "-n" },
+            description: "Remove non-standard project types (.vcxproj, .sqlproj, etc.)");
+        var fixAllOption = new Option<bool>(
+            aliases: new[] { "--fix-all", "-a" },
+            description: "Apply all safe fixes (excludes --remove-non-standard)");
+        var cleanSlnDryRunOption = new Option<bool>(
+            aliases: new[] { "--dry-run" },
+            description: "Preview changes without modifying files");
+        var cleanSlnBackupOption = new Option<bool>(
+            aliases: new[] { "--backup", "-b" },
+            getDefaultValue: () => true,
+            description: "Create backup before modifying");
+
+        cleanSlnCommand.AddArgument(cleanSlnPathArgument);
+        cleanSlnCommand.AddOption(fixMissingOption);
+        cleanSlnCommand.AddOption(removeDuplicatesOption);
+        cleanSlnCommand.AddOption(fixConfigsOption);
+        cleanSlnCommand.AddOption(removeSccOption);
+        cleanSlnCommand.AddOption(removeEmptyOption);
+        cleanSlnCommand.AddOption(removeNonStandardOption);
+        cleanSlnCommand.AddOption(fixAllOption);
+        cleanSlnCommand.AddOption(cleanSlnDryRunOption);
+        cleanSlnCommand.AddOption(cleanSlnBackupOption);
+        cleanSlnCommand.AddOption(logLevelOption);
+
+        cleanSlnCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var solutionPath = context.ParseResult.GetValueForArgument(cleanSlnPathArgument);
+            var fixMissing = context.ParseResult.GetValueForOption(fixMissingOption);
+            var removeDuplicates = context.ParseResult.GetValueForOption(removeDuplicatesOption);
+            var fixConfigs = context.ParseResult.GetValueForOption(fixConfigsOption);
+            var removeScc = context.ParseResult.GetValueForOption(removeSccOption);
+            var removeEmpty = context.ParseResult.GetValueForOption(removeEmptyOption);
+            var removeNonStandard = context.ParseResult.GetValueForOption(removeNonStandardOption);
+            var fixAll = context.ParseResult.GetValueForOption(fixAllOption);
+            var dryRun = context.ParseResult.GetValueForOption(cleanSlnDryRunOption);
+            var backup = context.ParseResult.GetValueForOption(cleanSlnBackupOption);
+            var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
+
+            var cleanOptions = new SolutionCleanOptions
+            {
+                FixMissingProjects = fixMissing || fixAll,
+                RemoveDuplicates = removeDuplicates || fixAll,
+                FixConfigurations = fixConfigs || fixAll,
+                RemoveSourceControlBindings = removeScc || fixAll,
+                RemoveEmptyFolders = removeEmpty || fixAll,
+                RemoveNonStandardProjects = removeNonStandard,
+                FixAll = fixAll,
+                DryRun = dryRun,
+                CreateBackup = backup
+            };
+
+            // If no specific options provided, default to fix-all
+            if (!fixMissing && !removeDuplicates && !fixConfigs && !removeScc && 
+                !removeEmpty && !removeNonStandard && !fixAll)
+            {
+                cleanOptions.FixAll = true;
+                cleanOptions.ApplyFixAll();
+            }
+
+            var exitCode = await RunCleanSln(solutionPath, cleanOptions, logLevel);
+            context.ExitCode = exitCode;
+        });
+
+        rootCommand.AddCommand(cleanSlnCommand);
+
         rootCommand.SetHandler(async (InvocationContext context) =>
         {
             var options = new MigrationOptions
@@ -856,6 +943,134 @@ Examples:
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during Central Package Management cleanup");
+            return 1;
+        }
+    }
+
+    static async Task<int> RunCleanSln(string solutionPath, SolutionCleanOptions options, string logLevel)
+    {
+        var services = new ServiceCollection();
+        
+        // Configure basic services
+        services.AddLogging(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(Enum.Parse<LogLevel>(logLevel));
+        });
+        
+        services.AddSingleton<IBackupService, BackupService>();
+        services.AddSingleton<ISolutionCleaner, SolutionCleaner>();
+
+        using var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var solutionCleaner = serviceProvider.GetRequiredService<ISolutionCleaner>();
+
+        try
+        {
+            if (!File.Exists(solutionPath))
+            {
+                logger.LogError("Solution file not found: {SolutionPath}", solutionPath);
+                return 1;
+            }
+
+            if (!solutionPath.EndsWith(".sln", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogError("File is not a solution file: {SolutionPath}", solutionPath);
+                return 1;
+            }
+
+            solutionPath = Path.GetFullPath(solutionPath);
+
+            if (options.DryRun)
+            {
+                logger.LogWarning("DRY RUN MODE - No files will be modified");
+            }
+
+            var result = await solutionCleaner.CleanSolutionAsync(solutionPath, options);
+
+            if (result.Success)
+            {
+                if (result.HasChanges)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Solution cleanup completed successfully!");
+                    Console.WriteLine($"Solution: {result.SolutionPath}");
+                    
+                    if (result.BackupPath != null)
+                    {
+                        Console.WriteLine($"Backup created: {result.BackupPath}");
+                    }
+
+                    Console.WriteLine();
+                    Console.WriteLine("Changes made:");
+                    
+                    if (result.ProjectsRemoved > 0)
+                        Console.WriteLine($"  - Removed {result.ProjectsRemoved} missing/non-standard project(s)");
+                    
+                    if (result.DuplicatesRemoved > 0)
+                        Console.WriteLine($"  - Removed {result.DuplicatesRemoved} duplicate project(s)");
+                    
+                    if (result.ConfigurationsFixed > 0)
+                        Console.WriteLine($"  - Fixed {result.ConfigurationsFixed} orphaned configuration(s)");
+                    
+                    if (result.ConfigurationsAdded > 0)
+                        Console.WriteLine($"  - Added {result.ConfigurationsAdded} missing configuration(s)");
+                    
+                    if (result.EmptyFoldersRemoved > 0)
+                        Console.WriteLine($"  - Removed {result.EmptyFoldersRemoved} empty solution folder(s)");
+                    
+                    if (result.SourceControlBindingsRemoved > 0)
+                        Console.WriteLine($"  - Removed {result.SourceControlBindingsRemoved} source control binding(s)");
+                }
+                else
+                {
+                    Console.WriteLine("No changes needed - solution file is already clean.");
+                }
+
+                if (result.UnfixableIssues.Any())
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Issues requiring manual intervention:");
+                    foreach (var issue in result.UnfixableIssues)
+                    {
+                        Console.WriteLine($"  - [{issue.Type}] {issue.Description}");
+                        if (!string.IsNullOrEmpty(issue.Details))
+                        {
+                            Console.WriteLine($"    {issue.Details}");
+                        }
+                    }
+                }
+
+                if (result.Warnings.Any())
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Warnings:");
+                    foreach (var warning in result.Warnings)
+                    {
+                        Console.WriteLine($"  - {warning}");
+                    }
+                }
+
+                return 0;
+            }
+            else
+            {
+                logger.LogError("Solution cleanup failed");
+                
+                if (result.Errors.Any())
+                {
+                    foreach (var error in result.Errors)
+                    {
+                        logger.LogError(error);
+                    }
+                }
+                
+                return 1;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during solution cleanup");
             return 1;
         }
     }
