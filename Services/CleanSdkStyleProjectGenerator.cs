@@ -64,6 +64,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate basic properties
             MigrateBasicProperties(legacyProject, mainPropertyGroup);
 
+            // Handle AssemblyInfo to prevent conflicts
+            HandleAssemblyInfo(legacyProject, mainPropertyGroup);
+
             // Migrate package references
             await MigratePackageReferencesAsync(legacyProject, projectElement, cancellationToken);
 
@@ -73,8 +76,17 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate compile items (if needed)
             MigrateCompileItems(legacyProject, projectElement);
 
+            // Add excluded compile items
+            AddExcludedCompileItems(legacyProject, projectElement);
+
             // Migrate content and resources
             MigrateContentAndResources(legacyProject, projectElement);
+
+            // Migrate WPF/WinForms specific items
+            MigrateDesignerItems(legacyProject, projectElement);
+
+            // Migrate custom item types
+            MigrateCustomItemTypes(legacyProject, projectElement);
 
             // Migrate custom targets and build events
             MigrateCustomTargets(legacyProject, projectElement);
@@ -129,6 +141,24 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 return "Microsoft.NET.Sdk.WindowsDesktop";
         }
 
+        // Check for WPF/WinForms by items
+        var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
+        var hasWinFormsItems = project.Items.Any(i => 
+            i.ItemType == "Compile" && 
+            i.HasMetadata("SubType") && 
+            (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+
+        if (hasWpfItems || hasWinFormsItems)
+        {
+            // For .NET 5+, we need to set UseWPF/UseWindowsForms in properties instead
+            var targetFramework = ConvertTargetFramework(project);
+            if (targetFramework.StartsWith("net") && !targetFramework.Contains("."))
+            {
+                return "Microsoft.NET.Sdk";
+            }
+            return "Microsoft.NET.Sdk.WindowsDesktop";
+        }
+
         return "Microsoft.NET.Sdk";
     }
 
@@ -180,8 +210,20 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             propertyGroup.Add(new XElement("Nullable", "enable"));
         }
 
-        // Generate assembly info
-        propertyGroup.Add(new XElement("GenerateAssemblyInfo", "true"));
+        // For .NET 5+ WPF/WinForms projects
+        if (targetFramework?.StartsWith("net") == true && !targetFramework.Contains("."))
+        {
+            var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
+            var hasWinFormsItems = project.Items.Any(i => 
+                i.ItemType == "Compile" && 
+                i.HasMetadata("SubType") && 
+                (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+            
+            if (hasWpfItems)
+                propertyGroup.Add(new XElement("UseWPF", "true"));
+            if (hasWinFormsItems)
+                propertyGroup.Add(new XElement("UseWindowsForms", "true"));
+        }
     }
 
     private string ConvertTargetFramework(Project project)
@@ -265,7 +307,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             .Where(i => i.ItemType == "Compile")
             .Where(i => !i.EvaluatedInclude.EndsWith(".cs") || 
                        i.EvaluatedInclude.Contains("*") ||
-                       i.HasMetadata("Link"))
+                       i.HasMetadata("Link") ||
+                       i.HasMetadata("DependentUpon"))
             .ToList();
 
         if (compileItems.Any())
@@ -277,11 +320,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 var element = new XElement("Compile",
                     new XAttribute("Include", item.EvaluatedInclude));
                 
-                if (item.HasMetadata("Link"))
-                {
-                    element.Add(new XElement("Link", item.GetMetadataValue("Link")));
-                }
-                
+                PreserveMetadata(item, element);
                 itemGroup.Add(element);
             }
             
@@ -306,12 +345,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 var element = new XElement(item.ItemType,
                     new XAttribute("Include", item.EvaluatedInclude));
                 
-                if (item.HasMetadata("CopyToOutputDirectory"))
-                {
-                    element.Add(new XElement("CopyToOutputDirectory", 
-                        item.GetMetadataValue("CopyToOutputDirectory")));
-                }
-                
+                PreserveMetadata(item, element);
                 itemGroup.Add(element);
             }
             
@@ -347,6 +381,157 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     new XElement("Exec", new XAttribute("Command", postBuild)));
                 
                 projectElement.Add(target);
+            }
+        }
+    }
+
+    private void HandleAssemblyInfo(Project project, XElement propertyGroup)
+    {
+        var projectDir = Path.GetDirectoryName(project.FullPath)!;
+        var assemblyInfoPaths = new[] 
+        {
+            Path.Combine(projectDir, "Properties", "AssemblyInfo.cs"),
+            Path.Combine(projectDir, "AssemblyInfo.cs"),
+            Path.Combine(projectDir, "Properties", "AssemblyInfo.vb"),
+            Path.Combine(projectDir, "AssemblyInfo.vb")
+        };
+
+        if (assemblyInfoPaths.Any(File.Exists))
+        {
+            // Disable auto-generation to prevent conflicts
+            propertyGroup.Add(new XElement("GenerateAssemblyInfo", "false"));
+            _logger.LogInformation("AssemblyInfo file found. Setting GenerateAssemblyInfo to false.");
+        }
+        else
+        {
+            propertyGroup.Add(new XElement("GenerateAssemblyInfo", "true"));
+        }
+    }
+
+    private void AddExcludedCompileItems(Project project, XElement projectElement)
+    {
+        var projectDir = Path.GetDirectoryName(project.FullPath)!;
+        
+        // Get all compiled files from the project
+        var compiledFiles = project.Items
+            .Where(i => i.ItemType == "Compile")
+            .Select(i => Path.GetFullPath(Path.Combine(projectDir, i.EvaluatedInclude)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Find all .cs files in the project directory
+        var allCsFiles = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
+                       !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
+
+        var excludedFiles = allCsFiles.Where(f => !compiledFiles.Contains(f)).ToList();
+
+        if (excludedFiles.Any())
+        {
+            var itemGroup = new XElement("ItemGroup");
+            foreach (var file in excludedFiles)
+            {
+                var relativePath = Path.GetRelativePath(projectDir, file);
+                itemGroup.Add(new XElement("Compile", new XAttribute("Remove", relativePath)));
+                _logger.LogDebug("Adding Compile Remove for: {File}", relativePath);
+            }
+            projectElement.Add(itemGroup);
+        }
+    }
+
+    private void MigrateDesignerItems(Project project, XElement projectElement)
+    {
+        // WPF items
+        var wpfItems = project.Items
+            .Where(i => i.ItemType == "ApplicationDefinition" || 
+                       i.ItemType == "Page" || 
+                       i.ItemType == "Resource")
+            .ToList();
+
+        // WinForms items with SubType
+        var winFormsItems = project.Items
+            .Where(i => i.ItemType == "Compile" && 
+                       i.HasMetadata("SubType") &&
+                       (i.GetMetadataValue("SubType") == "Form" ||
+                        i.GetMetadataValue("SubType") == "UserControl" ||
+                        i.GetMetadataValue("SubType") == "Component"))
+            .ToList();
+
+        if (wpfItems.Any() || winFormsItems.Any())
+        {
+            var itemGroup = new XElement("ItemGroup");
+
+            foreach (var item in wpfItems)
+            {
+                var element = new XElement(item.ItemType,
+                    new XAttribute("Include", item.EvaluatedInclude));
+                PreserveMetadata(item, element);
+                itemGroup.Add(element);
+            }
+
+            foreach (var item in winFormsItems)
+            {
+                // These are already handled in MigrateCompileItems but need SubType preserved
+                // Skip if already migrated
+                continue;
+            }
+
+            if (itemGroup.HasElements)
+                projectElement.Add(itemGroup);
+        }
+    }
+
+    private void MigrateCustomItemTypes(Project project, XElement projectElement)
+    {
+        var standardTypes = new HashSet<string> 
+        { 
+            "Compile", "Content", "None", "EmbeddedResource", 
+            "Reference", "ProjectReference", "PackageReference",
+            "Folder", "ApplicationDefinition", "Page", "Resource"
+        };
+
+        var customItems = project.Items
+            .Where(i => !standardTypes.Contains(i.ItemType))
+            .GroupBy(i => i.ItemType);
+
+        foreach (var group in customItems)
+        {
+            var itemGroup = new XElement("ItemGroup");
+            foreach (var item in group)
+            {
+                var element = new XElement(item.ItemType,
+                    new XAttribute("Include", item.EvaluatedInclude));
+                PreserveMetadata(item, element);
+                itemGroup.Add(element);
+            }
+            
+            if (itemGroup.HasElements)
+            {
+                projectElement.Add(itemGroup);
+                _logger.LogInformation("Preserved custom item type: {ItemType}", group.Key);
+            }
+        }
+    }
+
+    private void PreserveMetadata(ProjectItem item, XElement element)
+    {
+        // Critical metadata to preserve
+        var importantMetadata = new[] 
+        { 
+            "Link", "DependentUpon", "SubType", "Generator", 
+            "LastGenOutput", "CopyToOutputDirectory", "Private",
+            "SpecificVersion", "CustomToolNamespace", "DesignTime",
+            "AutoGen", "DesignTimeSharedInput"
+        };
+
+        foreach (var metadata in importantMetadata)
+        {
+            if (item.HasMetadata(metadata))
+            {
+                var value = item.GetMetadataValue(metadata);
+                if (!string.IsNullOrEmpty(value))
+                {
+                    element.Add(new XElement(metadata, value));
+                }
             }
         }
     }
