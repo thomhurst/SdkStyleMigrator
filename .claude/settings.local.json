@@ -40,7 +40,24 @@
       "Bash(dotnet bin/Debug/net9.0/SdkMigrator test-broken-refs --dry-run)",
       "Bash(dotnet:*)",
       "Bash(find:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "mcp__zen__thinkdeep",
+      "mcp__zen__chat",
+      "mcp__zen__analyze",
+      "mcp__zen__debug",
+      "mcp__zen__refactor",
+      "mcp__zen__listmodels",
+      "mcp__zen__version",
+      "mcp__sequential-thinking__sequentialthinking",
+      "mcp__desktop-commander__list_directory",
+      "mcp__desktop-commander__search_code",
+      "mcp__desktop-commander__read_multiple_files",
+      "mcp__desktop-commander__read_file",
+      "mcp__desktop-commander__edit_block",
+      "mcp__desktop-commander__execute_command",
+      "Bash(npx @wonderwhy-er/desktop-commander@latest setup)",
+      "mcp__zen__planner"
     ],
     "deny": []
   }

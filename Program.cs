@@ -665,6 +665,9 @@ Examples:
             builder.SetMinimumLevel(logLevel);
         });
 
+        // Register the clean SDK-style project generator
+        services.AddSingleton<ISdkStyleProjectGenerator, CleanSdkStyleProjectGenerator>();
+
         services.AddSingleton<IProjectFileScanner, ProjectFileScanner>();
         services.AddSingleton<ProjectParser>();
         services.AddSingleton<IProjectParser>(provider => provider.GetRequiredService<ProjectParser>());
@@ -682,7 +685,6 @@ Examples:
         }
 
         services.AddSingleton<INuSpecExtractor, NuSpecExtractor>();
-        services.AddSingleton<ISdkStyleProjectGenerator, SdkStyleProjectGenerator>();
         services.AddSingleton<IAssemblyInfoExtractor, AssemblyInfoExtractor>();
         services.AddSingleton<IDirectoryBuildPropsGenerator>(provider =>
             new DirectoryBuildPropsGenerator(
