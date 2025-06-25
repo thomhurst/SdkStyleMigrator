@@ -129,6 +129,44 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             var propertyGroup = MigrateProperties(legacyProject, result);
 
+            // Add UseWPF/UseWindowsForms for .NET 5+ desktop projects using Microsoft.NET.Sdk
+            if (sdk == "Microsoft.NET.Sdk")
+            {
+                var targetFramework = GetTargetFramework(legacyProject);
+                var isNet5Plus = targetFramework.StartsWith("net5", StringComparison.OrdinalIgnoreCase) || 
+                                 targetFramework.StartsWith("net6", StringComparison.OrdinalIgnoreCase) ||
+                                 targetFramework.StartsWith("net7", StringComparison.OrdinalIgnoreCase) ||
+                                 targetFramework.StartsWith("net8", StringComparison.OrdinalIgnoreCase) ||
+                                 targetFramework.StartsWith("net9", StringComparison.OrdinalIgnoreCase);
+
+                if (isNet5Plus)
+                {
+                    // Check for WPF content
+                    var hasWpfItems = legacyProject.Items.Any(i =>
+                        i.ItemType == "ApplicationDefinition" ||
+                        i.ItemType == "Page" ||
+                        (i.ItemType == "Compile" && i.EvaluatedInclude.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase)));
+
+                    if (hasWpfItems)
+                    {
+                        propertyGroup.Add(new XElement("UseWPF", "true"));
+                        _logger.LogInformation("Added UseWPF=true for .NET 5+ WPF project");
+                    }
+
+                    // Check for WinForms references
+                    var hasWinFormsReferences = legacyProject.Items.Any(i =>
+                        i.ItemType == "Reference" &&
+                        (i.EvaluatedInclude.StartsWith("System.Windows.Forms", StringComparison.OrdinalIgnoreCase) ||
+                         i.EvaluatedInclude.StartsWith("System.Drawing", StringComparison.OrdinalIgnoreCase)));
+
+                    if (hasWinFormsReferences)
+                    {
+                        propertyGroup.Add(new XElement("UseWindowsForms", "true"));
+                        _logger.LogInformation("Added UseWindowsForms=true for .NET 5+ Windows Forms project");
+                    }
+                }
+            }
+
             // Add required properties from project type detection
             if (projectTypeInfo.RequiredProperties.Any())
             {
@@ -343,22 +381,43 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private string DetermineSdk(Project legacyProject)
     {
         var projectPath = legacyProject.FullPath;
+        var targetFramework = GetTargetFramework(legacyProject);
+        var isNetFramework = targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase);
+        var isNet5Plus = targetFramework.StartsWith("net5", StringComparison.OrdinalIgnoreCase) || 
+                         targetFramework.StartsWith("net6", StringComparison.OrdinalIgnoreCase) ||
+                         targetFramework.StartsWith("net7", StringComparison.OrdinalIgnoreCase) ||
+                         targetFramework.StartsWith("net8", StringComparison.OrdinalIgnoreCase) ||
+                         targetFramework.StartsWith("net9", StringComparison.OrdinalIgnoreCase);
 
+        // Check for WPF content
         var hasWpfItems = legacyProject.Items.Any(i =>
             i.ItemType == "ApplicationDefinition" ||
             i.ItemType == "Page" ||
             (i.ItemType == "Compile" && i.EvaluatedInclude.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase)));
 
+        // Check for WinForms references
         var hasWinFormsReferences = legacyProject.Items.Any(i =>
             i.ItemType == "Reference" &&
             (i.EvaluatedInclude.StartsWith("System.Windows.Forms", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.StartsWith("System.Drawing", StringComparison.OrdinalIgnoreCase)));
 
+        // Handle WPF/WinForms projects
         if (hasWpfItems || hasWinFormsReferences)
         {
-            return "Microsoft.NET.Sdk.WindowsDesktop";
+            if (isNet5Plus)
+            {
+                // .NET 5+ uses Microsoft.NET.Sdk with UseWPF/UseWindowsForms properties
+                _logger.LogInformation(".NET 5+ desktop project detected - will use Microsoft.NET.Sdk with UseWPF/UseWindowsForms properties");
+                return "Microsoft.NET.Sdk";
+            }
+            else
+            {
+                // .NET Framework and .NET Core 3.x use WindowsDesktop SDK
+                return "Microsoft.NET.Sdk.WindowsDesktop";
+            }
         }
 
+        // Check for web content
         var hasWebContent = legacyProject.Items.Any(i =>
             (i.ItemType == "Content" || i.ItemType == "None") &&
             (i.EvaluatedInclude.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase) ||
@@ -371,9 +430,30 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             (i.EvaluatedInclude.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.StartsWith("Microsoft.AspNet", StringComparison.OrdinalIgnoreCase)));
 
+        // Handle web projects
         if (hasWebContent || hasWebReferences)
         {
-            return "Microsoft.NET.Sdk.Web";
+            // Only use Microsoft.NET.Sdk.Web for .NET Core/5+ web projects
+            // .NET Framework web projects should use Microsoft.NET.Sdk
+            if (!isNetFramework)
+            {
+                // Check if it's actually an ASP.NET Core project (has Razor pages or ASP.NET Core references)
+                var hasRazorPages = legacyProject.Items.Any(i =>
+                    (i.ItemType == "Content" || i.ItemType == "None") &&
+                    i.EvaluatedInclude.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase));
+                
+                var hasAspNetCoreReferences = legacyProject.Items.Any(i =>
+                    i.ItemType == "PackageReference" &&
+                    i.EvaluatedInclude.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase));
+
+                if (hasRazorPages || hasAspNetCoreReferences)
+                {
+                    return "Microsoft.NET.Sdk.Web";
+                }
+            }
+            
+            // For .NET Framework web projects, use standard SDK
+            _logger.LogInformation(".NET Framework web project detected - using Microsoft.NET.Sdk instead of Web SDK");
         }
 
         return "Microsoft.NET.Sdk";
@@ -989,9 +1069,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private async Task<XElement> MigrateOtherItemsAsync(Project legacyProject, MigrationResult result, XElement projectElement, CancellationToken cancellationToken = default)
     {
         var itemGroup = new XElement("ItemGroup");
-        var packageItemGroup = new XElement("ItemGroup");
-        var addedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var convertedAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Get all packages that were already migrated from packages.config
         var existingPackages = result.MigratedPackages.ToList();
@@ -1056,99 +1133,37 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 continue;
             }
 
-            // Check if this reference has a package HintPath - if so, skip it
+            // Check if this reference has a package HintPath but wasn't in packages.config
             if (!string.IsNullOrEmpty(referenceHintPath) && IsPackageHintPath(referenceHintPath))
             {
-                _logger.LogWarning("Skipping assembly reference '{AssemblyName}' with package HintPath: {HintPath}. " +
-                    "Consider adding the appropriate NuGet package if needed.", assemblyName, referenceHintPath);
+                _logger.LogWarning("Assembly reference '{AssemblyName}' has a package HintPath but wasn't in packages.config: {HintPath}. " +
+                    "This reference will be preserved, but you should add it to packages.config before migration.", assemblyName, referenceHintPath);
                 result.Warnings.Add($"Assembly '{assemblyName}' appears to be from a NuGet package but wasn't in packages.config. " +
-                    "You may need to manually add the appropriate package reference.");
-                removedReferences.Add($"{assemblyName} (package HintPath)");
+                    "Consider adding it to packages.config and re-running the migration.");
+                
+                // Preserve this reference since it wasn't in packages.config
+                var element = new XElement("Reference",
+                    new XAttribute("Include", referenceName));
+                element.Add(new XElement("HintPath", referenceHintPath));
+                
+                var privateValue = reference.GetMetadataValue("Private");
+                if (!string.IsNullOrEmpty(privateValue))
+                {
+                    element.Add(new XElement("Private", privateValue));
+                }
+                
+                itemGroup.Add(element);
+                _logger.LogInformation("Preserved reference with package HintPath not in packages.config: {Reference}", assemblyName);
                 continue;
             }
 
-            // Check if this assembly should be converted to a package reference
-            var packageResolution = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyName, cancellationToken: cancellationToken);
-            if (packageResolution != null)
-            {
-                // Collect hint path if this reference has one (recheck since we already checked above)
-                if (!string.IsNullOrEmpty(referenceHintPath))
-                {
-                    result.ConvertedHintPaths.Add(referenceHintPath);
-                    _logger.LogDebug("Collected hint path for cleanup: {HintPath}", referenceHintPath);
-                }
-                // Add main package
-                if (!addedPackages.Contains(packageResolution.PackageId))
-                {
-                    var packageElement = new XElement("PackageReference",
-                        new XAttribute("Include", packageResolution.PackageId),
-                        new XAttribute("Version", packageResolution.Version));
-                    packageItemGroup.Add(packageElement);
-                    addedPackages.Add(packageResolution.PackageId);
-                    convertedAssemblies.Add(assemblyName); // Track that this assembly was converted
-                    // Also track the full reference name in case it includes version info
-                    convertedAssemblies.Add(referenceName);
-
-                    // Track all assemblies included in this package
-                    foreach (var includedAssembly in packageResolution.IncludedAssemblies)
-                    {
-                        convertedAssemblies.Add(includedAssembly);
-                        _logger.LogDebug("Package '{PackageName}' includes assembly '{AssemblyName}'",
-                            packageResolution.PackageId, includedAssembly);
-                    }
-
-                    _logger.LogInformation("Converted assembly reference '{AssemblyName}' to package reference '{PackageName}' version {Version}",
-                        assemblyName, packageResolution.PackageId, packageResolution.Version);
-
-                    result.MigratedPackages.Add(new PackageReference
-                    {
-                        PackageId = packageResolution.PackageId,
-                        Version = packageResolution.Version,
-                        IsTransitive = false
-                    });
-                }
-
-                // Add additional packages if needed (e.g., test adapters)
-                foreach (var additionalPackageId in packageResolution.AdditionalPackages)
-                {
-                    if (!addedPackages.Contains(additionalPackageId))
-                    {
-                        var additionalVersion = await _nugetResolver.GetLatestStableVersionAsync(additionalPackageId, cancellationToken);
-                        if (additionalVersion != null)
-                        {
-                            var packageElement = new XElement("PackageReference",
-                                new XAttribute("Include", additionalPackageId),
-                                new XAttribute("Version", additionalVersion));
-                            packageItemGroup.Add(packageElement);
-                            addedPackages.Add(additionalPackageId);
-                            _logger.LogInformation("Added additional package '{PackageName}' version {Version}",
-                                additionalPackageId, additionalVersion);
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(packageResolution.Notes))
-                {
-                    result.Warnings.Add($"Package migration note for '{assemblyName}': {packageResolution.Notes}");
-                }
-
-                continue;
-            }
-
-            // Skip references that are implicitly included in the framework or were already converted to packages
+            // Skip references that are implicitly included in the framework
             var implicitFrameworkReferences = GetImplicitReferences(sdk, targetFramework);
 
-            if (implicitFrameworkReferences.Contains(assemblyName) || convertedAssemblies.Contains(assemblyName))
+            if (implicitFrameworkReferences.Contains(assemblyName))
             {
-                if (implicitFrameworkReferences.Contains(assemblyName))
-                {
-                    removedReferences.Add($"{assemblyName} (SDK implicit)");
-                    _logger.LogInformation("Removing assembly reference '{AssemblyName}' - implicitly included by SDK", assemblyName);
-                }
-                else
-                {
-                    _logger.LogDebug("Skipping already converted to package reference: {Reference}", assemblyName);
-                }
+                removedReferences.Add($"{assemblyName} (SDK implicit)");
+                _logger.LogInformation("Removing assembly reference '{AssemblyName}' - implicitly included by SDK", assemblyName);
                 continue;
             }
 
@@ -1160,17 +1175,30 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 "System.ComponentModel.DataAnnotations"
             };
 
-            if ((frameworkExtensions.Contains(assemblyName) ||
+            // For .NET Framework projects, WPF assemblies must be preserved
+            // For .NET Core 3.x+ with WindowsDesktop SDK or .NET 5+ with UseWPF, they're implicit
+            var isNetFramework = targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase);
+            if (isNetFramework)
+            {
+                frameworkExtensions.Add("PresentationCore");
+                frameworkExtensions.Add("PresentationFramework");
+                frameworkExtensions.Add("WindowsBase");
+                frameworkExtensions.Add("System.Xaml");
+                frameworkExtensions.Add("UIAutomationProvider");
+                frameworkExtensions.Add("UIAutomationClient");
+                frameworkExtensions.Add("UIAutomationTypes");
+            }
+
+            if (frameworkExtensions.Contains(assemblyName) ||
                 assemblyName.StartsWith("Microsoft.VisualStudio", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Windows", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Web", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.ServiceModel", StringComparison.OrdinalIgnoreCase) ||
                 assemblyName.StartsWith("System.Runtime", StringComparison.OrdinalIgnoreCase) ||
-                assemblyName.StartsWith("System.ComponentModel", StringComparison.OrdinalIgnoreCase)) &&
-                !convertedAssemblies.Contains(assemblyName))
+                assemblyName.StartsWith("System.ComponentModel", StringComparison.OrdinalIgnoreCase))
             {
                 var element = new XElement("Reference",
-                    new XAttribute("Include", assemblyName));
+                    new XAttribute("Include", referenceName));
 
                 // Copy important metadata
                 if (!string.IsNullOrEmpty(referenceHintPath))
@@ -1198,7 +1226,7 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 // This should only be reached for non-package HintPaths since we check package HintPaths earlier
                 // This is likely a third-party assembly with a HintPath - preserve it
                 var element = new XElement("Reference",
-                    new XAttribute("Include", assemblyName));
+                    new XAttribute("Include", referenceName));
 
                 element.Add(new XElement("HintPath", referenceHintPath));
 
@@ -1210,6 +1238,28 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
                 itemGroup.Add(element);
                 _logger.LogInformation("Preserved assembly reference with HintPath: {Reference}", assemblyName);
+            }
+            else
+            {
+                // Preserve all other references (including framework references without HintPath)
+                var element = new XElement("Reference",
+                    new XAttribute("Include", referenceName));
+                
+                // Copy all metadata
+                var privateValue = reference.GetMetadataValue("Private");
+                if (!string.IsNullOrEmpty(privateValue))
+                {
+                    element.Add(new XElement("Private", privateValue));
+                }
+                
+                var specificVersion = reference.GetMetadataValue("SpecificVersion");
+                if (!string.IsNullOrEmpty(specificVersion))
+                {
+                    element.Add(new XElement("SpecificVersion", specificVersion));
+                }
+                
+                itemGroup.Add(element);
+                _logger.LogInformation("Preserved reference: {Reference}", assemblyName);
             }
         }
 
@@ -1247,27 +1297,6 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 _logger.LogInformation("  - {AssemblyName}", removed);
                 result.RemovedElements.Add($"Assembly reference: {removed} (provided by package)");
-            }
-        }
-
-        // Merge packageItemGroup with existing package references if they exist
-        if (packageItemGroup.HasElements)
-        {
-            var existingPackageGroup = projectElement.Elements("ItemGroup")
-                .FirstOrDefault(ig => ig.Elements("PackageReference").Any());
-
-            if (existingPackageGroup != null)
-            {
-                // Add to existing package reference group
-                foreach (var packageRef in packageItemGroup.Elements())
-                {
-                    existingPackageGroup.Add(packageRef);
-                }
-            }
-            else
-            {
-                // Return the package item group separately
-                return new XElement("MergedItemGroups", packageItemGroup, itemGroup);
             }
         }
 
@@ -2037,9 +2066,10 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
             targetFramework.StartsWith("net2", StringComparison.OrdinalIgnoreCase))
         {
             implicitRefs.Add("System.Configuration");
-            implicitRefs.Add("System.ServiceProcess");
             implicitRefs.Add("System.Net.Http");
             implicitRefs.Add("System.IO.Compression.FileSystem");
+            // Note: System.ServiceProcess is NOT implicit in SDK-style projects
+            // Note: System.Web and related assemblies are NOT implicit for .NET Framework
         }
 
         // SDK-specific implicit references
@@ -2052,8 +2082,25 @@ public class SdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
         else if (sdk.Contains("Microsoft.NET.Sdk.WindowsDesktop", StringComparison.OrdinalIgnoreCase))
         {
-            // WindowsDesktop SDK includes WPF/WinForms references implicitly based on UseWPF/UseWindowsForms
-            // These are handled by the SDK based on project properties
+            // WindowsDesktop SDK includes WPF/WinForms references implicitly
+            // But only for .NET Core 3.x+, not for .NET Framework
+            if (!targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+            {
+                // WPF assemblies
+                implicitRefs.Add("PresentationCore");
+                implicitRefs.Add("PresentationFramework");
+                implicitRefs.Add("WindowsBase");
+                implicitRefs.Add("System.Xaml");
+                implicitRefs.Add("UIAutomationProvider");
+                implicitRefs.Add("UIAutomationClient");
+                implicitRefs.Add("UIAutomationTypes");
+                
+                // WinForms assemblies
+                implicitRefs.Add("System.Windows.Forms");
+                implicitRefs.Add("System.Drawing");
+                implicitRefs.Add("System.Drawing.Common");
+                implicitRefs.Add("System.Windows.Forms.Design");
+            }
         }
 
         // .NET Core / .NET 5+ implicit references
