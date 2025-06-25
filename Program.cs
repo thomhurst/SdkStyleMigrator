@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NuGet.Packaging.Core;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
 using SdkMigrator.Services;
@@ -277,7 +278,7 @@ class Program
         rootCommand.Description = @"SDK Migrator - Migrate legacy MSBuild project files to SDK-style format
 
 This tool scans the specified directory and all subdirectories for
-legacy MSBuild project files (.csproj, .vbproj, .fsproj) and migrates
+legacy MSBuild project files (.*proj) and migrates
 them to the new SDK-style format.
 
 The tool will:
@@ -908,21 +909,31 @@ Examples:
                 .Where(fullPath => File.Exists(fullPath))
                 .ToList();
 
-            // Collect packages that are directly referenced by project dependencies
+            // Collect all packages (direct and transitive) from referenced projects
             var projectDepPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var referencedProjectPackages = new Dictionary<string, List<Models.PackageReference>>();
+            
             foreach (var projRef in projectRefs)
             {
                 try
                 {
                     var projDoc = XDocument.Load(projRef);
                     var depPackages = projDoc.Descendants("PackageReference")
-                        .Select(pr => pr.Attribute("Include")?.Value)
-                        .Where(id => !string.IsNullOrEmpty(id));
+                        .Select(pr => new Models.PackageReference
+                        {
+                            PackageId = pr.Attribute("Include")!.Value,
+                            Version = pr.Attribute("Version")?.Value ?? pr.Element("Version")?.Value ?? "*",
+                            IsTransitive = false
+                        })
+                        .Where(p => !string.IsNullOrEmpty(p.PackageId))
+                        .ToList();
+
+                    referencedProjectPackages[projRef] = depPackages;
 
                     foreach (var pkg in depPackages)
                     {
-                        projectDepPackages.Add(pkg!);
-                        logger.LogDebug("Package '{Package}' is used by project reference: {Project}", pkg, Path.GetFileName(projRef));
+                        projectDepPackages.Add(pkg.PackageId);
+                        logger.LogDebug("Package '{Package}' is directly used by project reference: {Project}", pkg.PackageId, Path.GetFileName(projRef));
                     }
                 }
                 catch (Exception ex)
@@ -931,24 +942,107 @@ Examples:
                 }
             }
 
-            // Detect transitive dependencies
+            // Detect transitive dependencies within the current project
             var projectDirectory = Path.GetDirectoryName(projectPath);
             var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, projectDirectory, CancellationToken.None);
 
-            // Filter out packages that are transitive but also directly used by project references
-            var transitiveDeps = analyzedPackages
-                .Where(p => p.IsTransitive)
-                .Where(p => !projectDepPackages.Contains(p.PackageId))
-                .ToList();
+            // Now analyze transitive dependencies from referenced projects
+            var allTransitiveFromRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in referencedProjectPackages)
+            {
+                var refProjPath = kvp.Key;
+                var refProjPackages = kvp.Value;
+                
+                if (refProjPackages.Any())
+                {
+                    logger.LogDebug("Analyzing transitive dependencies from referenced project: {Project}", Path.GetFileName(refProjPath));
+                    var refProjDirectory = Path.GetDirectoryName(refProjPath);
+                    var refAnalyzed = await transitiveDepsService.DetectTransitiveDependenciesAsync(refProjPackages, refProjDirectory, CancellationToken.None);
+                    
+                    // Get all dependencies (direct and transitive) from this project
+                    foreach (var refPkg in refAnalyzed)
+                    {
+                        allTransitiveFromRefs.Add(refPkg.PackageId);
+                        
+                        // Also try to get transitive dependencies of each package
+                        if (transitiveDepsService is NuGetTransitiveDependencyDetector nugetDetector)
+                        {
+                            try
+                            {
+                                var deps = await nugetDetector.GetPackageDependenciesAsync(
+                                    refPkg.PackageId, 
+                                    refPkg.Version ?? "*", 
+                                    NuGet.Frameworks.NuGetFramework.AnyFramework, 
+                                    CancellationToken.None);
+                                    
+                                foreach (var dep in deps)
+                                {
+                                    allTransitiveFromRefs.Add(dep.Id);
+                                    logger.LogDebug("Package '{Package}' is transitively provided by '{Parent}' in project '{Project}'", 
+                                        dep.Id, refPkg.PackageId, Path.GetFileName(refProjPath));
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogDebug(ex, "Failed to get dependencies for package {Package}", refPkg.PackageId);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Find packages that can be removed:
+            // 1. Packages marked as transitive within the current project
+            // 2. Packages that are provided (directly or transitively) by referenced projects
+            var removablePackages = new List<Models.PackageReference>();
+            
+            foreach (var package in analyzedPackages)
+            {
+                bool shouldRemove = false;
+                string reason = "";
+                
+                // Check if it's transitive within current project
+                if (package.IsTransitive)
+                {
+                    shouldRemove = true;
+                    reason = "transitive dependency within current project";
+                }
+                // Check if it's provided by referenced projects
+                else if (allTransitiveFromRefs.Contains(package.PackageId))
+                {
+                    shouldRemove = true;
+                    reason = "provided by referenced project";
+                }
+                
+                if (shouldRemove)
+                {
+                    // Don't remove if it's essential
+                    var essentialPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        "Microsoft.NET.Test.Sdk",
+                        "xunit.runner.visualstudio",
+                        "NUnit3TestAdapter",
+                        "MSTest.TestAdapter",
+                        "coverlet.collector"
+                    };
+                    
+                    if (essentialPackages.Contains(package.PackageId))
+                    {
+                        logger.LogDebug("Keeping {Package} as it's an essential package", package.PackageId);
+                    }
+                    else
+                    {
+                        removablePackages.Add(package);
+                        logger.LogInformation("Package '{Package}' can be removed: {Reason}", package.PackageId, reason);
+                    }
+                }
+            }
+            
+            var transitiveDeps = removablePackages;
 
             if (!transitiveDeps.Any())
             {
                 logger.LogInformation("  No removable transitive dependencies found");
-                if (analyzedPackages.Any(p => p.IsTransitive && projectDepPackages.Contains(p.PackageId)))
-                {
-                    var kept = analyzedPackages.Count(p => p.IsTransitive && projectDepPackages.Contains(p.PackageId));
-                    logger.LogInformation("  {Count} transitive dependencies kept because they're used by project references", kept);
-                }
                 return new CleanDepsResult { Success = true, RemovedCount = 0 };
             }
 

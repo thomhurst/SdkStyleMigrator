@@ -6,7 +6,7 @@ namespace SdkMigrator.Services;
 public class ProjectFileScanner : IProjectFileScanner
 {
     private readonly ILogger<ProjectFileScanner> _logger;
-    private readonly string[] _projectFileExtensions = { "*.csproj", "*.vbproj", "*.fsproj" };
+    private readonly string[] _projectFileExtensions = { "*.*proj" };
     private readonly string[] _webSiteProjectIndicators = { "App_Code", "App_Data", "App_GlobalResources", "App_LocalResources" };
 
     public ProjectFileScanner(ILogger<ProjectFileScanner> logger)
@@ -34,9 +34,11 @@ public class ProjectFileScanner : IProjectFileScanner
                 .Where(f => !f.Contains(".legacy.") && // Skip backup files
                            !f.Contains("_sdkmigrator_backup_") && // Skip backup directories
                            !f.Contains(".sdkmigrator.lock") && // Skip lock files
-                           !f.EndsWith(".legacy.csproj", StringComparison.OrdinalIgnoreCase) &&
-                           !f.EndsWith(".legacy.vbproj", StringComparison.OrdinalIgnoreCase) &&
-                           !f.EndsWith(".legacy.fsproj", StringComparison.OrdinalIgnoreCase))
+                           !Path.GetFileName(f).Contains(".legacy.") && // Skip any legacy backup file
+                           !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) && // Skip obj directories
+                           !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase) && // Skip obj directories (Linux)
+                           !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) && // Skip bin directories
+                           !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase)) // Skip bin directories (Linux)
                 .ToArray();
             projectFiles.AddRange(files);
 
@@ -66,9 +68,8 @@ public class ProjectFileScanner : IProjectFileScanner
                 if (hasWebSiteIndicators)
                 {
                     // Check if there's NO project file in this directory
-                    var projectFileInDir = Directory.GetFiles(dir, "*.csproj", SearchOption.TopDirectoryOnly)
-                        .Concat(Directory.GetFiles(dir, "*.vbproj", SearchOption.TopDirectoryOnly))
-                        .Any();
+                    var projectFileInDir = Directory.GetFiles(dir, "*.*proj", SearchOption.TopDirectoryOnly)
+                        .Any(f => !f.Contains(".legacy.") && !Path.GetFileName(f).Contains(".legacy."));
 
                     if (!projectFileInDir)
                     {

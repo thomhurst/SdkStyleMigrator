@@ -359,12 +359,15 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             }
 
             // Find all project files in the directory and subdirectories
-            var projectFiles = Directory.GetFiles(directoryPath, "*.csproj", SearchOption.AllDirectories)
-                .Concat(Directory.GetFiles(directoryPath, "*.vbproj", SearchOption.AllDirectories))
-                .Concat(Directory.GetFiles(directoryPath, "*.fsproj", SearchOption.AllDirectories))
+            var projectFiles = Directory.GetFiles(directoryPath, "*.*proj", SearchOption.AllDirectories)
                 .Where(f => !f.Contains(".obj", StringComparison.OrdinalIgnoreCase) &&
                            !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase))
+                           !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase) &&
+                           !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) &&
+                           !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase) &&
+                           !f.Contains(".legacy.") &&
+                           !Path.GetFileName(f).Contains(".legacy.") &&
+                           !f.Contains("_sdkmigrator_backup_"))
                 .ToList();
 
             _logger.LogInformation("Found {Count} project files to analyze", projectFiles.Count);

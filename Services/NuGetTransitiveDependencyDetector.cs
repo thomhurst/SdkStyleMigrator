@@ -289,11 +289,14 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
                 var identity = new PackageIdentity(package.PackageId, version);
 
                 var isTransitive = false;
+                string? transitiveReason = null;
+                
                 foreach (var kvp in packageDependencyMap)
                 {
                     if (!kvp.Key.Equals(identity) && kvp.Value.Any(d => d.Id.Equals(identity.Id, StringComparison.OrdinalIgnoreCase)))
                     {
                         isTransitive = true;
+                        transitiveReason = $"brought in by {kvp.Key.Id}";
                         break;
                     }
                 }
@@ -309,7 +312,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
 
                     package.IsTransitive = true;
                     transitiveCount++;
-                    _logger.LogDebug("Marked {PackageId} as transitive dependency", package.PackageId);
+                    _logger.LogInformation("Marked {PackageId} as transitive dependency ({Reason})", package.PackageId, transitiveReason);
                 }
             }
 
@@ -328,7 +331,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         return packages;
     }
 
-    private async Task<HashSet<PackageIdentity>> GetPackageDependenciesAsync(
+    public async Task<HashSet<PackageIdentity>> GetPackageDependenciesAsync(
         string packageId,
         string version,
         NuGetFramework framework,
