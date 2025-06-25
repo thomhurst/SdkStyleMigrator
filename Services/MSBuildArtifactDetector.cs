@@ -85,6 +85,30 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
         if (string.IsNullOrEmpty(itemType))
             return false;
 
+        // Always preserve important user files, even if they match other patterns
+        if (!string.IsNullOrEmpty(itemInclude))
+        {
+            var fileName = Path.GetFileName(itemInclude).ToLowerInvariant();
+            
+            // Configuration files
+            if (fileName == "app.config" || fileName == "web.config" || 
+                fileName == "appsettings.json" || fileName.StartsWith("appsettings.") ||
+                fileName == "packages.config" || fileName.EndsWith(".config"))
+            {
+                _logger.LogDebug("Preserving configuration file: {ItemInclude}", itemInclude);
+                return false; // Not an artifact - preserve it
+            }
+            
+            // Documentation and project files
+            if (fileName == "readme.md" || fileName == "license" || fileName == "license.txt" ||
+                fileName.EndsWith(".md") || fileName.EndsWith(".txt") || fileName.EndsWith(".json") ||
+                fileName.EndsWith(".xml") || fileName.EndsWith(".yml") || fileName.EndsWith(".yaml"))
+            {
+                _logger.LogDebug("Preserving user file: {ItemInclude}", itemInclude);
+                return false; // Not an artifact - preserve it
+            }
+        }
+
         // Check against naming patterns
         if (InternalItemPattern.IsMatch(itemType))
         {
