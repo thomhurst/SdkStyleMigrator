@@ -806,6 +806,7 @@ Examples:
         services.AddSingleton<IMigrationAnalyzer, MigrationAnalyzer>();
         services.AddSingleton<PackageAssemblyResolver>();
         services.AddSingleton<NuGetAssetsResolver>();
+        services.AddSingleton<IAssemblyReferenceConverter, AssemblyReferenceConverter>();
 
         services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
     }

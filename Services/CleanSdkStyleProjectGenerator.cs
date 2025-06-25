@@ -21,6 +21,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IAuditService _auditService;
     private readonly IDirectoryBuildPropsReader _directoryBuildPropsReader;
     private readonly IMSBuildArtifactDetector _artifactDetector;
+    private readonly IAssemblyReferenceConverter _assemblyReferenceConverter;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -30,7 +31,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         IAssemblyInfoExtractor assemblyInfoExtractor,
         IAuditService auditService,
         IDirectoryBuildPropsReader directoryBuildPropsReader,
-        IMSBuildArtifactDetector artifactDetector)
+        IMSBuildArtifactDetector artifactDetector,
+        IAssemblyReferenceConverter assemblyReferenceConverter)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -40,6 +42,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _auditService = auditService;
         _directoryBuildPropsReader = directoryBuildPropsReader;
         _artifactDetector = artifactDetector;
+        _assemblyReferenceConverter = assemblyReferenceConverter;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -294,13 +297,34 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private async Task MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, CancellationToken cancellationToken)
     {
-        var packages = await _packageMigrator.MigratePackagesAsync(project, cancellationToken);
+        // Determine the target framework early, as it's needed for assembly-to-package conversion
+        var targetFramework = ConvertTargetFramework(project);
 
-        if (packages.Any())
+        // Collect all package references from various sources
+        var allPackageReferences = new HashSet<Models.PackageReference>(new PackageReferenceComparer());
+
+        // 1. Get packages from packages.config / existing PackageReference items
+        var existingPackages = await _packageMigrator.MigratePackagesAsync(project, cancellationToken);
+        foreach (var pkg in existingPackages)
+        {
+            allPackageReferences.Add(pkg);
+        }
+
+        // 2. Get packages from legacy assembly references (framework-aware conversion)
+        var packagesFromAssemblies = await _assemblyReferenceConverter.ConvertReferencesAsync(project, targetFramework, cancellationToken);
+        foreach (var pkg in packagesFromAssemblies)
+        {
+            allPackageReferences.Add(pkg);
+        }
+
+        _logger.LogInformation("Combined {ExistingCount} existing packages with {ConvertedCount} packages from assembly references, total unique: {TotalCount}",
+            existingPackages.Count(), packagesFromAssemblies.Count(), allPackageReferences.Count);
+
+        if (allPackageReferences.Any())
         {
             var itemGroup = new XElement("ItemGroup");
             
-            foreach (var package in packages)
+            foreach (var package in allPackageReferences)
             {
                 var packageRef = new XElement("PackageReference",
                     new XAttribute("Include", package.PackageId));
