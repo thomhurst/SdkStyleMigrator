@@ -2,6 +2,7 @@ using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
+using SdkMigrator.Utilities;
 using System.Xml.Linq;
 
 namespace SdkMigrator.Services;
@@ -537,6 +538,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         var customItems = project.Items
             .Where(i => !standardTypes.Contains(i.ItemType))
+            .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
             .GroupBy(i => i.ItemType);
 
         foreach (var group in customItems)

@@ -177,7 +177,12 @@ public static class LegacyProjectElements
         "_ResolveAssemblyReferenceResolvedFiles",
         "_PublishFiles",
         "_SatelliteAssemblyResourceFiles",
-        "ReferenceSatellitePaths"
+        "ReferenceSatellitePaths",
+        "_OutputPathItem",
+        "AppConfigFileDestination",
+        "CopyUpToDateMarker",
+        "_DebugSymbolsIntermediatePath",
+        "_DebugSymbolsOutputPath"
     };
 
     public static readonly HashSet<string> WpfWinFormsItemTypes = new(StringComparer.OrdinalIgnoreCase)

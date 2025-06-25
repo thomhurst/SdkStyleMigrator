@@ -3,6 +3,7 @@ using Microsoft.Build.Exceptions;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
+using SdkMigrator.Utilities;
 using System.Xml.Linq;
 
 namespace SdkMigrator.Services;
@@ -187,12 +188,62 @@ public class ProjectParser : IProjectParser, IDisposable
 
         foreach (var propertyGroup in projectXml.Descendants(ns + "PropertyGroup"))
         {
-            root.Add(new XElement(propertyGroup));
+            var filteredPropertyGroup = new XElement(ns + "PropertyGroup");
+            
+            // Copy attributes from original PropertyGroup
+            foreach (var attr in propertyGroup.Attributes())
+            {
+                filteredPropertyGroup.Add(attr);
+            }
+            
+            // Copy only properties that are not MSBuild evaluation artifacts
+            foreach (var property in propertyGroup.Elements())
+            {
+                if (!LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(property.Name.LocalName))
+                {
+                    filteredPropertyGroup.Add(new XElement(property));
+                }
+                else
+                {
+                    _logger.LogDebug("Filtered out MSBuild evaluation artifact: {PropertyName}", property.Name.LocalName);
+                }
+            }
+            
+            // Only add the PropertyGroup if it has any properties
+            if (filteredPropertyGroup.HasElements)
+            {
+                root.Add(filteredPropertyGroup);
+            }
         }
 
         foreach (var itemGroup in projectXml.Descendants(ns + "ItemGroup"))
         {
-            root.Add(new XElement(itemGroup));
+            var filteredItemGroup = new XElement(ns + "ItemGroup");
+            
+            // Copy attributes from original ItemGroup
+            foreach (var attr in itemGroup.Attributes())
+            {
+                filteredItemGroup.Add(attr);
+            }
+            
+            // Copy only items that are not MSBuild evaluation artifacts
+            foreach (var item in itemGroup.Elements())
+            {
+                if (!LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(item.Name.LocalName))
+                {
+                    filteredItemGroup.Add(new XElement(item));
+                }
+                else
+                {
+                    _logger.LogDebug("Filtered out MSBuild evaluation artifact item: {ItemName}", item.Name.LocalName);
+                }
+            }
+            
+            // Only add the ItemGroup if it has any items
+            if (filteredItemGroup.HasElements)
+            {
+                root.Add(filteredItemGroup);
+            }
         }
 
         root.Add(new XElement(ns + "Import",
