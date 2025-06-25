@@ -37,6 +37,23 @@ Implemented critical edge case handling in `CleanSdkStyleProjectGenerator` to en
 - Detects and preserves non-standard MSBuild item types
 - Ensures custom build processes continue to work
 
+### 6. **COM Reference Support** ✅
+- Added `MigrateCOMReferences` method
+- Preserves all critical COM metadata:
+  - `Guid`, `VersionMajor`, `VersionMinor`, `Lcid`
+  - `WrapperTool`, `Isolated`, `EmbedInteropTypes`
+  - `Private`, `HintPath`
+- Explicitly sets `EmbedInteropTypes=false` to maintain legacy behavior
+- Prevents TypeLoadException and build failures for COM interop
+
+### 7. **Strong Naming Support** ✅
+- Added `MigrateStrongNaming` method
+- Migrates `SignAssembly` and `AssemblyOriginatorKeyFile` properties
+- Converts absolute key file paths to relative paths
+- Verifies key file existence with appropriate warnings
+- Preserves `DelaySign` setting when present
+- Prevents FileLoadException for strong-named assemblies
+
 ## Technical Details
 
 ### Code Structure
@@ -66,6 +83,29 @@ All improvements follow SOLID principles:
 </Compile>
 ```
 
+### Example: COM Reference Migration
+```xml
+<!-- Legacy project COM reference -->
+<COMReference Include="Microsoft.Office.Interop.Excel">
+  <Guid>{00020813-0000-0000-C000-000000000046}</Guid>
+  <VersionMajor>1</VersionMajor>
+  <VersionMinor>9</VersionMinor>
+  <Lcid>0</Lcid>
+  <WrapperTool>tlbimp</WrapperTool>
+  <EmbedInteropTypes>false</EmbedInteropTypes>
+</COMReference>
+```
+
+### Example: Strong Naming
+```xml
+<!-- Preserves assembly signing configuration -->
+<PropertyGroup>
+  <SignAssembly>true</SignAssembly>
+  <AssemblyOriginatorKeyFile>..\..\Keys\MyCompany.snk</AssemblyOriginatorKeyFile>
+  <DelaySign>false</DelaySign>
+</PropertyGroup>
+```
+
 ## Impact
 These improvements ensure that:
 1. Projects compile exactly as before (no surprise inclusions)
@@ -73,5 +113,7 @@ These improvements ensure that:
 3. Custom build processes are preserved
 4. No assembly attribute conflicts occur
 5. File relationships are maintained in the IDE
+6. COM interop continues to function correctly
+7. Strong-named assemblies maintain their signing configuration
 
 The migration tool now handles the vast majority of real-world edge cases while maintaining simplicity.

@@ -73,6 +73,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate project references
             MigrateProjectReferences(legacyProject, projectElement);
 
+            // Migrate COM references
+            MigrateCOMReferences(legacyProject, projectElement);
+
             // Migrate compile items (if needed)
             MigrateCompileItems(legacyProject, projectElement);
 
@@ -123,6 +126,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private string DetermineSdkType(Project project)
     {
+        var targetFramework = ConvertTargetFramework(project);
+        
+        // For .NET Framework projects, always use the default SDK
+        if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Microsoft.NET.Sdk";
+        }
+
         var projectTypeGuids = project.Properties
             .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
 
@@ -132,13 +143,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             if (projectTypeGuids.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase))
                 return "Microsoft.NET.Sdk.Web";
             
-            // Blazor WebAssembly
+            // Blazor WebAssembly (only for .NET Core 3.0+)
             if (projectTypeGuids.Contains("{A9ACE9BB-CECE-4E62-9AA4-C7E7C5BD2124}", StringComparison.OrdinalIgnoreCase))
                 return "Microsoft.NET.Sdk.BlazorWebAssembly";
-            
-            // WPF/WinForms
-            if (projectTypeGuids.Contains("{60dc8134-eba5-43b8-bcc9-bb4bc16c2548}", StringComparison.OrdinalIgnoreCase))
-                return "Microsoft.NET.Sdk.WindowsDesktop";
         }
 
         // Check for WPF/WinForms by items
@@ -150,13 +157,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         if (hasWpfItems || hasWinFormsItems)
         {
-            // For .NET 5+, we need to set UseWPF/UseWindowsForms in properties instead
-            var targetFramework = ConvertTargetFramework(project);
-            if (targetFramework.StartsWith("net") && !targetFramework.Contains("."))
+            // Microsoft.NET.Sdk.WindowsDesktop is only for .NET Core 3.x
+            // .NET 5+ uses Microsoft.NET.Sdk with UseWPF/UseWindowsForms
+            // .NET Framework uses Microsoft.NET.Sdk (already handled above)
+            if (targetFramework.StartsWith("netcoreapp3", StringComparison.OrdinalIgnoreCase))
             {
-                return "Microsoft.NET.Sdk";
+                return "Microsoft.NET.Sdk.WindowsDesktop";
             }
-            return "Microsoft.NET.Sdk.WindowsDesktop";
         }
 
         return "Microsoft.NET.Sdk";
@@ -210,8 +217,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             propertyGroup.Add(new XElement("Nullable", "enable"));
         }
 
-        // For .NET 5+ WPF/WinForms projects
-        if (targetFramework?.StartsWith("net") == true && !targetFramework.Contains("."))
+        // Strong naming properties
+        MigrateStrongNaming(project, propertyGroup);
+
+        // For .NET 5+ WPF/WinForms projects (not .NET Framework)
+        if (targetFramework?.StartsWith("net") == true && 
+            !targetFramework.Contains(".") && 
+            !targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
         {
             var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
             var hasWinFormsItems = project.Items.Any(i => 
@@ -532,6 +544,110 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     element.Add(new XElement(metadata, value));
                 }
+            }
+        }
+    }
+
+    private void MigrateCOMReferences(Project project, XElement projectElement)
+    {
+        var comReferences = project.Items
+            .Where(i => i.ItemType == "COMReference")
+            .ToList();
+
+        if (comReferences.Any())
+        {
+            var itemGroup = new XElement("ItemGroup");
+            
+            foreach (var comRef in comReferences)
+            {
+                var element = new XElement("COMReference",
+                    new XAttribute("Include", comRef.EvaluatedInclude));
+                
+                // Preserve critical COM metadata
+                var comMetadata = new[] 
+                { 
+                    "Guid", "VersionMajor", "VersionMinor", "Lcid", 
+                    "WrapperTool", "Isolated", "EmbedInteropTypes",
+                    "Private", "HintPath"
+                };
+
+                foreach (var metadata in comMetadata)
+                {
+                    if (comRef.HasMetadata(metadata))
+                    {
+                        var value = comRef.GetMetadataValue(metadata);
+                        if (!string.IsNullOrEmpty(value))
+                        {
+                            element.Add(new XElement(metadata, value));
+                        }
+                    }
+                }
+                
+                // Ensure EmbedInteropTypes has a value (defaults differ between legacy and SDK)
+                if (!comRef.HasMetadata("EmbedInteropTypes"))
+                {
+                    // Legacy projects often defaulted to false, SDK projects default to true
+                    // Explicitly set to false to maintain legacy behavior
+                    element.Add(new XElement("EmbedInteropTypes", "false"));
+                }
+                
+                itemGroup.Add(element);
+            }
+            
+            projectElement.Add(itemGroup);
+            _logger.LogInformation("Migrated {Count} COM references", comReferences.Count);
+        }
+    }
+
+    private void MigrateStrongNaming(Project project, XElement propertyGroup)
+    {
+        // Check if assembly signing is enabled
+        var signAssembly = project.Properties
+            .FirstOrDefault(p => p.Name == "SignAssembly")?.EvaluatedValue;
+        
+        if (signAssembly?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            propertyGroup.Add(new XElement("SignAssembly", "true"));
+            
+            // Migrate the key file path
+            var keyFile = project.Properties
+                .FirstOrDefault(p => p.Name == "AssemblyOriginatorKeyFile")?.EvaluatedValue;
+            
+            if (!string.IsNullOrEmpty(keyFile))
+            {
+                // Ensure the path is relative to the project file
+                var projectDir = Path.GetDirectoryName(project.FullPath)!;
+                var keyFilePath = keyFile;
+                
+                // If the key file path is absolute, make it relative
+                if (Path.IsPathRooted(keyFile))
+                {
+                    keyFilePath = Path.GetRelativePath(projectDir, keyFile);
+                }
+                
+                // Verify the key file exists
+                var absoluteKeyPath = Path.GetFullPath(Path.Combine(projectDir, keyFilePath));
+                if (File.Exists(absoluteKeyPath))
+                {
+                    propertyGroup.Add(new XElement("AssemblyOriginatorKeyFile", keyFilePath));
+                    _logger.LogInformation("Migrated strong name key file: {KeyFile}", keyFilePath);
+                }
+                else
+                {
+                    _logger.LogWarning("Strong name key file not found: {KeyFile}", absoluteKeyPath);
+                    // Still add the property to maintain the intent
+                    propertyGroup.Add(new XElement("AssemblyOriginatorKeyFile", keyFilePath));
+                }
+            }
+            
+            // Check for delay signing
+            var delaySign = project.Properties
+                .FirstOrDefault(p => p.Name == "DelaySign")?.EvaluatedValue;
+            
+            if (delaySign?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                propertyGroup.Add(new XElement("DelaySign", "true"));
+                _logger.LogInformation("Preserved DelaySign setting");
             }
         }
     }
