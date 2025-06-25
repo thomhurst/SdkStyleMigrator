@@ -20,6 +20,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IAssemblyInfoExtractor _assemblyInfoExtractor;
     private readonly IAuditService _auditService;
     private readonly IDirectoryBuildPropsReader _directoryBuildPropsReader;
+    private readonly IMSBuildArtifactDetector _artifactDetector;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -28,7 +29,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         ITransitiveDependencyDetector transitiveDepsDetector,
         IAssemblyInfoExtractor assemblyInfoExtractor,
         IAuditService auditService,
-        IDirectoryBuildPropsReader directoryBuildPropsReader)
+        IDirectoryBuildPropsReader directoryBuildPropsReader,
+        IMSBuildArtifactDetector artifactDetector)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -37,6 +39,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _assemblyInfoExtractor = assemblyInfoExtractor;
         _auditService = auditService;
         _directoryBuildPropsReader = directoryBuildPropsReader;
+        _artifactDetector = artifactDetector;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -539,6 +542,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var customItems = project.Items
             .Where(i => !standardTypes.Contains(i.ItemType))
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
+            .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.EvaluatedInclude))
             .GroupBy(i => i.ItemType);
 
         foreach (var group in customItems)

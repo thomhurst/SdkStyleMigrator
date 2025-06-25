@@ -791,6 +791,7 @@ Examples:
         services.AddSingleton<ILocalPackageFilesCleaner, LocalPackageFilesCleaner>();
         services.AddSingleton<ICentralPackageManagementGenerator, CentralPackageManagementGenerator>();
         services.AddSingleton<IPostMigrationValidator, PostMigrationValidator>();
+        services.AddSingleton<IMSBuildArtifactDetector, MSBuildArtifactDetector>();
 
         // Edge case detectors
         services.AddSingleton<ProjectTypeDetector>();

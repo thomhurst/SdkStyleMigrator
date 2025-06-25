@@ -11,11 +11,13 @@ namespace SdkMigrator.Services;
 public class ProjectParser : IProjectParser, IDisposable
 {
     private readonly ILogger<ProjectParser> _logger;
+    private readonly IMSBuildArtifactDetector _artifactDetector;
     private readonly ProjectCollection _projectCollection;
 
-    public ProjectParser(ILogger<ProjectParser> logger)
+    public ProjectParser(ILogger<ProjectParser> logger, IMSBuildArtifactDetector artifactDetector)
     {
         _logger = logger;
+        _artifactDetector = artifactDetector;
         _projectCollection = new ProjectCollection();
     }
 
@@ -199,13 +201,18 @@ public class ProjectParser : IProjectParser, IDisposable
             // Copy only properties that are not MSBuild evaluation artifacts
             foreach (var property in propertyGroup.Elements())
             {
-                if (!LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(property.Name.LocalName))
+                var propertyName = property.Name.LocalName;
+                var propertyValue = property.Value;
+                
+                // Use the artifact detector for more comprehensive filtering
+                if (!_artifactDetector.IsPropertyArtifact(propertyName, propertyValue) &&
+                    !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(propertyName))
                 {
                     filteredPropertyGroup.Add(new XElement(property));
                 }
                 else
                 {
-                    _logger.LogDebug("Filtered out MSBuild evaluation artifact: {PropertyName}", property.Name.LocalName);
+                    _logger.LogDebug("Filtered out MSBuild evaluation artifact property: {PropertyName}", propertyName);
                 }
             }
             
@@ -229,13 +236,18 @@ public class ProjectParser : IProjectParser, IDisposable
             // Copy only items that are not MSBuild evaluation artifacts
             foreach (var item in itemGroup.Elements())
             {
-                if (!LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(item.Name.LocalName))
+                var itemType = item.Name.LocalName;
+                var itemInclude = item.Attribute("Include")?.Value;
+                
+                // Use the artifact detector for more comprehensive filtering
+                if (!_artifactDetector.IsItemArtifact(itemType, itemInclude) &&
+                    !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(itemType))
                 {
                     filteredItemGroup.Add(new XElement(item));
                 }
                 else
                 {
-                    _logger.LogDebug("Filtered out MSBuild evaluation artifact item: {ItemName}", item.Name.LocalName);
+                    _logger.LogDebug("Filtered out MSBuild evaluation artifact item: {ItemType}", itemType);
                 }
             }
             
