@@ -182,7 +182,14 @@ public static class LegacyProjectElements
         "AppConfigFileDestination",
         "CopyUpToDateMarker",
         "_DebugSymbolsIntermediatePath",
-        "_DebugSymbolsOutputPath"
+        "_DebugSymbolsOutputPath",
+        "_ExplicitReference",
+        "PackageConflictOverrides",
+        "DebugSymbolsProjectOutputGroupOutput",
+        "BuiltProjectOutputGroupKeyOutput",
+        "DeployManifest",
+        "_ApplicationManifestFinal",
+        "AppDesigner"
     };
 
     public static readonly HashSet<string> WpfWinFormsItemTypes = new(StringComparer.OrdinalIgnoreCase)
