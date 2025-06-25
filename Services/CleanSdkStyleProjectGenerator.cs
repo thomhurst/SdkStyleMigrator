@@ -18,6 +18,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly ITransitiveDependencyDetector _transitiveDepsDetector;
     private readonly IAssemblyInfoExtractor _assemblyInfoExtractor;
     private readonly IAuditService _auditService;
+    private readonly IDirectoryBuildPropsReader _directoryBuildPropsReader;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -25,7 +26,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         IPackageReferenceMigrator packageMigrator,
         ITransitiveDependencyDetector transitiveDepsDetector,
         IAssemblyInfoExtractor assemblyInfoExtractor,
-        IAuditService auditService)
+        IAuditService auditService,
+        IDirectoryBuildPropsReader directoryBuildPropsReader)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -33,6 +35,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _transitiveDepsDetector = transitiveDepsDetector;
         _assemblyInfoExtractor = assemblyInfoExtractor;
         _auditService = auditService;
+        _directoryBuildPropsReader = directoryBuildPropsReader;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -50,6 +53,16 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             _logger.LogInformation("Generating SDK-style project for: {ProjectPath}", legacyProject.FullPath);
 
+            // Check for inherited properties from Directory.Build.props
+            var inheritedProperties = _directoryBuildPropsReader.GetInheritedProperties(outputPath);
+            var centrallyManagedPackages = _directoryBuildPropsReader.GetCentrallyManagedPackages(outputPath);
+            var hasDirectoryBuildTargets = _directoryBuildPropsReader.HasDirectoryBuildTargets(outputPath);
+
+            if (inheritedProperties.Any())
+            {
+                _logger.LogInformation("Found {Count} inherited properties from Directory.Build.props", inheritedProperties.Count);
+            }
+
             // Create the root project element
             var projectElement = new XElement("Project");
             
@@ -61,14 +74,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var mainPropertyGroup = new XElement("PropertyGroup");
             projectElement.Add(mainPropertyGroup);
 
-            // Migrate basic properties
-            MigrateBasicProperties(legacyProject, mainPropertyGroup);
+            // Migrate basic properties (skip those already in Directory.Build.props)
+            MigrateBasicProperties(legacyProject, mainPropertyGroup, inheritedProperties);
 
             // Handle AssemblyInfo to prevent conflicts
-            HandleAssemblyInfo(legacyProject, mainPropertyGroup);
+            HandleAssemblyInfo(legacyProject, mainPropertyGroup, inheritedProperties);
 
             // Migrate package references
-            await MigratePackageReferencesAsync(legacyProject, projectElement, cancellationToken);
+            await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, cancellationToken);
 
             // Migrate project references
             MigrateProjectReferences(legacyProject, projectElement);
@@ -169,56 +182,61 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return "Microsoft.NET.Sdk";
     }
 
-    private void MigrateBasicProperties(Project project, XElement propertyGroup)
+    private void MigrateBasicProperties(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties)
     {
+        // Helper to add property only if not inherited
+        void AddPropertyIfNotInherited(string name, string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return;
+
+            if (inheritedProperties.TryGetValue(name, out var inheritedValue) && 
+                inheritedValue.Equals(value, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Skipping property {Name}={Value} (inherited from Directory.Build.props)", name, value);
+                return;
+            }
+
+            propertyGroup.Add(new XElement(name, value));
+        }
+
         // Target framework
         var targetFramework = ConvertTargetFramework(project);
-        if (!string.IsNullOrEmpty(targetFramework))
-        {
-            propertyGroup.Add(new XElement("TargetFramework", targetFramework));
-        }
+        AddPropertyIfNotInherited("TargetFramework", targetFramework);
 
         // Output type
         var outputType = project.Properties
             .FirstOrDefault(p => p.Name == "OutputType")?.EvaluatedValue;
-        if (!string.IsNullOrEmpty(outputType))
-        {
-            propertyGroup.Add(new XElement("OutputType", outputType));
-        }
+        AddPropertyIfNotInherited("OutputType", outputType ?? "");
 
         // Assembly name
         var assemblyName = project.Properties
             .FirstOrDefault(p => p.Name == "AssemblyName")?.EvaluatedValue;
-        if (!string.IsNullOrEmpty(assemblyName))
-        {
-            propertyGroup.Add(new XElement("AssemblyName", assemblyName));
-        }
+        AddPropertyIfNotInherited("AssemblyName", assemblyName ?? "");
 
         // Root namespace
         var rootNamespace = project.Properties
             .FirstOrDefault(p => p.Name == "RootNamespace")?.EvaluatedValue;
         if (!string.IsNullOrEmpty(rootNamespace) && rootNamespace != assemblyName)
         {
-            propertyGroup.Add(new XElement("RootNamespace", rootNamespace));
+            AddPropertyIfNotInherited("RootNamespace", rootNamespace);
         }
 
         // Language version
         var langVersion = project.Properties
             .FirstOrDefault(p => p.Name == "LangVersion")?.EvaluatedValue;
-        if (!string.IsNullOrEmpty(langVersion))
-        {
-            propertyGroup.Add(new XElement("LangVersion", langVersion));
-        }
+        AddPropertyIfNotInherited("LangVersion", langVersion ?? "");
 
-        // Nullable
+        // Nullable - only add if not inherited and applicable
         if (targetFramework?.StartsWith("net") == true && 
-            int.TryParse(targetFramework.Substring(3, 1), out var version) && version >= 6)
+            int.TryParse(targetFramework.Substring(3, 1), out var version) && version >= 6 &&
+            !inheritedProperties.ContainsKey("Nullable"))
         {
             propertyGroup.Add(new XElement("Nullable", "enable"));
         }
 
         // Strong naming properties
-        MigrateStrongNaming(project, propertyGroup);
+        MigrateStrongNaming(project, propertyGroup, inheritedProperties);
 
         // For .NET 5+ WPF/WinForms projects (not .NET Framework)
         if (targetFramework?.StartsWith("net") == true && 
@@ -270,7 +288,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return "net8.0";
     }
 
-    private async Task MigratePackageReferencesAsync(Project project, XElement projectElement, CancellationToken cancellationToken)
+    private async Task MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, CancellationToken cancellationToken)
     {
         var packages = await _packageMigrator.MigratePackagesAsync(project, cancellationToken);
 
@@ -281,8 +299,17 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             foreach (var package in packages)
             {
                 var packageRef = new XElement("PackageReference",
-                    new XAttribute("Include", package.PackageId),
-                    new XAttribute("Version", package.Version ?? "*"));
+                    new XAttribute("Include", package.PackageId));
+
+                // Only add version if not centrally managed
+                if (!centrallyManagedPackages.Contains(package.PackageId))
+                {
+                    packageRef.Add(new XAttribute("Version", package.Version ?? "*"));
+                }
+                else
+                {
+                    _logger.LogDebug("Package {PackageId} is centrally managed, omitting version", package.PackageId);
+                }
                 
                 itemGroup.Add(packageRef);
             }
@@ -397,8 +424,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
     }
 
-    private void HandleAssemblyInfo(Project project, XElement propertyGroup)
+    private void HandleAssemblyInfo(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties)
     {
+        // Check if GenerateAssemblyInfo is already set in Directory.Build.props
+        if (inheritedProperties.ContainsKey("GenerateAssemblyInfo"))
+        {
+            _logger.LogDebug("GenerateAssemblyInfo already set in Directory.Build.props");
+            return;
+        }
+
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
         var assemblyInfoPaths = new[] 
         {
@@ -599,7 +633,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
     }
 
-    private void MigrateStrongNaming(Project project, XElement propertyGroup)
+    private void MigrateStrongNaming(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties)
     {
         // Check if assembly signing is enabled
         var signAssembly = project.Properties
@@ -607,13 +641,21 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         
         if (signAssembly?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
         {
-            propertyGroup.Add(new XElement("SignAssembly", "true"));
+            // Only add if not already in Directory.Build.props
+            if (!inheritedProperties.ContainsKey("SignAssembly"))
+            {
+                propertyGroup.Add(new XElement("SignAssembly", "true"));
+            }
+            else
+            {
+                _logger.LogDebug("SignAssembly already set in Directory.Build.props");
+            }
             
             // Migrate the key file path
             var keyFile = project.Properties
                 .FirstOrDefault(p => p.Name == "AssemblyOriginatorKeyFile")?.EvaluatedValue;
             
-            if (!string.IsNullOrEmpty(keyFile))
+            if (!string.IsNullOrEmpty(keyFile) && !inheritedProperties.ContainsKey("AssemblyOriginatorKeyFile"))
             {
                 // Ensure the path is relative to the project file
                 var projectDir = Path.GetDirectoryName(project.FullPath)!;
@@ -644,7 +686,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var delaySign = project.Properties
                 .FirstOrDefault(p => p.Name == "DelaySign")?.EvaluatedValue;
             
-            if (delaySign?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+            if (delaySign?.Equals("true", StringComparison.OrdinalIgnoreCase) == true && 
+                !inheritedProperties.ContainsKey("DelaySign"))
             {
                 propertyGroup.Add(new XElement("DelaySign", "true"));
                 _logger.LogInformation("Preserved DelaySign setting");

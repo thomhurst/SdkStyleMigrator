@@ -54,6 +54,14 @@ Implemented critical edge case handling in `CleanSdkStyleProjectGenerator` to en
 - Preserves `DelaySign` setting when present
 - Prevents FileLoadException for strong-named assemblies
 
+### 8. **Directory.Build.props Awareness** ✅
+- Added `DirectoryBuildPropsReader` service
+- Reads inherited properties from Directory.Build.props hierarchy
+- Prevents duplicating properties already defined in parent files
+- Checks for Directory.Build.targets existence
+- Detects centrally managed packages in Directory.Packages.props
+- Reduces project file verbosity by leveraging inheritance
+
 ## Technical Details
 
 ### Code Structure
@@ -106,6 +114,28 @@ All improvements follow SOLID principles:
 </PropertyGroup>
 ```
 
+### Example: Directory.Build.props Inheritance
+```xml
+<!-- Directory.Build.props at solution root -->
+<Project>
+  <PropertyGroup>
+    <Company>MyCompany</Company>
+    <Product>MyProduct</Product>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)Keys\MyCompany.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+</Project>
+
+<!-- Migrated project file - properties above are NOT duplicated -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>MyProject</AssemblyName>
+    <!-- Company, Product, SignAssembly inherited from Directory.Build.props -->
+  </PropertyGroup>
+</Project>
+```
+
 ## Impact
 These improvements ensure that:
 1. Projects compile exactly as before (no surprise inclusions)
@@ -115,5 +145,7 @@ These improvements ensure that:
 5. File relationships are maintained in the IDE
 6. COM interop continues to function correctly
 7. Strong-named assemblies maintain their signing configuration
+8. Project files are cleaner by leveraging MSBuild property inheritance
+9. Central Package Management is respected when present
 
-The migration tool now handles the vast majority of real-world edge cases while maintaining simplicity.
+The migration tool now handles the vast majority of real-world edge cases while maintaining simplicity and producing clean, maintainable project files.
