@@ -16,8 +16,8 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
     private readonly ProjectCollection _projectCollection;
     
     // Regex patterns for common MSBuild artifact naming conventions
-    private static readonly Regex InternalPropertyPattern = new(@"^(_[A-Z]|MSBuild|DotNet|NET|NuGet)", RegexOptions.Compiled);
-    private static readonly Regex InternalItemPattern = new(@"^(_[A-Z]|MSBuild|DotNet|NET|NuGet)", RegexOptions.Compiled);
+    private static readonly Regex InternalPropertyPattern = new(@"^(_[A-Z]|MSBuild|DotNet|NET|NuGet|Test)", RegexOptions.Compiled);
+    private static readonly Regex InternalItemPattern = new(@"^(_[A-Z]|MSBuild|DotNet|NET|NuGet|Test)", RegexOptions.Compiled);
 
     // Properties that are typically implicit in SDK-style projects
     private static readonly HashSet<string> SdkImplicitProperties = new(StringComparer.OrdinalIgnoreCase)
@@ -84,6 +84,29 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
     {
         if (string.IsNullOrEmpty(itemType))
             return false;
+
+        // Check for specific MSBuild test platform artifacts
+        if (itemType == "TestingPlatformBuilderHook" || itemType == "TestAdapterContent")
+        {
+            _logger.LogDebug("Item type {ItemType} is a test platform artifact", itemType);
+            return true;
+        }
+
+        // Check for None items that point to DLLs in NuGet packages
+        if (itemType == "None" && !string.IsNullOrEmpty(itemInclude))
+        {
+            var normalizedPath = itemInclude.Replace('\\', '/').ToLowerInvariant();
+            
+            // Check if it's a DLL from a packages folder or NuGet cache
+            if (normalizedPath.Contains("/packages/") || 
+                normalizedPath.Contains("/.nuget/") ||
+                normalizedPath.Contains("/nuget/") ||
+                (normalizedPath.EndsWith(".dll") && normalizedPath.Contains("/bin/")))
+            {
+                _logger.LogDebug("None item {ItemInclude} appears to be a NuGet package artifact", itemInclude);
+                return true;
+            }
+        }
 
         // Always preserve important user files, even if they match other patterns
         if (!string.IsNullOrEmpty(itemInclude))
@@ -234,6 +257,25 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
                 else if (InternalItemPattern.IsMatch(item.ItemType))
                 {
                     analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude, "Matches internal naming pattern"));
+                }
+                
+                // 4. Check for specific test platform artifacts
+                else if (item.ItemType == "TestingPlatformBuilderHook" || item.ItemType == "TestAdapterContent")
+                {
+                    analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude, "Test platform artifact"));
+                }
+                
+                // 5. None items pointing to NuGet package DLLs
+                else if (item.ItemType == "None" && !string.IsNullOrEmpty(item.EvaluatedInclude))
+                {
+                    var normalizedPath = item.EvaluatedInclude.Replace('\\', '/').ToLowerInvariant();
+                    if (normalizedPath.Contains("/packages/") || 
+                        normalizedPath.Contains("/.nuget/") ||
+                        normalizedPath.Contains("/nuget/") ||
+                        (normalizedPath.EndsWith(".dll") && normalizedPath.Contains("/bin/")))
+                    {
+                        analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude, "NuGet package artifact"));
+                    }
                 }
             }
         });

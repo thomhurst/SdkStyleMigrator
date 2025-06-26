@@ -189,7 +189,9 @@ public static class LegacyProjectElements
         "BuiltProjectOutputGroupKeyOutput",
         "DeployManifest",
         "_ApplicationManifestFinal",
-        "AppDesigner"
+        "AppDesigner",
+        "TestingPlatformBuilderHook",
+        "TestAdapterContent"
     };
 
     public static readonly HashSet<string> WpfWinFormsItemTypes = new(StringComparer.OrdinalIgnoreCase)

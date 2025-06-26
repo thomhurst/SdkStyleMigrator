@@ -371,6 +371,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     _logger.LogInformation("Successfully cleaned packages folder");
                 }
+                
+                // Clean solution-level GlobalAssemblyInfo files
+                await CleanSolutionLevelAssemblyInfoFilesAsync(directoryPath, backupSession, cancellationToken);
             }
 
             if (projectMappings.Any())
@@ -647,6 +650,126 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
             }
         }
+    }
+
+    private async Task CleanSolutionLevelAssemblyInfoFilesAsync(string solutionDirectory, BackupSession? backupSession, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Cleaning solution-level AssemblyInfo files...");
+        
+        // GlobalAssemblyInfo and SharedAssemblyInfo patterns specifically
+        var solutionLevelPatterns = new[]
+        {
+            "GlobalAssemblyInfo.cs",
+            "GlobalAssemblyInfo.vb",
+            "SharedAssemblyInfo.cs",
+            "SharedAssemblyInfo.vb",
+            "CommonAssemblyInfo.cs",
+            "CommonAssemblyInfo.vb",
+            "SolutionInfo.cs",
+            "SolutionInfo.vb"
+        };
+
+        foreach (var pattern in solutionLevelPatterns)
+        {
+            // Search in solution root and common directories
+            var searchPaths = new[]
+            {
+                solutionDirectory,
+                Path.Combine(solutionDirectory, "src"),
+                Path.Combine(solutionDirectory, "source"),
+                Path.Combine(solutionDirectory, "Solution Items"),
+                Path.Combine(solutionDirectory, "SolutionItems"),
+                Path.Combine(solutionDirectory, "Common"),
+                Path.Combine(solutionDirectory, "Shared")
+            };
+
+            foreach (var searchPath in searchPaths.Where(Directory.Exists))
+            {
+                try
+                {
+                    var files = Directory.GetFiles(searchPath, pattern, SearchOption.TopDirectoryOnly);
+                    foreach (var file in files)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                            break;
+
+                        try
+                        {
+                            // Check if this file is still referenced by any project
+                            if (await IsAssemblyInfoStillReferencedAsync(file, solutionDirectory, cancellationToken))
+                            {
+                                _logger.LogWarning("GlobalAssemblyInfo file {File} is still referenced by projects, skipping removal", file);
+                                continue;
+                            }
+
+                            if (!_options.DryRun)
+                            {
+                                var beforeHash = await FileHashCalculator.CalculateHashAsync(file, cancellationToken);
+                                var fileSize = new FileInfo(file).Length;
+
+                                if (_options.CreateBackup && backupSession != null)
+                                {
+                                    await _backupService.BackupFileAsync(backupSession, file, cancellationToken);
+                                }
+
+                                File.Delete(file);
+
+                                // Audit the file deletion
+                                await _auditService.LogFileDeletionAsync(new FileDeletionAudit
+                                {
+                                    FilePath = file,
+                                    BeforeHash = beforeHash,
+                                    FileSize = fileSize,
+                                    DeletionReason = "Solution-level AssemblyInfo no longer needed with SDK-style projects"
+                                }, cancellationToken);
+
+                                _logger.LogInformation("Removed solution-level AssemblyInfo file: {File}", file);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("[DRY RUN] Would remove solution-level AssemblyInfo file: {File}", file);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to remove solution-level AssemblyInfo file: {File}", file);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to search for AssemblyInfo files in: {Path}", searchPath);
+                }
+            }
+        }
+    }
+
+    private async Task<bool> IsAssemblyInfoStillReferencedAsync(string assemblyInfoFile, string solutionDirectory, CancellationToken cancellationToken)
+    {
+        // Check if any .csproj files still reference this assembly info file
+        var projectFiles = await _projectFileScanner.ScanForProjectFilesAsync(solutionDirectory, cancellationToken);
+        var relativePath = Path.GetRelativePath(solutionDirectory, assemblyInfoFile);
+        
+        foreach (var projectFile in projectFiles)
+        {
+            try
+            {
+                var content = await File.ReadAllTextAsync(projectFile, cancellationToken);
+                // Check for both Compile Include and Link references
+                if (content.Contains(assemblyInfoFile, StringComparison.OrdinalIgnoreCase) ||
+                    content.Contains(relativePath, StringComparison.OrdinalIgnoreCase) ||
+                    content.Contains(Path.GetFileName(assemblyInfoFile), StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to check project {Project} for AssemblyInfo references", projectFile);
+            }
+        }
+        
+        return false;
     }
 
     private async Task HandleAppConfigFileAsync(string projectDirectory, MigrationResult result, CancellationToken cancellationToken)

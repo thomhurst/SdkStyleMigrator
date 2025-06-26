@@ -376,6 +376,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                        i.EvaluatedInclude.Contains("*") ||
                        i.HasMetadata("Link") ||
                        i.HasMetadata("DependentUpon"))
+            .Where(i => !IsAssemblyInfoFile(i.EvaluatedInclude)) // Exclude AssemblyInfo files
             .ToList();
 
         if (compileItems.Any())
@@ -394,6 +395,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             projectElement.Add(itemGroup);
         }
     }
+    
+    private bool IsAssemblyInfoFile(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        return LegacyProjectElements.AssemblyInfoFilePatterns
+            .Any(pattern => fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
+    }
 
     private void MigrateContentAndResources(Project project, XElement projectElement)
     {
@@ -401,6 +409,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             .Where(i => i.ItemType == "Content" || 
                        i.ItemType == "None" ||
                        i.ItemType == "EmbeddedResource")
+            .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.EvaluatedInclude)) // Filter out MSBuild artifacts
             .ToList();
 
         if (contentItems.Any())
