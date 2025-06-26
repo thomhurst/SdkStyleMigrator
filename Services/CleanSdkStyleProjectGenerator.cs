@@ -406,18 +406,93 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (contentItems.Any())
         {
             var itemGroup = new XElement("ItemGroup");
+            var removeItemGroup = new XElement("ItemGroup");
+            var hasItems = false;
+            var hasRemoveItems = false;
             
             foreach (var item in contentItems)
             {
-                var element = new XElement(item.ItemType,
-                    new XAttribute("Include", item.EvaluatedInclude));
-                
-                PreserveMetadata(item, element);
-                itemGroup.Add(element);
+                // Check if this file is automatically included by the SDK
+                if (IsAutomaticallyIncludedBySdk(item))
+                {
+                    // Check if the item has custom metadata that needs to be preserved
+                    if (HasCustomMetadata(item))
+                    {
+                        // We need to remove the auto-included version and re-add with metadata
+                        var removeElement = new XElement(item.ItemType,
+                            new XAttribute("Remove", item.EvaluatedInclude));
+                        removeItemGroup.Add(removeElement);
+                        hasRemoveItems = true;
+                        
+                        // Now add it back with the custom metadata
+                        var element = new XElement(item.ItemType,
+                            new XAttribute("Include", item.EvaluatedInclude));
+                        PreserveMetadata(item, element);
+                        itemGroup.Add(element);
+                        hasItems = true;
+                        
+                        _logger.LogDebug("Removing and re-adding SDK-default file with custom metadata: {File}", item.EvaluatedInclude);
+                    }
+                    else
+                    {
+                        // Skip entirely - SDK will handle it
+                        _logger.LogDebug("Skipping SDK-default content file: {File}", item.EvaluatedInclude);
+                    }
+                }
+                else
+                {
+                    // Not auto-included, so we need to explicitly include it
+                    var element = new XElement(item.ItemType,
+                        new XAttribute("Include", item.EvaluatedInclude));
+                    
+                    PreserveMetadata(item, element);
+                    itemGroup.Add(element);
+                    hasItems = true;
+                }
             }
             
-            projectElement.Add(itemGroup);
+            // Add Remove items first if any
+            if (hasRemoveItems)
+            {
+                projectElement.Add(removeItemGroup);
+            }
+            
+            // Then add Include items
+            if (hasItems)
+            {
+                projectElement.Add(itemGroup);
+            }
         }
+    }
+    
+    private bool HasCustomMetadata(ProjectItem item)
+    {
+        // List of metadata that indicates custom behavior
+        var customMetadata = new[]
+        {
+            "CopyToOutputDirectory",
+            "CopyToPublishDirectory", 
+            "Link",
+            "DependentUpon",
+            "Generator",
+            "LastGenOutput",
+            "CustomToolNamespace",
+            "SubType",
+            "DesignTime",
+            "AutoGen",
+            "DesignTimeSharedInput",
+            "Private"
+        };
+        
+        foreach (var metadata in customMetadata)
+        {
+            if (item.HasMetadata(metadata) && !string.IsNullOrEmpty(item.GetMetadataValue(metadata)))
+            {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     private void MigrateCustomTargets(Project project, XElement projectElement)
@@ -723,5 +798,104 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 _logger.LogInformation("Preserved DelaySign setting");
             }
         }
+    }
+
+    private bool IsAutomaticallyIncludedBySdk(ProjectItem item)
+    {
+        var fileName = Path.GetFileName(item.EvaluatedInclude);
+        var extension = Path.GetExtension(item.EvaluatedInclude)?.ToLowerInvariant();
+        var fileNameLower = fileName?.ToLowerInvariant();
+        
+        // SDK automatically includes certain files as Content
+        if (item.ItemType == "Content")
+        {
+            // Check if this is likely a web project (will use Web SDK)
+            var project = item.Project;
+            var projectTypeGuids = project.Properties
+                .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
+            var isWebProject = projectTypeGuids?.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase) ?? false;
+            
+            if (isWebProject)
+            {
+                // Web SDK auto-includes these patterns
+                var webSdkPatterns = new[]
+                {
+                    "wwwroot/**/*",
+                    "Areas/**/*.cshtml",
+                    "Areas/**/*.razor",
+                    "Views/**/*.cshtml",
+                    "Views/**/*.razor",
+                    "Pages/**/*.cshtml",
+                    "Pages/**/*.razor",
+                    "appsettings.json",
+                    "appsettings.*.json",
+                    "web.config"
+                };
+                
+                foreach (var pattern in webSdkPatterns)
+                {
+                    if (IsMatchingPattern(item.EvaluatedInclude, pattern))
+                    {
+                        return true;
+                    }
+                }
+            }
+            
+            // Check for specific file patterns that are auto-included by all SDKs
+            if (fileName != null)
+            {
+                // These files are auto-included as Content by Microsoft.NET.Sdk
+                if (fileNameLower == "app.config" || fileNameLower == "packages.config")
+                {
+                    return true;
+                }
+            }
+        }
+        
+        // SDK automatically includes .resx files as EmbeddedResource
+        if (item.ItemType == "EmbeddedResource" && extension == ".resx")
+        {
+            // Only if it doesn't have custom metadata
+            if (!item.HasMetadata("Generator") && !item.HasMetadata("LastGenOutput"))
+            {
+                return true;
+            }
+        }
+        
+        // None items that are auto-included by SDK
+        if (item.ItemType == "None")
+        {
+            // Check for files that SDK includes as None by default
+            if (fileName != null)
+            {
+                // .config files (except app.config which is Content)
+                if (extension == ".config" && fileNameLower != "app.config" && fileNameLower != "web.config")
+                {
+                    return true;
+                }
+                
+                // .json files (except appsettings which are Content in web projects)
+                if (extension == ".json" && fileNameLower != null && !fileNameLower.StartsWith("appsettings"))
+                {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    private bool IsMatchingPattern(string path, string pattern)
+    {
+        // Convert pattern to regex
+        var regexPattern = pattern
+            .Replace("\\", "/")
+            .Replace(".", "\\.")
+            .Replace("**", ".*")
+            .Replace("*", "[^/]*");
+        
+        var normalizedPath = path.Replace("\\", "/");
+        return System.Text.RegularExpressions.Regex.IsMatch(normalizedPath, $"^{regexPattern}$", 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 }
