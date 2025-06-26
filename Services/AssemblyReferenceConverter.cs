@@ -11,6 +11,95 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     private readonly PackageAssemblyResolver _packageAssemblyResolver;
     private readonly INuGetPackageResolver _nugetResolver;
 
+    // Standard .NET Framework references that should not be converted to packages
+    private static readonly HashSet<string> BuiltInFrameworkAssemblies = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mscorlib",
+        "System",
+        "System.Core",
+        "System.Data",
+        "System.Data.DataSetExtensions",
+        "System.Deployment",
+        "System.Design",
+        "System.DirectoryServices",
+        "System.Drawing",
+        "System.Drawing.Design",
+        "System.EnterpriseServices",
+        "System.Management",
+        "System.Messaging",
+        "System.Runtime.Remoting",
+        "System.Runtime.Serialization",
+        "System.Runtime.Serialization.Formatters.Soap",
+        "System.Security",
+        "System.ServiceModel",
+        "System.ServiceModel.Web",
+        "System.ServiceProcess",
+        "System.Transactions",
+        "System.Web",
+        "System.Web.Extensions",
+        "System.Web.Extensions.Design",
+        "System.Web.Mobile",
+        "System.Web.RegularExpressions",
+        "System.Web.Services",
+        "System.Windows.Forms",
+        "System.Xml",
+        "System.Xml.Linq",
+        "System.ComponentModel.Composition",
+        "System.ComponentModel.DataAnnotations",
+        "System.Net",
+        "System.Net.Http",
+        "System.Numerics",
+        "System.IO.Compression",
+        "System.IO.Compression.FileSystem",
+        "System.Runtime.Caching",
+        "System.Runtime.DurableInstancing",
+        "System.ServiceModel.Activation",
+        "System.ServiceModel.Activities",
+        "System.ServiceModel.Channels",
+        "System.ServiceModel.Discovery",
+        "System.ServiceModel.Routing",
+        "System.Speech",
+        "System.Threading.Tasks.Dataflow",
+        "System.Web.Abstractions",
+        "System.Web.ApplicationServices",
+        "System.Web.DataVisualization",
+        "System.Web.DynamicData",
+        "System.Web.Entity",
+        "System.Web.Entity.Design",
+        "System.Web.Routing",
+        "System.Windows",
+        "System.Workflow.Activities",
+        "System.Workflow.ComponentModel",
+        "System.Workflow.Runtime",
+        "System.WorkflowServices",
+        "System.Xaml",
+        "Microsoft.Build",
+        "Microsoft.Build.Engine",
+        "Microsoft.Build.Framework",
+        "Microsoft.Build.Tasks.Core",
+        "Microsoft.Build.Utilities.Core",
+        "Microsoft.CSharp",
+        "Microsoft.JScript",
+        "Microsoft.VisualBasic",
+        "Microsoft.VisualBasic.Compatibility",
+        "Microsoft.VisualBasic.Compatibility.Data",
+        "Microsoft.VisualC",
+        "WindowsBase",
+        "PresentationCore",
+        "PresentationFramework",
+        "PresentationFramework.Aero",
+        "PresentationFramework.Classic",
+        "PresentationFramework.Luna",
+        "PresentationFramework.Royale",
+        "ReachFramework",
+        "System.Printing",
+        "UIAutomationClient",
+        "UIAutomationClientsideProviders",
+        "UIAutomationProvider",
+        "UIAutomationTypes",
+        "WindowsFormsIntegration"
+    };
+
     public AssemblyReferenceConverter(
         ILogger<AssemblyReferenceConverter> logger, 
         PackageAssemblyResolver packageAssemblyResolver,
@@ -28,15 +117,20 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     {
         var detectedPackageReferences = new HashSet<PackageReference>(new PackageReferenceComparer());
 
-        var legacyReferences = legacyProject.Items
+        // Get all references
+        var allReferences = legacyProject.Items
             .Where(i => i.ItemType == "Reference")
-            .Where(i => !i.HasMetadata("HintPath")) // Skip GAC/framework references that don't have hint paths to packages
             .ToList();
 
-        _logger.LogDebug("Found {Count} legacy assembly references to analyze for target framework {TargetFramework}", 
-            legacyReferences.Count, targetFramework);
+        // Separate references with HintPath (package references) and without (framework/GAC references)
+        var packageReferences = allReferences.Where(i => i.HasMetadata("HintPath")).ToList();
+        var frameworkReferences = allReferences.Where(i => !i.HasMetadata("HintPath")).ToList();
 
-        foreach (var referenceItem in legacyReferences)
+        _logger.LogDebug("Found {PackageCount} package references and {FrameworkCount} framework references for target framework {TargetFramework}", 
+            packageReferences.Count, frameworkReferences.Count, targetFramework);
+
+        // Process package references (those with HintPath)
+        foreach (var referenceItem in packageReferences)
         {
             var assemblyName = ExtractAssemblyName(referenceItem.EvaluatedInclude);
             
@@ -64,9 +158,49 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             }
             else
             {
-                _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. It might be built-in, a local DLL, or require manual handling.", 
+                _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. It might be a local DLL or require manual handling.", 
                     assemblyName, targetFramework);
             }
+        }
+
+        // Process framework references only for .NET Core/.NET 5+ targets
+        // For .NET Framework targets, these remain as implicit references
+        var isNetFrameworkTarget = targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase) || 
+                                   targetFramework.Equals("net35", StringComparison.OrdinalIgnoreCase) ||
+                                   targetFramework.Equals("net20", StringComparison.OrdinalIgnoreCase);
+
+        if (!isNetFrameworkTarget)
+        {
+            foreach (var referenceItem in frameworkReferences)
+            {
+                var assemblyName = ExtractAssemblyName(referenceItem.EvaluatedInclude);
+                
+                // Skip built-in framework assemblies that are available in all .NET versions
+                if (IsBuiltInFrameworkAssembly(assemblyName))
+                {
+                    _logger.LogDebug("Skipping built-in framework reference '{Assembly}' for TFM '{TargetFramework}'", 
+                        assemblyName, targetFramework);
+                    continue;
+                }
+
+                // Try to find a package for framework assemblies that need explicit packages in .NET Core/.NET 5+
+                var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyName, targetFramework, cancellationToken);
+                if (packageFromResolver != null)
+                {
+                    detectedPackageReferences.Add(packageFromResolver);
+                    _logger.LogInformation("Framework reference '{Assembly}' requires package '{PackageId}' for TFM '{TargetFramework}'", 
+                        assemblyName, packageFromResolver.PackageId, targetFramework);
+                }
+                else
+                {
+                    _logger.LogDebug("Framework reference '{Assembly}' does not require a package for TFM '{TargetFramework}'", 
+                        assemblyName, targetFramework);
+                }
+            }
+        }
+        else
+        {
+            _logger.LogDebug("Target framework {TargetFramework} is .NET Framework - skipping framework reference conversion", targetFramework);
         }
 
         _logger.LogInformation("Converted {Count} assembly references to package references for target framework {TargetFramework}", 
@@ -83,6 +217,14 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         // Handle cases like "System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a"
         var commaIndex = referenceInclude.IndexOf(',');
         return commaIndex > 0 ? referenceInclude.Substring(0, commaIndex).Trim() : referenceInclude.Trim();
+    }
+
+    /// <summary>
+    /// Checks if an assembly is a built-in .NET Framework assembly that should not be converted to a package reference.
+    /// </summary>
+    private static bool IsBuiltInFrameworkAssembly(string assemblyName)
+    {
+        return BuiltInFrameworkAssemblies.Contains(assemblyName);
     }
 
     /// <summary>
