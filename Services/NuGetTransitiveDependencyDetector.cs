@@ -20,6 +20,10 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
     private readonly ISettings _settings;
     private readonly List<SourceRepository> _repositories;
     private bool _disposed;
+    
+    // Caches for performance optimization
+    private readonly Dictionary<string, NuGetVersion?> _versionCache = new();
+    private readonly Dictionary<string, HashSet<PackageIdentity>> _dependencyCache = new();
 
     // Essential packages that should never be marked as transitive
     private readonly HashSet<string> _essentialPackages = new(StringComparer.OrdinalIgnoreCase)
@@ -159,6 +163,14 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
 
     private async Task<NuGetVersion?> GetLatestVersionFromNuGetAsync(string packageId, CancellationToken cancellationToken)
     {
+        // Check cache first
+        var cacheKey = $"latest:{packageId}";
+        if (_versionCache.TryGetValue(cacheKey, out var cachedVersion))
+        {
+            _logger.LogDebug("Using cached latest version for {PackageId}: {Version}", packageId, cachedVersion);
+            return cachedVersion;
+        }
+
         try
         {
             foreach (var repository in _repositories)
@@ -173,7 +185,11 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
                     {
                         // Get the latest stable version, or latest pre-release if no stable versions
                         var latestStable = versions.Where(v => !v.IsPrerelease).OrderByDescending(v => v).FirstOrDefault();
-                        return latestStable ?? versions.OrderByDescending(v => v).First();
+                        var result = latestStable ?? versions.OrderByDescending(v => v).First();
+                        
+                        // Cache the result
+                        _versionCache[cacheKey] = result;
+                        return result;
                     }
                 }
                 catch (Exception ex)
@@ -188,6 +204,8 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             _logger.LogWarning(ex, "Error getting latest version for {PackageId} from NuGet", packageId);
         }
 
+        // Cache null result to avoid repeated failed lookups
+        _versionCache[cacheKey] = null;
         return null;
     }
 
@@ -337,6 +355,14 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         NuGetFramework framework,
         CancellationToken cancellationToken)
     {
+        // Create cache key
+        var cacheKey = $"{packageId}:{version}:{framework}";
+        if (_dependencyCache.TryGetValue(cacheKey, out var cachedDependencies))
+        {
+            _logger.LogDebug("Using cached dependencies for {PackageId} {Version}", packageId, version);
+            return new HashSet<PackageIdentity>(cachedDependencies);
+        }
+
         var dependencies = new HashSet<PackageIdentity>();
         NuGetVersion? nugetVersion;
         if (NuGetVersion.TryParse(version, out var parsed))
@@ -347,6 +373,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         {
             _logger.LogWarning("Cannot get dependencies for {PackageId} with unparseable version: {Version}",
                 packageId, version);
+            _dependencyCache[cacheKey] = dependencies;
             return dependencies;
         }
 
@@ -385,6 +412,8 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
             }
         }
 
+        // Cache the result
+        _dependencyCache[cacheKey] = new HashSet<PackageIdentity>(dependencies);
         return dependencies;
     }
 

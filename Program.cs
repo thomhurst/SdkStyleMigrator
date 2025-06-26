@@ -760,6 +760,7 @@ Examples:
         services.AddSingleton<ProjectParser>();
         services.AddSingleton<IProjectParser>(provider => provider.GetRequiredService<ProjectParser>());
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();
+        // Register as singleton to maintain caches across multiple operations
         services.AddSingleton<ITransitiveDependencyDetector, NuGetTransitiveDependencyDetector>();
 
         // Register package resolver based on offline mode
@@ -845,41 +846,99 @@ Examples:
             var totalRemoved = 0;
             var failedProjects = 0;
 
-            foreach (var projectPath in sdkStyleProjects)
+            // Process projects in parallel if requested
+            if (options.MaxDegreeOfParallelism > 1)
             {
-                try
+                logger.LogInformation("Processing projects in parallel with max degree of parallelism: {MaxDegree}", options.MaxDegreeOfParallelism);
+                
+                var semaphore = new SemaphoreSlim(options.MaxDegreeOfParallelism);
+                var processedCount = 0;
+                var lockObj = new object();
+                
+                var tasks = sdkStyleProjects.Select(async projectPath =>
                 {
-                    logger.LogInformation("Processing: {Project}", Path.GetFileName(projectPath));
-
-                    var result = await CleanProjectDependenciesAsync(
-                        projectPath,
-                        transitiveDepsService,
-                        backupService,
-                        options,
-                        logger);
-
-                    if (result.Success)
+                    await semaphore.WaitAsync();
+                    try
                     {
-                        totalRemoved += result.RemovedCount;
-                        if (result.RemovedCount > 0)
+                        logger.LogInformation("Processing: {Project}", Path.GetFileName(projectPath));
+
+                        var result = await CleanProjectDependenciesAsync(
+                            projectPath,
+                            transitiveDepsService,
+                            backupService,
+                            options,
+                            logger);
+
+                        lock (lockObj)
                         {
-                            logger.LogInformation("  Removed {Count} transitive dependencies", result.RemovedCount);
+                            processedCount++;
+                            if (result.Success)
+                            {
+                                totalRemoved += result.RemovedCount;
+                                if (result.RemovedCount > 0)
+                                {
+                                    logger.LogInformation("Removed {Count} transitive dependencies from {Project}",
+                                        result.RemovedCount, Path.GetFileName(projectPath));
+                                }
+                            }
+                            else
+                            {
+                                failedProjects++;
+                                logger.LogError("Failed to process {Project}: {Error}",
+                                    Path.GetFileName(projectPath), result.Error);
+                            }
+                            
+                            logger.LogInformation("Progress: {Processed}/{Total} projects processed",
+                                processedCount, sdkStyleProjects.Count);
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }).ToArray();
+                
+                await Task.WhenAll(tasks);
+            }
+            else
+            {
+                // Sequential processing (original code)
+                foreach (var projectPath in sdkStyleProjects)
+                {
+                    try
+                    {
+                        logger.LogInformation("Processing: {Project}", Path.GetFileName(projectPath));
+
+                        var result = await CleanProjectDependenciesAsync(
+                            projectPath,
+                            transitiveDepsService,
+                            backupService,
+                            options,
+                            logger);
+
+                        if (result.Success)
+                        {
+                            totalRemoved += result.RemovedCount;
+                            if (result.RemovedCount > 0)
+                            {
+                                logger.LogInformation("  Removed {Count} transitive dependencies", result.RemovedCount);
+                            }
+                            else
+                            {
+                                logger.LogInformation("  No transitive dependencies found");
+                            }
                         }
                         else
                         {
-                            logger.LogInformation("  No transitive dependencies found");
+                            failedProjects++;
+                            logger.LogError("  Failed: {Error}", result.Error);
                         }
                     }
-                    else
+                    catch (Exception ex)
                     {
                         failedProjects++;
-                        logger.LogError("  Failed: {Error}", result.Error);
+                        logger.LogError(ex, "Error processing {Project}", projectPath);
                     }
-                }
-                catch (Exception ex)
-                {
-                    failedProjects++;
-                    logger.LogError(ex, "Error processing {Project}", projectPath);
                 }
             }
 
