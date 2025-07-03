@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NuGet.Packaging.Core;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
@@ -72,6 +73,14 @@ class Program
             aliases: new[] { "--nuget-config", "-n" },
             description: "Path to a specific NuGet.config file to use for package sources");
 
+        var disableCacheOption = new Option<bool>(
+            aliases: new[] { "--no-cache" },
+            description: "Disable package version caching");
+
+        var cacheTTLOption = new Option<int?>(
+            aliases: new[] { "--cache-ttl" },
+            description: "Cache time-to-live in minutes (default: 60)");
+
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
         rootCommand.AddOption(dryRunOption);
@@ -85,6 +94,8 @@ class Program
         rootCommand.AddOption(logLevelOption);
         rootCommand.AddOption(offlineOption);
         rootCommand.AddOption(nugetConfigOption);
+        rootCommand.AddOption(disableCacheOption);
+        rootCommand.AddOption(cacheTTLOption);
 
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
@@ -325,7 +336,9 @@ class Program
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
                 LogLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information",
                 UseOfflineMode = context.ParseResult.GetValueForOption(offlineOption),
-                NuGetConfigPath = context.ParseResult.GetValueForOption(nugetConfigOption)
+                NuGetConfigPath = context.ParseResult.GetValueForOption(nugetConfigOption),
+                DisableCache = context.ParseResult.GetValueForOption(disableCacheOption),
+                CacheTTLMinutes = context.ParseResult.GetValueForOption(cacheTTLOption)
             };
 
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
@@ -761,7 +774,22 @@ Examples:
         services.AddSingleton<IProjectParser>(provider => provider.GetRequiredService<ProjectParser>());
         services.AddSingleton<IPackageReferenceMigrator, PackageReferenceMigrator>();
         // Register as singleton to maintain caches across multiple operations
-        services.AddSingleton<ITransitiveDependencyDetector, NuGetTransitiveDependencyDetector>();
+        services.AddSingleton<NuGetTransitiveDependencyDetector>();
+        services.AddSingleton<ITransitiveDependencyDetector>(provider =>
+        {
+            var innerDetector = provider.GetRequiredService<NuGetTransitiveDependencyDetector>();
+            var cache = provider.GetRequiredService<IPackageVersionCache>();
+            var logger = provider.GetRequiredService<ILogger<CachedNuGetTransitiveDependencyDetector>>();
+            return new CachedNuGetTransitiveDependencyDetector(innerDetector, cache, logger);
+        });
+
+        // Register package caching
+        services.Configure<PackageCacheOptions>(opt =>
+        {
+            opt.EnableCaching = !options.DisableCache;
+            opt.CacheTTLMinutes = options.CacheTTLMinutes ?? 60;
+        });
+        services.AddSingleton<IPackageVersionCache, MemoryPackageVersionCache>();
 
         // Register package resolver based on offline mode
         if (options.UseOfflineMode)
@@ -770,7 +798,17 @@ Examples:
         }
         else
         {
-            services.AddSingleton<INuGetPackageResolver, NuGetPackageResolver>();
+            // Register the actual resolver
+            services.AddSingleton<NuGetPackageResolver>();
+            
+            // Register the cached decorator
+            services.AddSingleton<INuGetPackageResolver>(provider =>
+            {
+                var innerResolver = provider.GetRequiredService<NuGetPackageResolver>();
+                var cache = provider.GetRequiredService<IPackageVersionCache>();
+                var logger = provider.GetRequiredService<ILogger<CachedNuGetPackageResolver>>();
+                return new CachedNuGetPackageResolver(innerResolver, cache, logger);
+            });
         }
 
         services.AddSingleton<INuSpecExtractor, NuSpecExtractor>();
@@ -809,7 +847,43 @@ Examples:
         services.AddSingleton<NuGetAssetsResolver>();
         services.AddSingleton<IAssemblyReferenceConverter, AssemblyReferenceConverter>();
 
-        services.AddSingleton<IMigrationOrchestrator, MigrationOrchestrator>();
+        services.AddSingleton<IMigrationOrchestrator>(provider =>
+        {
+            var logger = provider.GetRequiredService<ILogger<MigrationOrchestrator>>();
+            var projectFileScanner = provider.GetRequiredService<IProjectFileScanner>();
+            var projectParser = provider.GetRequiredService<IProjectParser>();
+            var sdkStyleProjectGenerator = provider.GetRequiredService<ISdkStyleProjectGenerator>();
+            var assemblyInfoExtractor = provider.GetRequiredService<IAssemblyInfoExtractor>();
+            var directoryBuildPropsGenerator = provider.GetRequiredService<IDirectoryBuildPropsGenerator>();
+            var solutionFileUpdater = provider.GetRequiredService<ISolutionFileUpdater>();
+            var backupService = provider.GetRequiredService<IBackupService>();
+            var lockService = provider.GetRequiredService<ILockService>();
+            var auditService = provider.GetRequiredService<IAuditService>();
+            var localPackageFilesCleaner = provider.GetRequiredService<ILocalPackageFilesCleaner>();
+            var centralPackageManagementGenerator = provider.GetRequiredService<ICentralPackageManagementGenerator>();
+            var postMigrationValidator = provider.GetRequiredService<IPostMigrationValidator>();
+            var migrationAnalyzer = provider.GetRequiredService<IMigrationAnalyzer>();
+            var options = provider.GetRequiredService<MigrationOptions>();
+            var packageCache = provider.GetService<IPackageVersionCache>();
+            
+            return new MigrationOrchestrator(
+                logger,
+                projectFileScanner,
+                projectParser,
+                sdkStyleProjectGenerator,
+                assemblyInfoExtractor,
+                directoryBuildPropsGenerator,
+                solutionFileUpdater,
+                backupService,
+                lockService,
+                auditService,
+                localPackageFilesCleaner,
+                centralPackageManagementGenerator,
+                postMigrationValidator,
+                migrationAnalyzer,
+                options,
+                packageCache);
+        });
     }
 
     static async Task<int> RunCleanDeps(MigrationOptions options)

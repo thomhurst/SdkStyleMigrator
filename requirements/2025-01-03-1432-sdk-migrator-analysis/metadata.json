@@ -1,0 +1,25 @@
+{
+  "id": "sdk-migrator-analysis",
+  "started": "2025-01-03T14:32:00Z",
+  "lastUpdated": "2025-01-03T14:42:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [
+    "Services/CleanSdkStyleProjectGenerator.cs",
+    "Services/LegacyProjectElements.cs",
+    "Services/ProjectTypeDetector.cs",
+    "Services/BuildEventMigrator.cs",
+    "Models/MigrationOptions.cs"
+  ],
+  "relatedFeatures": [
+    "Custom MSBuild imports",
+    "Multi-targeting support",
+    "SDK type detection",
+    "Code analysis migration",
+    "Performance optimization"
+  ]
+}

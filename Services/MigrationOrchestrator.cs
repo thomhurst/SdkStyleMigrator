@@ -23,6 +23,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IPostMigrationValidator _postMigrationValidator;
     private readonly IMigrationAnalyzer _migrationAnalyzer;
     private readonly MigrationOptions _options;
+    private readonly IPackageVersionCache? _packageCache;
 
     public MigrationOrchestrator(
         ILogger<MigrationOrchestrator> logger,
@@ -39,7 +40,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         ICentralPackageManagementGenerator centralPackageManagementGenerator,
         IPostMigrationValidator postMigrationValidator,
         IMigrationAnalyzer migrationAnalyzer,
-        MigrationOptions options)
+        MigrationOptions options,
+        IPackageVersionCache? packageCache = null)
     {
         _logger = logger;
         _projectFileScanner = projectFileScanner;
@@ -56,6 +58,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _postMigrationValidator = postMigrationValidator;
         _migrationAnalyzer = migrationAnalyzer;
         _options = options;
+        _packageCache = packageCache;
     }
 
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
@@ -461,6 +464,17 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (lockAcquired)
             {
                 await _lockService.ReleaseLockAsync(cancellationToken);
+            }
+
+            // Log cache statistics if available
+            if (_packageCache != null && !_options.DisableCache)
+            {
+                var stats = _packageCache.GetStatistics();
+                _logger.LogInformation(
+                    "Package cache statistics - Total entries: {TotalEntries}, Hit rate: {HitRate:F1}%, " +
+                    "Version hits: {VersionHits}, Resolution hits: {ResolutionHits}, Dependency hits: {DependencyHits}",
+                    stats.TotalEntries, stats.HitRate, stats.VersionCacheHits, 
+                    stats.ResolutionCacheHits, stats.DependencyCacheHits);
             }
         }
 
