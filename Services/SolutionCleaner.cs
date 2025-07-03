@@ -11,7 +11,7 @@ public class SolutionCleaner : ISolutionCleaner
 {
     private readonly ILogger<SolutionCleaner> _logger;
     private readonly IBackupService _backupService;
-    
+
     // Known .NET project type GUIDs that are considered "standard"
     private static readonly HashSet<string> StandardProjectTypeGuids = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -58,7 +58,7 @@ public class SolutionCleaner : ISolutionCleaner
     }
 
     public async Task<SolutionCleanResult> CleanSolutionAsync(
-        string solutionPath, 
+        string solutionPath,
         SolutionCleanOptions options,
         CancellationToken cancellationToken = default)
     {
@@ -161,11 +161,11 @@ public class SolutionCleaner : ISolutionCleaner
     private Dictionary<string, string> ParseProjectTypeGuids(string solutionContent)
     {
         var projectInfos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        
+
         // Pattern to match project entries
         var projectPattern = @"Project\(""({[^}]+})""\)\s*=\s*""[^""]+"",\s*""[^""]+"",\s*""({[^}]+})""";
         var matches = Regex.Matches(solutionContent, projectPattern);
-        
+
         foreach (Match match in matches)
         {
             if (match.Groups.Count >= 3)
@@ -175,7 +175,7 @@ public class SolutionCleaner : ISolutionCleaner
                 projectInfos[projectGuid] = typeGuid;
             }
         }
-        
+
         return projectInfos;
     }
 
@@ -191,7 +191,7 @@ public class SolutionCleaner : ISolutionCleaner
                 continue;
 
             var absolutePath = Path.GetFullPath(Path.Combine(solutionDir, project.RelativePath));
-            
+
             if (!File.Exists(absolutePath))
             {
                 _logger.LogWarning("Project file not found: {ProjectPath}", absolutePath);
@@ -212,11 +212,11 @@ public class SolutionCleaner : ISolutionCleaner
         }
 
         result.ProjectsRemoved = projectsToRemove.Count;
-        
+
         if (projectsToRemove.Count > 0)
         {
-            _logger.LogInformation("{Action} {Count} missing project(s)", 
-                dryRun ? "[DRY RUN] Would remove" : "Removed", 
+            _logger.LogInformation("{Action} {Count} missing project(s)",
+                dryRun ? "[DRY RUN] Would remove" : "Removed",
                 projectsToRemove.Count);
         }
 
@@ -232,10 +232,10 @@ public class SolutionCleaner : ISolutionCleaner
         foreach (var project in solution.ProjectsInOrder)
         {
             var key = project.AbsolutePath.ToLowerInvariant();
-            
+
             if (seen.ContainsKey(key))
             {
-                _logger.LogWarning("Duplicate project found: {ProjectName} at {Path}", 
+                _logger.LogWarning("Duplicate project found: {ProjectName} at {Path}",
                     project.ProjectName, project.RelativePath);
                 duplicates.Add(project);
                 result.RemovedDuplicates.Add($"{project.ProjectName} ({project.RelativePath})");
@@ -251,7 +251,7 @@ public class SolutionCleaner : ISolutionCleaner
         {
             // Find and remove the duplicate project entry (not the first one)
             var projectPattern = $@"Project\(""[^""]+""\)\s*=\s*""{Regex.Escape(duplicate.ProjectName)}"",\s*""{Regex.Escape(duplicate.RelativePath)}"",\s*""{duplicate.ProjectGuid}""\s*\r?\n(?:.*?\r?\n)*?EndProject";
-            
+
             // Replace only the second occurrence
             var matches = Regex.Matches(modifiedContent, projectPattern, RegexOptions.Multiline | RegexOptions.IgnoreCase);
             if (matches.Count > 1)
@@ -268,8 +268,8 @@ public class SolutionCleaner : ISolutionCleaner
 
         if (duplicates.Count > 0)
         {
-            _logger.LogInformation("{Action} {Count} duplicate project(s)", 
-                dryRun ? "[DRY RUN] Would remove" : "Removed", 
+            _logger.LogInformation("{Action} {Count} duplicate project(s)",
+                dryRun ? "[DRY RUN] Would remove" : "Removed",
                 duplicates.Count);
         }
 
@@ -291,7 +291,7 @@ public class SolutionCleaner : ISolutionCleaner
             {
                 if (NonStandardProjectTypeGuids.Contains(projectTypeGuid))
                 {
-                    _logger.LogWarning("Non-standard project type found: {ProjectName} ({ProjectType})", 
+                    _logger.LogWarning("Non-standard project type found: {ProjectName} ({ProjectType})",
                         project.ProjectName, projectTypeGuid);
                     projectsToRemove.Add(project);
                     result.RemovedProjects.Add($"{project.ProjectName} (Type: {GetProjectTypeName(projectTypeGuid)})");
@@ -314,8 +314,8 @@ public class SolutionCleaner : ISolutionCleaner
 
         if (projectsToRemove.Count > 0)
         {
-            _logger.LogInformation("{Action} {Count} non-standard project(s)", 
-                dryRun ? "[DRY RUN] Would remove" : "Removed", 
+            _logger.LogInformation("{Action} {Count} non-standard project(s)",
+                dryRun ? "[DRY RUN] Would remove" : "Removed",
                 projectsToRemove.Count);
         }
 
@@ -358,8 +358,8 @@ public class SolutionCleaner : ISolutionCleaner
 
         if (removedCount > 0)
         {
-            _logger.LogInformation("{Action} {Count} source control binding(s)", 
-                dryRun ? "[DRY RUN] Would remove" : "Removed", 
+            _logger.LogInformation("{Action} {Count} source control binding(s)",
+                dryRun ? "[DRY RUN] Would remove" : "Removed",
                 removedCount);
         }
 
@@ -390,7 +390,7 @@ public class SolutionCleaner : ISolutionCleaner
         {
             if (project.ProjectType == SolutionProjectType.SolutionFolder)
             {
-                if (!folderContents.ContainsKey(project.ProjectGuid) || 
+                if (!folderContents.ContainsKey(project.ProjectGuid) ||
                     folderContents[project.ProjectGuid].Count == 0)
                 {
                     _logger.LogInformation("Found empty solution folder: {FolderName}", project.ProjectName);
@@ -415,8 +415,8 @@ public class SolutionCleaner : ISolutionCleaner
 
         if (foldersToRemove.Count > 0)
         {
-            _logger.LogInformation("{Action} {Count} empty solution folder(s)", 
-                dryRun ? "[DRY RUN] Would remove" : "Removed", 
+            _logger.LogInformation("{Action} {Count} empty solution folder(s)",
+                dryRun ? "[DRY RUN] Would remove" : "Removed",
                 foldersToRemove.Count);
         }
 
@@ -439,7 +439,7 @@ public class SolutionCleaner : ISolutionCleaner
         // Find and remove orphaned configurations
         var configSection = @"GlobalSection\(ProjectConfigurationPlatforms\)[^\r\n]*\r?\n((?:[^\r\n]+\r?\n)*?)\s*EndGlobalSection";
         var configMatch = Regex.Match(modifiedContent, configSection, RegexOptions.Multiline);
-        
+
         if (configMatch.Success)
         {
             var configContent = configMatch.Groups[1].Value;
@@ -503,15 +503,15 @@ public class SolutionCleaner : ISolutionCleaner
 
         if (orphanedRemoved > 0)
         {
-            _logger.LogInformation("{Action} {Count} orphaned configuration(s)", 
-                dryRun ? "[DRY RUN] Would remove" : "Removed", 
+            _logger.LogInformation("{Action} {Count} orphaned configuration(s)",
+                dryRun ? "[DRY RUN] Would remove" : "Removed",
                 orphanedRemoved);
         }
 
         if (configurationsAdded > 0)
         {
-            _logger.LogInformation("{Action} {Count} missing configuration(s)", 
-                dryRun ? "[DRY RUN] Would add" : "Added", 
+            _logger.LogInformation("{Action} {Count} missing configuration(s)",
+                dryRun ? "[DRY RUN] Would add" : "Added",
                 configurationsAdded);
         }
 
@@ -547,7 +547,7 @@ public class SolutionCleaner : ISolutionCleaner
             // Check for unknown project types (warning only)
             if (projectInfos.TryGetValue(project.ProjectGuid, out var projectTypeGuid))
             {
-                if (!StandardProjectTypeGuids.Contains(projectTypeGuid) && 
+                if (!StandardProjectTypeGuids.Contains(projectTypeGuid) &&
                     !NonStandardProjectTypeGuids.Contains(projectTypeGuid) &&
                     project.ProjectType != SolutionProjectType.SolutionFolder)
                 {
@@ -571,11 +571,11 @@ public class SolutionCleaner : ISolutionCleaner
 
     private async Task<string> CreateBackupAsync(string solutionPath, CancellationToken cancellationToken)
     {
-        var backupSession = await _backupService.GetCurrentSessionAsync() ?? 
+        var backupSession = await _backupService.GetCurrentSessionAsync() ??
                            await _backupService.InitializeBackupAsync(Path.GetDirectoryName(solutionPath)!, cancellationToken);
-        
+
         await _backupService.BackupFileAsync(backupSession, solutionPath, cancellationToken);
-        
+
         var backupPath = $"{solutionPath}.{DateTime.Now:yyyyMMddHHmmss}.bak";
         File.Copy(solutionPath, backupPath, true);
         return backupPath;
@@ -589,7 +589,7 @@ public class SolutionCleaner : ISolutionCleaner
         try
         {
             await File.WriteAllTextAsync(tempPath, content, Encoding.UTF8, cancellationToken);
-            
+
             // Replace the original file
             File.Copy(tempPath, path, true);
             _logger.LogInformation("Solution file saved successfully");

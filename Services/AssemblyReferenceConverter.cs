@@ -101,7 +101,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     };
 
     public AssemblyReferenceConverter(
-        ILogger<AssemblyReferenceConverter> logger, 
+        ILogger<AssemblyReferenceConverter> logger,
         PackageAssemblyResolver packageAssemblyResolver,
         INuGetPackageResolver nugetResolver)
     {
@@ -126,20 +126,20 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         var packageReferences = allReferences.Where(i => i.HasMetadata("HintPath")).ToList();
         var frameworkReferences = allReferences.Where(i => !i.HasMetadata("HintPath")).ToList();
 
-        _logger.LogDebug("Found {PackageCount} package references and {FrameworkCount} framework references for target framework {TargetFramework}", 
+        _logger.LogDebug("Found {PackageCount} package references and {FrameworkCount} framework references for target framework {TargetFramework}",
             packageReferences.Count, frameworkReferences.Count, targetFramework);
 
         // Process package references (those with HintPath)
         foreach (var referenceItem in packageReferences)
         {
             var assemblyName = ExtractAssemblyName(referenceItem.EvaluatedInclude);
-            
+
             // First, try to find a package using our framework-aware PackageAssemblyResolver
             var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyName, targetFramework, cancellationToken);
             if (packageFromResolver != null)
             {
                 detectedPackageReferences.Add(packageFromResolver);
-                _logger.LogInformation("Framework-aware resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' for TFM '{TargetFramework}'", 
+                _logger.LogInformation("Framework-aware resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' for TFM '{TargetFramework}'",
                     assemblyName, packageFromResolver.PackageId, targetFramework);
                 continue;
             }
@@ -153,19 +153,19 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                     PackageId = resolvedPackage.PackageId,
                     Version = resolvedPackage.Version ?? "*"
                 });
-                _logger.LogInformation("NuGet resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' for TFM '{TargetFramework}'", 
+                _logger.LogInformation("NuGet resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' for TFM '{TargetFramework}'",
                     assemblyName, resolvedPackage.PackageId, targetFramework);
             }
             else
             {
-                _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. It might be a local DLL or require manual handling.", 
+                _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. It might be a local DLL or require manual handling.",
                     assemblyName, targetFramework);
             }
         }
 
         // Process framework references only for .NET Core/.NET 5+ targets
         // For .NET Framework targets, these remain as implicit references
-        var isNetFrameworkTarget = targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase) || 
+        var isNetFrameworkTarget = targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase) ||
                                    targetFramework.Equals("net35", StringComparison.OrdinalIgnoreCase) ||
                                    targetFramework.Equals("net20", StringComparison.OrdinalIgnoreCase);
 
@@ -174,11 +174,11 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             foreach (var referenceItem in frameworkReferences)
             {
                 var assemblyName = ExtractAssemblyName(referenceItem.EvaluatedInclude);
-                
+
                 // Skip built-in framework assemblies that are available in all .NET versions
                 if (IsBuiltInFrameworkAssembly(assemblyName))
                 {
-                    _logger.LogDebug("Skipping built-in framework reference '{Assembly}' for TFM '{TargetFramework}'", 
+                    _logger.LogDebug("Skipping built-in framework reference '{Assembly}' for TFM '{TargetFramework}'",
                         assemblyName, targetFramework);
                     continue;
                 }
@@ -188,12 +188,12 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 if (packageFromResolver != null)
                 {
                     detectedPackageReferences.Add(packageFromResolver);
-                    _logger.LogInformation("Framework reference '{Assembly}' requires package '{PackageId}' for TFM '{TargetFramework}'", 
+                    _logger.LogInformation("Framework reference '{Assembly}' requires package '{PackageId}' for TFM '{TargetFramework}'",
                         assemblyName, packageFromResolver.PackageId, targetFramework);
                 }
                 else
                 {
-                    _logger.LogDebug("Framework reference '{Assembly}' does not require a package for TFM '{TargetFramework}'", 
+                    _logger.LogDebug("Framework reference '{Assembly}' does not require a package for TFM '{TargetFramework}'",
                         assemblyName, targetFramework);
                 }
             }
@@ -203,7 +203,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             _logger.LogDebug("Target framework {TargetFramework} is .NET Framework - skipping framework reference conversion", targetFramework);
         }
 
-        _logger.LogInformation("Converted {Count} assembly references to package references for target framework {TargetFramework}", 
+        _logger.LogInformation("Converted {Count} assembly references to package references for target framework {TargetFramework}",
             detectedPackageReferences.Count, targetFramework);
 
         return detectedPackageReferences;
@@ -232,17 +232,17 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     /// This performs a reverse lookup through the well-known mappings.
     /// </summary>
     private async Task<PackageReference?> FindPackageUsingFrameworkAwareResolver(
-        string assemblyName, 
-        string targetFramework, 
+        string assemblyName,
+        string targetFramework,
         CancellationToken cancellationToken)
     {
         // We need to search through our framework-aware mappings to find which package provides this assembly
         // for the given target framework. This is essentially a reverse lookup.
-        
+
         // Since PackageAssemblyResolver doesn't expose this reverse lookup directly, we'll iterate through
         // the well-known mappings ourselves. In a future enhancement, we could add a reverse lookup method
         // to PackageAssemblyResolver.
-        
+
         foreach (var packageMapping in _packageAssemblyResolver.GetWellKnownMappings())
         {
             foreach (var frameworkEntry in packageMapping.Value)
@@ -288,8 +288,8 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         {
             "netframework" => lowerTarget.StartsWith("net4") || lowerTarget == "net35" || lowerTarget == "net20",
             "netcoreapp" => lowerTarget.StartsWith("netcoreapp"),
-            "net" => lowerTarget.StartsWith("net") && 
-                     !lowerTarget.StartsWith("net4") && 
+            "net" => lowerTarget.StartsWith("net") &&
+                     !lowerTarget.StartsWith("net4") &&
                      !lowerTarget.StartsWith("netcoreapp") &&
                      !lowerTarget.StartsWith("netframework"),
             _ => false

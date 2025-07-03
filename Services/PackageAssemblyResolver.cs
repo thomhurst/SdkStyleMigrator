@@ -51,7 +51,7 @@ public class PackageAssemblyResolver
             ["netcoreapp"] = new(StringComparer.OrdinalIgnoreCase) { "System.Windows.Extensions" },
             ["net"] = new(StringComparer.OrdinalIgnoreCase) { "System.Windows.Extensions" }
         },
-        
+
         // .NET Framework specific packages (Microsoft.AspNet.* family)
         ["Microsoft.AspNet.WebApi.Core"] = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -83,7 +83,7 @@ public class PackageAssemblyResolver
             ["netcoreapp"] = new(StringComparer.OrdinalIgnoreCase) { "System.Data.SqlClient" }
             // For net5+, Microsoft.Data.SqlClient is preferred
         },
-        
+
         // Cross-framework packages that work the same way across all target frameworks
         ["Newtonsoft.Json"] = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -206,8 +206,8 @@ public class PackageAssemblyResolver
         {
             "netframework" => lowerTarget.StartsWith("net4") || lowerTarget == "net35" || lowerTarget == "net20",
             "netcoreapp" => lowerTarget.StartsWith("netcoreapp"),
-            "net" => lowerTarget.StartsWith("net") && 
-                     !lowerTarget.StartsWith("net4") && 
+            "net" => lowerTarget.StartsWith("net") &&
+                     !lowerTarget.StartsWith("net4") &&
                      !lowerTarget.StartsWith("netcoreapp") &&
                      !lowerTarget.StartsWith("netframework"),
             _ => false

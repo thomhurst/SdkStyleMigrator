@@ -14,6 +14,7 @@ public class AssemblyProperties
     public string? NeutralResourcesLanguage { get; set; }
     public bool? ComVisible { get; set; }
     public string? Guid { get; set; }
+    public List<string> InternalsVisibleTo { get; set; } = new();
     public Dictionary<string, string> OtherProperties { get; set; } = new();
 
     public bool HasProperties()
@@ -30,6 +31,7 @@ public class AssemblyProperties
                !string.IsNullOrEmpty(NeutralResourcesLanguage) ||
                ComVisible.HasValue ||
                !string.IsNullOrEmpty(Guid) ||
+               InternalsVisibleTo.Any() ||
                OtherProperties.Any();
     }
 }

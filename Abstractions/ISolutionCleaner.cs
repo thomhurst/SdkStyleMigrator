@@ -12,7 +12,7 @@ public interface ISolutionCleaner
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Result containing summary of changes made</returns>
     Task<SolutionCleanResult> CleanSolutionAsync(
-        string solutionPath, 
+        string solutionPath,
         SolutionCleanOptions options,
         CancellationToken cancellationToken = default);
 }

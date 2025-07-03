@@ -55,7 +55,7 @@ public class ProjectFileScanner : IProjectFileScanner
                            !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase) && // Skip bin directories (Linux)
                            !_excludedExtensions.Contains(Path.GetExtension(f))) // Skip non-standard project types
                 .ToArray();
-            
+
             if (files.Length > 0)
             {
                 projectFiles.AddRange(files);

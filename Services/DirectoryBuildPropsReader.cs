@@ -21,7 +21,7 @@ public class DirectoryBuildPropsReader : IDirectoryBuildPropsReader
     {
         var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var projectDir = Path.GetDirectoryName(projectPath);
-        
+
         if (string.IsNullOrEmpty(projectDir))
             return properties;
 
@@ -108,7 +108,7 @@ public class DirectoryBuildPropsReader : IDirectoryBuildPropsReader
     {
         var packages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var projectDir = Path.GetDirectoryName(projectPath);
-        
+
         if (string.IsNullOrEmpty(projectDir))
             return packages;
 
@@ -120,7 +120,7 @@ public class DirectoryBuildPropsReader : IDirectoryBuildPropsReader
             if (File.Exists(packagesFile))
             {
                 _logger.LogDebug("Found Directory.Packages.props at: {Path}", packagesFile);
-                
+
                 try
                 {
                     var doc = XDocument.Load(packagesFile);
@@ -151,7 +151,7 @@ public class DirectoryBuildPropsReader : IDirectoryBuildPropsReader
                 {
                     _logger.LogWarning(ex, "Failed to read Directory.Packages.props at {Path}", packagesFile);
                 }
-                
+
                 break; // Only use the first Directory.Packages.props found
             }
 

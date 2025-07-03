@@ -287,7 +287,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     try
                     {
                         var packagesConfigCleaned = await _localPackageFilesCleaner.CleanPackagesConfigAsync(
-                            projectDir, 
+                            projectDir,
                             true, // Migration was successful if we reached this point
                             cancellationToken);
 
@@ -314,7 +314,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         {
                             totalCleanedFiles += artifactCleanupResult.CleanedFiles.Count;
                             totalBytesFreed += artifactCleanupResult.TotalBytesFreed;
-                            _logger.LogDebug("Cleaned {Count} legacy artifacts in {ProjectDir}", 
+                            _logger.LogDebug("Cleaned {Count} legacy artifacts in {ProjectDir}",
                                 artifactCleanupResult.CleanedFiles.Count, projectDir);
                         }
                     }
@@ -335,7 +335,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         {
                             totalCleanedFiles += configCleanupResult.CleanedFiles.Count;
                             totalBytesFreed += configCleanupResult.TotalBytesFreed;
-                            _logger.LogDebug("Cleaned {Count} config transformation files in {ProjectDir}", 
+                            _logger.LogDebug("Cleaned {Count} config transformation files in {ProjectDir}",
                                 configCleanupResult.CleanedFiles.Count, projectDir);
                         }
                     }
@@ -371,7 +371,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     _logger.LogInformation("Successfully cleaned packages folder");
                 }
-                
+
                 // Clean solution-level GlobalAssemblyInfo files
                 await CleanSolutionLevelAssemblyInfoFilesAsync(directoryPath, backupSession, cancellationToken);
             }
@@ -655,7 +655,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private async Task CleanSolutionLevelAssemblyInfoFilesAsync(string solutionDirectory, BackupSession? backupSession, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Cleaning solution-level AssemblyInfo files...");
-        
+
         // GlobalAssemblyInfo and SharedAssemblyInfo patterns specifically
         var solutionLevelPatterns = new[]
         {
@@ -749,7 +749,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         // Check if any .csproj files still reference this assembly info file
         var projectFiles = await _projectFileScanner.ScanForProjectFilesAsync(solutionDirectory, cancellationToken);
         var relativePath = Path.GetRelativePath(solutionDirectory, assemblyInfoFile);
-        
+
         foreach (var projectFile in projectFiles)
         {
             try
@@ -768,7 +768,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 _logger.LogDebug(ex, "Failed to check project {Project} for AssemblyInfo references", projectFile);
             }
         }
-        
+
         return false;
     }
 

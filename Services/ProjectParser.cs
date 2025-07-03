@@ -191,19 +191,19 @@ public class ProjectParser : IProjectParser, IDisposable
         foreach (var propertyGroup in projectXml.Descendants(ns + "PropertyGroup"))
         {
             var filteredPropertyGroup = new XElement(ns + "PropertyGroup");
-            
+
             // Copy attributes from original PropertyGroup
             foreach (var attr in propertyGroup.Attributes())
             {
                 filteredPropertyGroup.Add(attr);
             }
-            
+
             // Copy only properties that are not MSBuild evaluation artifacts
             foreach (var property in propertyGroup.Elements())
             {
                 var propertyName = property.Name.LocalName;
                 var propertyValue = property.Value;
-                
+
                 // Use the artifact detector for more comprehensive filtering
                 if (!_artifactDetector.IsPropertyArtifact(propertyName, propertyValue) &&
                     !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(propertyName))
@@ -215,7 +215,7 @@ public class ProjectParser : IProjectParser, IDisposable
                     _logger.LogDebug("Filtered out MSBuild evaluation artifact property: {PropertyName}", propertyName);
                 }
             }
-            
+
             // Only add the PropertyGroup if it has any properties
             if (filteredPropertyGroup.HasElements)
             {
@@ -226,19 +226,19 @@ public class ProjectParser : IProjectParser, IDisposable
         foreach (var itemGroup in projectXml.Descendants(ns + "ItemGroup"))
         {
             var filteredItemGroup = new XElement(ns + "ItemGroup");
-            
+
             // Copy attributes from original ItemGroup
             foreach (var attr in itemGroup.Attributes())
             {
                 filteredItemGroup.Add(attr);
             }
-            
+
             // Copy only items that are not MSBuild evaluation artifacts
             foreach (var item in itemGroup.Elements())
             {
                 var itemType = item.Name.LocalName;
                 var itemInclude = item.Attribute("Include")?.Value;
-                
+
                 // Use the artifact detector for more comprehensive filtering
                 if (!_artifactDetector.IsItemArtifact(itemType, itemInclude) &&
                     !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(itemType))
@@ -250,7 +250,7 @@ public class ProjectParser : IProjectParser, IDisposable
                     _logger.LogDebug("Filtered out MSBuild evaluation artifact item: {ItemType}", itemType);
                 }
             }
-            
+
             // Only add the ItemGroup if it has any items
             if (filteredItemGroup.HasElements)
             {
@@ -373,7 +373,7 @@ public class ProjectParser : IProjectParser, IDisposable
 
         // Additional checks for non-standard projects based on file extension and content
         var extension = Path.GetExtension(project.FullPath).ToLowerInvariant();
-        
+
         // Check for non-standard project extensions
         var nonStandardExtensions = new HashSet<string> { ".vcxproj", ".sqlproj", ".wixproj", ".shproj", ".pyproj", ".njsproj", ".jsproj", ".dbproj", ".deployproj" };
         if (nonStandardExtensions.Contains(extension))

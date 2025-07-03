@@ -424,7 +424,7 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             }
 
             _logger.LogInformation("Found {Count} unique package references directly referenced in projects", referencedPackages.Count);
-            
+
             if (_logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("All directly referenced packages: {Packages}", string.Join(", ", referencedPackages.OrderBy(p => p)));

@@ -20,7 +20,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
     private readonly ISettings _settings;
     private readonly List<SourceRepository> _repositories;
     private bool _disposed;
-    
+
     // Caches for performance optimization
     private readonly Dictionary<string, NuGetVersion?> _versionCache = new();
     private readonly Dictionary<string, HashSet<PackageIdentity>> _dependencyCache = new();
@@ -186,7 +186,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
                         // Get the latest stable version, or latest pre-release if no stable versions
                         var latestStable = versions.Where(v => !v.IsPrerelease).OrderByDescending(v => v).FirstOrDefault();
                         var result = latestStable ?? versions.OrderByDescending(v => v).First();
-                        
+
                         // Cache the result
                         _versionCache[cacheKey] = result;
                         return result;
@@ -308,7 +308,7 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
 
                 var isTransitive = false;
                 string? transitiveReason = null;
-                
+
                 foreach (var kvp in packageDependencyMap)
                 {
                     if (!kvp.Key.Equals(identity) && kvp.Value.Any(d => d.Id.Equals(identity.Id, StringComparison.OrdinalIgnoreCase)))

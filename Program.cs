@@ -297,7 +297,7 @@ class Program
             };
 
             // If no specific options provided, default to fix-all
-            if (!fixMissing && !removeDuplicates && !fixConfigs && !removeScc && 
+            if (!fixMissing && !removeDuplicates && !fixConfigs && !removeScc &&
                 !removeEmpty && !removeNonStandard && !fixAll)
             {
                 cleanOptions.FixAll = true;
@@ -850,11 +850,11 @@ Examples:
             if (options.MaxDegreeOfParallelism > 1)
             {
                 logger.LogInformation("Processing projects in parallel with max degree of parallelism: {MaxDegree}", options.MaxDegreeOfParallelism);
-                
+
                 var semaphore = new SemaphoreSlim(options.MaxDegreeOfParallelism);
                 var processedCount = 0;
                 var lockObj = new object();
-                
+
                 var tasks = sdkStyleProjects.Select(async projectPath =>
                 {
                     await semaphore.WaitAsync();
@@ -887,7 +887,7 @@ Examples:
                                 logger.LogError("Failed to process {Project}: {Error}",
                                     Path.GetFileName(projectPath), result.Error);
                             }
-                            
+
                             logger.LogInformation("Progress: {Processed}/{Total} projects processed",
                                 processedCount, sdkStyleProjects.Count);
                         }
@@ -897,7 +897,7 @@ Examples:
                         semaphore.Release();
                     }
                 }).ToArray();
-                
+
                 await Task.WhenAll(tasks);
             }
             else
@@ -1011,14 +1011,14 @@ Examples:
     static async Task<int> RunCleanSln(string solutionPath, SolutionCleanOptions options, string logLevel)
     {
         var services = new ServiceCollection();
-        
+
         // Configure basic services
         services.AddLogging(builder =>
         {
             builder.AddConsole();
             builder.SetMinimumLevel(Enum.Parse<LogLevel>(logLevel));
         });
-        
+
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<ISolutionCleaner, SolutionCleaner>();
 
@@ -1056,7 +1056,7 @@ Examples:
                     Console.WriteLine();
                     Console.WriteLine("Solution cleanup completed successfully!");
                     Console.WriteLine($"Solution: {result.SolutionPath}");
-                    
+
                     if (result.BackupPath != null)
                     {
                         Console.WriteLine($"Backup created: {result.BackupPath}");
@@ -1064,22 +1064,22 @@ Examples:
 
                     Console.WriteLine();
                     Console.WriteLine("Changes made:");
-                    
+
                     if (result.ProjectsRemoved > 0)
                         Console.WriteLine($"  - Removed {result.ProjectsRemoved} missing/non-standard project(s)");
-                    
+
                     if (result.DuplicatesRemoved > 0)
                         Console.WriteLine($"  - Removed {result.DuplicatesRemoved} duplicate project(s)");
-                    
+
                     if (result.ConfigurationsFixed > 0)
                         Console.WriteLine($"  - Fixed {result.ConfigurationsFixed} orphaned configuration(s)");
-                    
+
                     if (result.ConfigurationsAdded > 0)
                         Console.WriteLine($"  - Added {result.ConfigurationsAdded} missing configuration(s)");
-                    
+
                     if (result.EmptyFoldersRemoved > 0)
                         Console.WriteLine($"  - Removed {result.EmptyFoldersRemoved} empty solution folder(s)");
-                    
+
                     if (result.SourceControlBindingsRemoved > 0)
                         Console.WriteLine($"  - Removed {result.SourceControlBindingsRemoved} source control binding(s)");
                 }
@@ -1117,7 +1117,7 @@ Examples:
             else
             {
                 logger.LogError("Solution cleanup failed");
-                
+
                 if (result.Errors.Any())
                 {
                     foreach (var error in result.Errors)
@@ -1125,7 +1125,7 @@ Examples:
                         logger.LogError(error);
                     }
                 }
-                
+
                 return 1;
             }
         }
@@ -1191,7 +1191,7 @@ Examples:
             // Collect all packages (direct and transitive) from referenced projects
             var projectDepPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var referencedProjectPackages = new Dictionary<string, List<Models.PackageReference>>();
-            
+
             foreach (var projRef in projectRefs)
             {
                 try
@@ -1231,33 +1231,33 @@ Examples:
             {
                 var refProjPath = kvp.Key;
                 var refProjPackages = kvp.Value;
-                
+
                 if (refProjPackages.Any())
                 {
                     logger.LogDebug("Analyzing transitive dependencies from referenced project: {Project}", Path.GetFileName(refProjPath));
                     var refProjDirectory = Path.GetDirectoryName(refProjPath);
                     var refAnalyzed = await transitiveDepsService.DetectTransitiveDependenciesAsync(refProjPackages, refProjDirectory, CancellationToken.None);
-                    
+
                     // Get all dependencies (direct and transitive) from this project
                     foreach (var refPkg in refAnalyzed)
                     {
                         allTransitiveFromRefs.Add(refPkg.PackageId);
-                        
+
                         // Also try to get transitive dependencies of each package
                         if (transitiveDepsService is NuGetTransitiveDependencyDetector nugetDetector)
                         {
                             try
                             {
                                 var deps = await nugetDetector.GetPackageDependenciesAsync(
-                                    refPkg.PackageId, 
-                                    refPkg.Version ?? "*", 
-                                    NuGet.Frameworks.NuGetFramework.AnyFramework, 
+                                    refPkg.PackageId,
+                                    refPkg.Version ?? "*",
+                                    NuGet.Frameworks.NuGetFramework.AnyFramework,
                                     CancellationToken.None);
-                                    
+
                                 foreach (var dep in deps)
                                 {
                                     allTransitiveFromRefs.Add(dep.Id);
-                                    logger.LogDebug("Package '{Package}' is transitively provided by '{Parent}' in project '{Project}'", 
+                                    logger.LogDebug("Package '{Package}' is transitively provided by '{Parent}' in project '{Project}'",
                                         dep.Id, refPkg.PackageId, Path.GetFileName(refProjPath));
                                 }
                             }
@@ -1274,12 +1274,12 @@ Examples:
             // 1. Packages marked as transitive within the current project
             // 2. Packages that are provided (directly or transitively) by referenced projects
             var removablePackages = new List<Models.PackageReference>();
-            
+
             foreach (var package in analyzedPackages)
             {
                 bool shouldRemove = false;
                 string reason = "";
-                
+
                 // Check if it's transitive within current project
                 if (package.IsTransitive)
                 {
@@ -1292,7 +1292,7 @@ Examples:
                     shouldRemove = true;
                     reason = "provided by referenced project";
                 }
-                
+
                 if (shouldRemove)
                 {
                     // Don't remove if it's essential
@@ -1304,7 +1304,7 @@ Examples:
                         "MSTest.TestAdapter",
                         "coverlet.collector"
                     };
-                    
+
                     if (essentialPackages.Contains(package.PackageId))
                     {
                         logger.LogDebug("Keeping {Package} as it's an essential package", package.PackageId);
@@ -1316,7 +1316,7 @@ Examples:
                     }
                 }
             }
-            
+
             var transitiveDeps = removablePackages;
 
             if (!transitiveDeps.Any())

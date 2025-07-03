@@ -15,6 +15,10 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
         @"^\s*\[assembly\s*:\s*(?:System\.Reflection\.|AssemblyMetadata\s*\(\s*"")?(?<name>\w+)(?:""\s*,\s*)?(?:\()?""?(?<value>[^""\)]+)""?\)?\s*\]",
         RegexOptions.Multiline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    private static readonly Regex InternalsVisibleToRegex = new(
+        @"^\s*\[assembly\s*:\s*(?:System\.Runtime\.CompilerServices\.)?InternalsVisibleTo\s*\(\s*""(?<value>[^""]+)""\s*\)\s*\]",
+        RegexOptions.Multiline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public AssemblyInfoExtractor(ILogger<AssemblyInfoExtractor> logger)
     {
         _logger = logger;
@@ -103,6 +107,8 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
         try
         {
             var content = await File.ReadAllTextAsync(filePath, cancellationToken);
+
+            // Extract standard assembly attributes
             var matches = AssemblyAttributeRegex.Matches(content);
 
             foreach (Match match in matches)
@@ -149,6 +155,18 @@ public class AssemblyInfoExtractor : IAssemblyInfoExtractor
                     case "NeutralResourcesLanguage":
                         properties.NeutralResourcesLanguage ??= value;
                         break;
+                }
+            }
+
+            // Extract InternalsVisibleTo attributes
+            var internalsVisibleToMatches = InternalsVisibleToRegex.Matches(content);
+            foreach (Match match in internalsVisibleToMatches)
+            {
+                var value = match.Groups["value"].Value;
+                if (!string.IsNullOrWhiteSpace(value) && !properties.InternalsVisibleTo.Contains(value))
+                {
+                    properties.InternalsVisibleTo.Add(value);
+                    _logger.LogDebug("Found InternalsVisibleTo: {Value}", value);
                 }
             }
         }

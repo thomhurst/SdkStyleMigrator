@@ -14,7 +14,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
 {
     private readonly ILogger<MSBuildArtifactDetector> _logger;
     private readonly ProjectCollection _projectCollection;
-    
+
     // Regex patterns for common MSBuild artifact naming conventions
     private static readonly Regex InternalPropertyPattern = new(@"^(_[A-Z]|MSBuild|DotNet|NET|NuGet|Test)", RegexOptions.Compiled);
     private static readonly Regex InternalItemPattern = new(@"^(_[A-Z]|MSBuild|DotNet|NET|NuGet|Test)", RegexOptions.Compiled);
@@ -25,7 +25,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
         "TargetFrameworkVersion", "OutputType", "RootNamespace", "ProjectGuid",
         "SchemaVersion", "ProjectTypeGuids", "FileAlignment", "WarningLevel",
         "ErrorReport", "Prefer32Bit", "DebugSymbols", "DebugType", "Optimize",
-        "OutputPath", "IntermediateOutputPath", "BaseIntermediateOutputPath", 
+        "OutputPath", "IntermediateOutputPath", "BaseIntermediateOutputPath",
         "BaseOutputPath", "AppDesignerFolder", "Configuration", "Platform",
         "ProductVersion", "FileVersion", "OldToolsVersion", "UpgradeBackupLocation",
         "GenerateSerializationAssemblies", "AppendTargetFrameworkToOutputPath",
@@ -40,7 +40,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
     // Item types that are typically implicit in SDK-style projects
     private static readonly HashSet<string> SdkImplicitItemTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Compile", "EmbeddedResource", "None", "Content", "Page", 
+        "Compile", "EmbeddedResource", "None", "Content", "Page",
         "ApplicationDefinition", "Resource", "SplashScreen"
     };
 
@@ -96,9 +96,9 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
         if (itemType == "None" && !string.IsNullOrEmpty(itemInclude))
         {
             var normalizedPath = itemInclude.Replace('\\', '/').ToLowerInvariant();
-            
+
             // Check if it's a DLL from a packages folder or NuGet cache
-            if (normalizedPath.Contains("/packages/") || 
+            if (normalizedPath.Contains("/packages/") ||
                 normalizedPath.Contains("/.nuget/") ||
                 normalizedPath.Contains("/nuget/") ||
                 (normalizedPath.EndsWith(".dll") && normalizedPath.Contains("/bin/")))
@@ -112,16 +112,16 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
         if (!string.IsNullOrEmpty(itemInclude))
         {
             var fileName = Path.GetFileName(itemInclude).ToLowerInvariant();
-            
+
             // Configuration files
-            if (fileName == "app.config" || fileName == "web.config" || 
+            if (fileName == "app.config" || fileName == "web.config" ||
                 fileName == "appsettings.json" || fileName.StartsWith("appsettings.") ||
                 fileName == "packages.config" || fileName.EndsWith(".config"))
             {
                 _logger.LogDebug("Preserving configuration file: {ItemInclude}", itemInclude);
                 return false; // Not an artifact - preserve it
             }
-            
+
             // Documentation and project files
             if (fileName == "readme.md" || fileName == "license" || fileName == "license.txt" ||
                 fileName.EndsWith(".md") || fileName.EndsWith(".txt") || fileName.EndsWith(".json") ||
@@ -161,7 +161,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
 
             // Load the evaluated project
             project = _projectCollection.LoadProject(projectPath);
-            
+
             // Load the raw XML structure to find explicitly defined elements
             projectRootElement = ProjectRootElement.Open(projectPath, _projectCollection);
 
@@ -219,7 +219,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
                 if (prop.Xml.ContainingProject.FullPath != projectPath &&
                     IsMSBuildInfrastructurePath(prop.Xml.ContainingProject.FullPath))
                 {
-                    analysis.ArtifactProperties.Add(new ArtifactProperty(prop.Name, prop.EvaluatedValue, 
+                    analysis.ArtifactProperties.Add(new ArtifactProperty(prop.Name, prop.EvaluatedValue,
                         $"Defined in MSBuild/SDK infrastructure: {Path.GetFileName(prop.Xml.ContainingProject.FullPath)}"));
                 }
 
@@ -249,7 +249,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
                 if (item.Xml.ContainingProject.FullPath != projectPath &&
                     IsMSBuildInfrastructurePath(item.Xml.ContainingProject.FullPath))
                 {
-                    analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude, 
+                    analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude,
                         $"Defined in MSBuild/SDK infrastructure: {Path.GetFileName(item.Xml.ContainingProject.FullPath)}"));
                 }
 
@@ -258,18 +258,18 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
                 {
                     analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude, "Matches internal naming pattern"));
                 }
-                
+
                 // 4. Check for specific test platform artifacts
                 else if (item.ItemType == "TestingPlatformBuilderHook" || item.ItemType == "TestAdapterContent")
                 {
                     analysis.ArtifactItems.Add(new ArtifactItem(item.ItemType, item.EvaluatedInclude, "Test platform artifact"));
                 }
-                
+
                 // 5. None items pointing to NuGet package DLLs
                 else if (item.ItemType == "None" && !string.IsNullOrEmpty(item.EvaluatedInclude))
                 {
                     var normalizedPath = item.EvaluatedInclude.Replace('\\', '/').ToLowerInvariant();
-                    if (normalizedPath.Contains("/packages/") || 
+                    if (normalizedPath.Contains("/packages/") ||
                         normalizedPath.Contains("/.nuget/") ||
                         normalizedPath.Contains("/nuget/") ||
                         (normalizedPath.EndsWith(".dll") && normalizedPath.Contains("/bin/")))
@@ -288,7 +288,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
             // Check if this property is typically implicit in SDK-style projects
             if (SdkImplicitProperties.Contains(propElement.Name))
             {
-                analysis.RedundantProperties.Add(new RedundantProperty(propElement.Name, propElement.Value, 
+                analysis.RedundantProperties.Add(new RedundantProperty(propElement.Name, propElement.Value,
                     "Property is typically implicit in SDK-style projects"));
             }
         }
@@ -321,7 +321,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
         try
         {
             var normalizedPath = Path.GetFullPath(path);
-            
+
             // Check if path contains known infrastructure directory names
             foreach (var infraDir in InfrastructureDirectoryNames)
             {
@@ -340,7 +340,7 @@ public class MSBuildArtifactDetector : IMSBuildArtifactDetector, IDisposable
 
             foreach (var commonPath in commonPaths)
             {
-                if (!string.IsNullOrEmpty(commonPath) && 
+                if (!string.IsNullOrEmpty(commonPath) &&
                     normalizedPath.StartsWith(commonPath, StringComparison.OrdinalIgnoreCase) &&
                     (normalizedPath.Contains("MSBuild", StringComparison.OrdinalIgnoreCase) ||
                      normalizedPath.Contains("dotnet", StringComparison.OrdinalIgnoreCase)))

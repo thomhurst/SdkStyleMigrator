@@ -72,7 +72,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             // Create the root project element
             var projectElement = new XElement("Project");
-            
+
             // Determine and set SDK
             var sdkType = DetermineSdkType(legacyProject);
             projectElement.Add(new XAttribute("Sdk", sdkType));
@@ -111,6 +111,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate custom item types
             MigrateCustomItemTypes(legacyProject, projectElement);
 
+            // Migrate InternalsVisibleTo from AssemblyInfo
+            await MigrateInternalsVisibleToAsync(legacyProject, projectElement, cancellationToken);
+
             // Migrate custom targets and build events
             MigrateCustomTargets(legacyProject, projectElement);
 
@@ -120,7 +123,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 projectElement);
 
             doc.Save(outputPath);
-            
+
             result.Success = true;
             _logger.LogInformation("Successfully generated SDK-style project at: {OutputPath}", outputPath);
 
@@ -147,7 +150,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private string DetermineSdkType(Project project)
     {
         var targetFramework = ConvertTargetFramework(project);
-        
+
         // For .NET Framework projects, always use the default SDK
         if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
         {
@@ -162,7 +165,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Web project
             if (projectTypeGuids.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase))
                 return "Microsoft.NET.Sdk.Web";
-            
+
             // Blazor WebAssembly (only for .NET Core 3.0+)
             if (projectTypeGuids.Contains("{A9ACE9BB-CECE-4E62-9AA4-C7E7C5BD2124}", StringComparison.OrdinalIgnoreCase))
                 return "Microsoft.NET.Sdk.BlazorWebAssembly";
@@ -170,9 +173,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         // Check for WPF/WinForms by items
         var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
-        var hasWinFormsItems = project.Items.Any(i => 
-            i.ItemType == "Compile" && 
-            i.HasMetadata("SubType") && 
+        var hasWinFormsItems = project.Items.Any(i =>
+            i.ItemType == "Compile" &&
+            i.HasMetadata("SubType") &&
             (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
 
         if (hasWpfItems || hasWinFormsItems)
@@ -197,7 +200,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             if (string.IsNullOrEmpty(value))
                 return;
 
-            if (inheritedProperties.TryGetValue(name, out var inheritedValue) && 
+            if (inheritedProperties.TryGetValue(name, out var inheritedValue) &&
                 inheritedValue.Equals(value, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug("Skipping property {Name}={Value} (inherited from Directory.Build.props)", name, value);
@@ -235,7 +238,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         AddPropertyIfNotInherited("LangVersion", langVersion ?? "");
 
         // Nullable - only add if not inherited and applicable
-        if (targetFramework?.StartsWith("net") == true && 
+        if (targetFramework?.StartsWith("net") == true &&
             int.TryParse(targetFramework.Substring(3, 1), out var version) && version >= 6 &&
             !inheritedProperties.ContainsKey("Nullable"))
         {
@@ -246,16 +249,16 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         MigrateStrongNaming(project, propertyGroup, inheritedProperties);
 
         // For .NET 5+ WPF/WinForms projects (not .NET Framework)
-        if (targetFramework?.StartsWith("net") == true && 
-            !targetFramework.Contains(".") && 
+        if (targetFramework?.StartsWith("net") == true &&
+            !targetFramework.Contains(".") &&
             !targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
         {
             var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
-            var hasWinFormsItems = project.Items.Any(i => 
-                i.ItemType == "Compile" && 
-                i.HasMetadata("SubType") && 
+            var hasWinFormsItems = project.Items.Any(i =>
+                i.ItemType == "Compile" &&
+                i.HasMetadata("SubType") &&
                 (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
-            
+
             if (hasWpfItems)
                 propertyGroup.Add(new XElement("UseWPF", "true"));
             if (hasWinFormsItems)
@@ -273,13 +276,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         // Remove 'v' prefix and convert
         var version = targetFrameworkVersion.TrimStart('v');
-        
+
         // .NET Framework 4.x
         if (version.StartsWith("4."))
         {
             return $"net{version.Replace(".", "")}";
         }
-        
+
         // .NET Core 2.x, 3.x
         if (version.StartsWith("2.") || version.StartsWith("3."))
         {
@@ -323,7 +326,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (allPackageReferences.Any())
         {
             var itemGroup = new XElement("ItemGroup");
-            
+
             foreach (var package in allPackageReferences)
             {
                 var packageRef = new XElement("PackageReference",
@@ -338,10 +341,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     _logger.LogDebug("Package {PackageId} is centrally managed, omitting version", package.PackageId);
                 }
-                
+
                 itemGroup.Add(packageRef);
             }
-            
+
             projectElement.Add(itemGroup);
         }
     }
@@ -355,15 +358,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (projectRefs.Any())
         {
             var itemGroup = new XElement("ItemGroup");
-            
+
             foreach (var projRef in projectRefs)
             {
                 var element = new XElement("ProjectReference",
                     new XAttribute("Include", projRef.EvaluatedInclude));
-                
+
                 itemGroup.Add(element);
             }
-            
+
             projectElement.Add(itemGroup);
         }
     }
@@ -372,7 +375,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var compileItems = project.Items
             .Where(i => i.ItemType == "Compile")
-            .Where(i => !i.EvaluatedInclude.EndsWith(".cs") || 
+            .Where(i => !i.EvaluatedInclude.EndsWith(".cs") ||
                        i.EvaluatedInclude.Contains("*") ||
                        i.HasMetadata("Link") ||
                        i.HasMetadata("DependentUpon"))
@@ -382,20 +385,20 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (compileItems.Any())
         {
             var itemGroup = new XElement("ItemGroup");
-            
+
             foreach (var item in compileItems)
             {
                 var element = new XElement("Compile",
                     new XAttribute("Include", item.EvaluatedInclude));
-                
+
                 PreserveMetadata(item, element);
                 itemGroup.Add(element);
             }
-            
+
             projectElement.Add(itemGroup);
         }
     }
-    
+
     private bool IsAssemblyInfoFile(string filePath)
     {
         var fileName = Path.GetFileName(filePath);
@@ -406,7 +409,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private void MigrateContentAndResources(Project project, XElement projectElement)
     {
         var contentItems = project.Items
-            .Where(i => i.ItemType == "Content" || 
+            .Where(i => i.ItemType == "Content" ||
                        i.ItemType == "None" ||
                        i.ItemType == "EmbeddedResource")
             .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.EvaluatedInclude)) // Filter out MSBuild artifacts
@@ -418,7 +421,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var removeItemGroup = new XElement("ItemGroup");
             var hasItems = false;
             var hasRemoveItems = false;
-            
+
             foreach (var item in contentItems)
             {
                 // Check if this file is automatically included by the SDK
@@ -432,14 +435,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                             new XAttribute("Remove", item.EvaluatedInclude));
                         removeItemGroup.Add(removeElement);
                         hasRemoveItems = true;
-                        
+
                         // Now add it back with the custom metadata
                         var element = new XElement(item.ItemType,
                             new XAttribute("Include", item.EvaluatedInclude));
                         PreserveMetadata(item, element);
                         itemGroup.Add(element);
                         hasItems = true;
-                        
+
                         _logger.LogDebug("Removing and re-adding SDK-default file with custom metadata: {File}", item.EvaluatedInclude);
                     }
                     else
@@ -453,19 +456,19 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     // Not auto-included, so we need to explicitly include it
                     var element = new XElement(item.ItemType,
                         new XAttribute("Include", item.EvaluatedInclude));
-                    
+
                     PreserveMetadata(item, element);
                     itemGroup.Add(element);
                     hasItems = true;
                 }
             }
-            
+
             // Add Remove items first if any
             if (hasRemoveItems)
             {
                 projectElement.Add(removeItemGroup);
             }
-            
+
             // Then add Include items
             if (hasItems)
             {
@@ -473,14 +476,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
         }
     }
-    
+
     private bool HasCustomMetadata(ProjectItem item)
     {
         // List of metadata that indicates custom behavior
         var customMetadata = new[]
         {
             "CopyToOutputDirectory",
-            "CopyToPublishDirectory", 
+            "CopyToPublishDirectory",
             "Link",
             "DependentUpon",
             "Generator",
@@ -492,7 +495,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "DesignTimeSharedInput",
             "Private"
         };
-        
+
         foreach (var metadata in customMetadata)
         {
             if (item.HasMetadata(metadata) && !string.IsNullOrEmpty(item.GetMetadataValue(metadata)))
@@ -500,7 +503,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -520,7 +523,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     new XAttribute("Name", "PreBuild"),
                     new XAttribute("BeforeTargets", "PreBuildEvent"),
                     new XElement("Exec", new XAttribute("Command", preBuild)));
-                
+
                 projectElement.Add(target);
             }
 
@@ -530,7 +533,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     new XAttribute("Name", "PostBuild"),
                     new XAttribute("AfterTargets", "PostBuildEvent"),
                     new XElement("Exec", new XAttribute("Command", postBuild)));
-                
+
                 projectElement.Add(target);
             }
         }
@@ -546,7 +549,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
-        var assemblyInfoPaths = new[] 
+        var assemblyInfoPaths = new[]
         {
             Path.Combine(projectDir, "Properties", "AssemblyInfo.cs"),
             Path.Combine(projectDir, "AssemblyInfo.cs"),
@@ -569,7 +572,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private void AddExcludedCompileItems(Project project, XElement projectElement)
     {
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
-        
+
         // Get all compiled files from the project
         var compiledFiles = project.Items
             .Where(i => i.ItemType == "Compile")
@@ -600,14 +603,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         // WPF items
         var wpfItems = project.Items
-            .Where(i => i.ItemType == "ApplicationDefinition" || 
-                       i.ItemType == "Page" || 
+            .Where(i => i.ItemType == "ApplicationDefinition" ||
+                       i.ItemType == "Page" ||
                        i.ItemType == "Resource")
             .ToList();
 
         // WinForms items with SubType
         var winFormsItems = project.Items
-            .Where(i => i.ItemType == "Compile" && 
+            .Where(i => i.ItemType == "Compile" &&
                        i.HasMetadata("SubType") &&
                        (i.GetMetadataValue("SubType") == "Form" ||
                         i.GetMetadataValue("SubType") == "UserControl" ||
@@ -640,9 +643,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateCustomItemTypes(Project project, XElement projectElement)
     {
-        var standardTypes = new HashSet<string> 
-        { 
-            "Compile", "Content", "None", "EmbeddedResource", 
+        var standardTypes = new HashSet<string>
+        {
+            "Compile", "Content", "None", "EmbeddedResource",
             "Reference", "ProjectReference", "PackageReference",
             "Folder", "ApplicationDefinition", "Page", "Resource"
         };
@@ -663,7 +666,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 PreserveMetadata(item, element);
                 itemGroup.Add(element);
             }
-            
+
             if (itemGroup.HasElements)
             {
                 projectElement.Add(itemGroup);
@@ -675,9 +678,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private void PreserveMetadata(ProjectItem item, XElement element)
     {
         // Critical metadata to preserve
-        var importantMetadata = new[] 
-        { 
-            "Link", "DependentUpon", "SubType", "Generator", 
+        var importantMetadata = new[]
+        {
+            "Link", "DependentUpon", "SubType", "Generator",
             "LastGenOutput", "CopyToOutputDirectory", "Private",
             "SpecificVersion", "CustomToolNamespace", "DesignTime",
             "AutoGen", "DesignTimeSharedInput"
@@ -705,16 +708,16 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (comReferences.Any())
         {
             var itemGroup = new XElement("ItemGroup");
-            
+
             foreach (var comRef in comReferences)
             {
                 var element = new XElement("COMReference",
                     new XAttribute("Include", comRef.EvaluatedInclude));
-                
+
                 // Preserve critical COM metadata
-                var comMetadata = new[] 
-                { 
-                    "Guid", "VersionMajor", "VersionMinor", "Lcid", 
+                var comMetadata = new[]
+                {
+                    "Guid", "VersionMajor", "VersionMinor", "Lcid",
                     "WrapperTool", "Isolated", "EmbedInteropTypes",
                     "Private", "HintPath"
                 };
@@ -730,7 +733,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         }
                     }
                 }
-                
+
                 // Ensure EmbedInteropTypes has a value (defaults differ between legacy and SDK)
                 if (!comRef.HasMetadata("EmbedInteropTypes"))
                 {
@@ -738,10 +741,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     // Explicitly set to false to maintain legacy behavior
                     element.Add(new XElement("EmbedInteropTypes", "false"));
                 }
-                
+
                 itemGroup.Add(element);
             }
-            
+
             projectElement.Add(itemGroup);
             _logger.LogInformation("Migrated {Count} COM references", comReferences.Count);
         }
@@ -752,7 +755,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Check if assembly signing is enabled
         var signAssembly = project.Properties
             .FirstOrDefault(p => p.Name == "SignAssembly")?.EvaluatedValue;
-        
+
         if (signAssembly?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
         {
             // Only add if not already in Directory.Build.props
@@ -764,23 +767,23 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 _logger.LogDebug("SignAssembly already set in Directory.Build.props");
             }
-            
+
             // Migrate the key file path
             var keyFile = project.Properties
                 .FirstOrDefault(p => p.Name == "AssemblyOriginatorKeyFile")?.EvaluatedValue;
-            
+
             if (!string.IsNullOrEmpty(keyFile) && !inheritedProperties.ContainsKey("AssemblyOriginatorKeyFile"))
             {
                 // Ensure the path is relative to the project file
                 var projectDir = Path.GetDirectoryName(project.FullPath)!;
                 var keyFilePath = keyFile;
-                
+
                 // If the key file path is absolute, make it relative
                 if (Path.IsPathRooted(keyFile))
                 {
                     keyFilePath = Path.GetRelativePath(projectDir, keyFile);
                 }
-                
+
                 // Verify the key file exists
                 var absoluteKeyPath = Path.GetFullPath(Path.Combine(projectDir, keyFilePath));
                 if (File.Exists(absoluteKeyPath))
@@ -795,12 +798,12 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     propertyGroup.Add(new XElement("AssemblyOriginatorKeyFile", keyFilePath));
                 }
             }
-            
+
             // Check for delay signing
             var delaySign = project.Properties
                 .FirstOrDefault(p => p.Name == "DelaySign")?.EvaluatedValue;
-            
-            if (delaySign?.Equals("true", StringComparison.OrdinalIgnoreCase) == true && 
+
+            if (delaySign?.Equals("true", StringComparison.OrdinalIgnoreCase) == true &&
                 !inheritedProperties.ContainsKey("DelaySign"))
             {
                 propertyGroup.Add(new XElement("DelaySign", "true"));
@@ -814,7 +817,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var fileName = Path.GetFileName(item.EvaluatedInclude);
         var extension = Path.GetExtension(item.EvaluatedInclude)?.ToLowerInvariant();
         var fileNameLower = fileName?.ToLowerInvariant();
-        
+
         // SDK automatically includes certain files as Content
         if (item.ItemType == "Content")
         {
@@ -823,7 +826,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             var projectTypeGuids = project.Properties
                 .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
             var isWebProject = projectTypeGuids?.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase) ?? false;
-            
+
             if (isWebProject)
             {
                 // Web SDK auto-includes these patterns
@@ -840,7 +843,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     "appsettings.*.json",
                     "web.config"
                 };
-                
+
                 foreach (var pattern in webSdkPatterns)
                 {
                     if (IsMatchingPattern(item.EvaluatedInclude, pattern))
@@ -849,7 +852,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     }
                 }
             }
-            
+
             // Check for specific file patterns that are auto-included by all SDKs
             if (fileName != null)
             {
@@ -860,7 +863,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
             }
         }
-        
+
         // SDK automatically includes .resx files as EmbeddedResource
         if (item.ItemType == "EmbeddedResource" && extension == ".resx")
         {
@@ -870,7 +873,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 return true;
             }
         }
-        
+
         // None items that are auto-included by SDK
         if (item.ItemType == "None")
         {
@@ -882,7 +885,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     return true;
                 }
-                
+
                 // .json files (except appsettings which are Content in web projects)
                 if (extension == ".json" && fileNameLower != null && !fileNameLower.StartsWith("appsettings"))
                 {
@@ -890,10 +893,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
             }
         }
-        
+
         return false;
     }
-    
+
     private bool IsMatchingPattern(string path, string pattern)
     {
         // Convert pattern to regex
@@ -902,9 +905,42 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             .Replace(".", "\\.")
             .Replace("**", ".*")
             .Replace("*", "[^/]*");
-        
+
         var normalizedPath = path.Replace("\\", "/");
-        return System.Text.RegularExpressions.Regex.IsMatch(normalizedPath, $"^{regexPattern}$", 
+        return System.Text.RegularExpressions.Regex.IsMatch(normalizedPath, $"^{regexPattern}$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private async Task MigrateInternalsVisibleToAsync(Project project, XElement projectElement, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Extract assembly properties from AssemblyInfo files
+            var projectDirectory = Path.GetDirectoryName(project.FullPath);
+            if (string.IsNullOrEmpty(projectDirectory))
+                return;
+
+            var assemblyProperties = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDirectory, cancellationToken);
+
+            // If there are any InternalsVisibleTo attributes, add them as ItemGroup
+            if (assemblyProperties.InternalsVisibleTo.Any())
+            {
+                _logger.LogInformation("Migrating {Count} InternalsVisibleTo attributes", assemblyProperties.InternalsVisibleTo.Count);
+
+                var itemGroup = new XElement("ItemGroup");
+                foreach (var internalsVisibleTo in assemblyProperties.InternalsVisibleTo)
+                {
+                    itemGroup.Add(new XElement("InternalsVisibleTo",
+                        new XAttribute("Include", internalsVisibleTo)));
+                    _logger.LogDebug("Added InternalsVisibleTo: {Value}", internalsVisibleTo);
+                }
+
+                projectElement.Add(itemGroup);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to migrate InternalsVisibleTo attributes");
+        }
     }
 }

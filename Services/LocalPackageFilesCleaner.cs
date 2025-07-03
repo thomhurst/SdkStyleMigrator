@@ -595,7 +595,7 @@ public class LocalPackageFilesCleaner : ILocalPackageFilesCleaner
             await CleanFile(artifactPath, Path.GetFileName(artifactPath), "Legacy project artifact", result, cancellationToken);
         }
 
-        _logger.LogInformation("Cleaned {Count} legacy project artifacts in {Directory}", 
+        _logger.LogInformation("Cleaned {Count} legacy project artifacts in {Directory}",
             result.CleanedFiles.Count, projectDirectory);
 
         return result;
@@ -624,7 +624,7 @@ public class LocalPackageFilesCleaner : ILocalPackageFilesCleaner
             try
             {
                 var matchingFiles = Directory.GetFiles(projectDirectory, pattern, SearchOption.TopDirectoryOnly)
-                    .Where(f => !f.EndsWith("web.config", StringComparison.OrdinalIgnoreCase) && 
+                    .Where(f => !f.EndsWith("web.config", StringComparison.OrdinalIgnoreCase) &&
                                !f.EndsWith("app.config", StringComparison.OrdinalIgnoreCase)) // Keep main config files
                     .ToList();
 
@@ -641,7 +641,7 @@ public class LocalPackageFilesCleaner : ILocalPackageFilesCleaner
             await CleanFile(transformFile, Path.GetFileName(transformFile), "Configuration transformation file", result, cancellationToken);
         }
 
-        _logger.LogInformation("Cleaned {Count} configuration transformation files in {Directory}", 
+        _logger.LogInformation("Cleaned {Count} configuration transformation files in {Directory}",
             result.CleanedFiles.Count, projectDirectory);
 
         return result;
