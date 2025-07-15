@@ -163,6 +163,28 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         {
             var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
 
+            // Special handling for MSTest framework
+            if (assemblyIdentity.Name.Equals("Microsoft.VisualStudio.QualityTools.UnitTestFramework", StringComparison.OrdinalIgnoreCase))
+            {
+                var msTestVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestFramework", cancellationToken) ?? "3.1.1";
+                detectedPackageReferences.Add(new PackageReference
+                {
+                    PackageId = "MSTest.TestFramework",
+                    Version = msTestVersion
+                });
+                
+                // Also add MSTest.TestAdapter for running tests
+                var adapterVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestAdapter", cancellationToken) ?? "3.1.1";
+                detectedPackageReferences.Add(new PackageReference
+                {
+                    PackageId = "MSTest.TestAdapter", 
+                    Version = adapterVersion
+                });
+                
+                _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework and MSTest.TestAdapter packages");
+                continue;
+            }
+
             // First, try to find a package using our framework-aware PackageAssemblyResolver
             var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyIdentity, targetFramework, cancellationToken);
             if (packageFromResolver != null)
@@ -267,6 +289,30 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             // as they are all valid and available in the .NET Framework
             foreach (var referenceItem in frameworkReferences)
             {
+                var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
+                
+                // Special handling for MSTest framework even in .NET Framework targets
+                if (assemblyIdentity.Name.Equals("Microsoft.VisualStudio.QualityTools.UnitTestFramework", StringComparison.OrdinalIgnoreCase))
+                {
+                    var msTestVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestFramework", cancellationToken) ?? "3.1.1";
+                    detectedPackageReferences.Add(new PackageReference
+                    {
+                        PackageId = "MSTest.TestFramework",
+                        Version = msTestVersion
+                    });
+                    
+                    // Also add MSTest.TestAdapter for running tests
+                    var adapterVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestAdapter", cancellationToken) ?? "3.1.1";
+                    detectedPackageReferences.Add(new PackageReference
+                    {
+                        PackageId = "MSTest.TestAdapter", 
+                        Version = adapterVersion
+                    });
+                    
+                    _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework and MSTest.TestAdapter packages");
+                    continue;
+                }
+                
                 result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
                     "Framework reference for .NET Framework target"));
             }
