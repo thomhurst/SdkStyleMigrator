@@ -166,14 +166,14 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             // Special handling for MSTest framework
             if (assemblyIdentity.Name.Equals("Microsoft.VisualStudio.QualityTools.UnitTestFramework", StringComparison.OrdinalIgnoreCase))
             {
-                var msTestVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestFramework", cancellationToken) ?? "3.1.1";
+                var msTestVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest", cancellationToken) ?? "3.1.1";
                 detectedPackageReferences.Add(new PackageReference
                 {
-                    PackageId = "MSTest.TestFramework",
+                    PackageId = "MSTest",
                     Version = msTestVersion
                 });
                 
-                _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework package (includes MSTest.TestAdapter transitively)");
+                _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest package");
                 continue;
             }
 
@@ -286,14 +286,14 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 // Special handling for MSTest framework even in .NET Framework targets
                 if (assemblyIdentity.Name.Equals("Microsoft.VisualStudio.QualityTools.UnitTestFramework", StringComparison.OrdinalIgnoreCase))
                 {
-                    var msTestVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestFramework", cancellationToken) ?? "3.1.1";
+                    var msTestVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest", cancellationToken) ?? "3.1.1";
                     detectedPackageReferences.Add(new PackageReference
                     {
-                        PackageId = "MSTest.TestFramework",
+                        PackageId = "MSTest",
                         Version = msTestVersion
                     });
                     
-                    _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework package (includes MSTest.TestAdapter transitively)");
+                    _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest package");
                     continue;
                 }
                 
