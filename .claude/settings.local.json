@@ -42,9 +42,6 @@
       "Bash(find:*)",
       "Bash(cp:*)",
       "WebFetch(domain:docs.anthropic.com)",
-      "mcp__zen__thinkdeep",
-      "mcp__zen__chat",
-      "mcp__zen__analyze",
       "mcp__zen__debug",
       "mcp__zen__refactor",
       "mcp__zen__listmodels",
@@ -57,7 +54,9 @@
       "mcp__desktop-commander__edit_block",
       "mcp__desktop-commander__execute_command",
       "Bash(npx @wonderwhy-er/desktop-commander@latest setup)",
-      "mcp__zen__planner"
+      "mcp__zen__planner",
+      "Bash(csc:*)",
+      "Bash(./test_appconfig_debug.exe)"
     ],
     "deny": []
   }

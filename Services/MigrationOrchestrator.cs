@@ -833,6 +833,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 File.Delete(appConfigPath);
                 result.RemovedElements.Add($"App.config file (contained only binding redirects)");
                 _logger.LogInformation("Removed {File} as it only contained binding redirects", appConfigPath);
+
+                // Also remove any references to app.config from the project file
+                await RemoveAppConfigFromProjectFileAsync(projectDirectory, appConfigPath, cancellationToken);
             }
             else
             {
@@ -844,6 +847,64 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to process app.config file: {File}", appConfigPath);
+        }
+    }
+
+    private async Task RemoveAppConfigFromProjectFileAsync(string projectDirectory, string appConfigPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Find the project file
+            var projectFiles = Directory.GetFiles(projectDirectory, "*.csproj")
+                .Concat(Directory.GetFiles(projectDirectory, "*.vbproj"))
+                .Concat(Directory.GetFiles(projectDirectory, "*.fsproj"))
+                .ToList();
+
+            foreach (var projectFile in projectFiles)
+            {
+                var projectContent = await File.ReadAllTextAsync(projectFile, cancellationToken);
+                var projectDoc = System.Xml.Linq.XDocument.Parse(projectContent);
+
+                bool modified = false;
+                var appConfigFileName = Path.GetFileName(appConfigPath);
+
+                // Remove any references to app.config from the project file
+                var itemsToRemove = projectDoc.Descendants()
+                    .Where(e => e.Attribute("Include")?.Value == appConfigFileName || 
+                               e.Attribute("Include")?.Value == $".\\{appConfigFileName}" ||
+                               e.Attribute("Include")?.Value?.EndsWith($"\\{appConfigFileName}") == true)
+                    .ToList();
+
+                foreach (var item in itemsToRemove)
+                {
+                    _logger.LogDebug("Removing reference to {AppConfig} from project file {ProjectFile}", 
+                        appConfigFileName, projectFile);
+                    item.Remove();
+                    modified = true;
+                }
+
+                // Remove empty ItemGroup elements
+                var emptyItemGroups = projectDoc.Descendants("ItemGroup")
+                    .Where(ig => !ig.HasElements)
+                    .ToList();
+
+                foreach (var emptyGroup in emptyItemGroups)
+                {
+                    emptyGroup.Remove();
+                    modified = true;
+                }
+
+                if (modified)
+                {
+                    await File.WriteAllTextAsync(projectFile, projectDoc.ToString(), cancellationToken);
+                    _logger.LogInformation("Removed references to {AppConfig} from project file {ProjectFile}", 
+                        appConfigFileName, projectFile);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove app.config references from project file in {Directory}", projectDirectory);
         }
     }
 
