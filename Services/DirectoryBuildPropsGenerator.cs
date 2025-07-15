@@ -121,6 +121,32 @@ public class DirectoryBuildPropsGenerator : IDirectoryBuildPropsGenerator
         AddOrUpdateProperty(bindingRedirectPropGroup, "AutoGenerateBindingRedirects", "true");
         AddOrUpdateProperty(bindingRedirectPropGroup, "GenerateBindingRedirectsOutputType", "true");
 
+        // Add InternalsVisibleTo for test projects
+        var itemGroup = projectElement.Elements("ItemGroup")
+            .FirstOrDefault(ig => ig.Elements().Any(e => e.Name.LocalName == "InternalsVisibleTo"));
+
+        if (itemGroup == null)
+        {
+            itemGroup = new XElement("ItemGroup");
+            itemGroup.Add(new XComment("Make internals visible to test projects"));
+            bindingRedirectPropGroup.AddAfterSelf(itemGroup);
+        }
+
+        // Check if InternalsVisibleTo for Tests already exists
+        var internalsVisibleToTests = itemGroup.Elements("InternalsVisibleTo")
+            .FirstOrDefault(e => e.Attribute("Include")?.Value == "$(MSBuildProjectName).Tests");
+
+        if (internalsVisibleToTests == null)
+        {
+            _logger.LogDebug("Adding InternalsVisibleTo for $(MSBuildProjectName).Tests");
+            itemGroup.Add(new XElement("InternalsVisibleTo", 
+                new XAttribute("Include", "$(MSBuildProjectName).Tests")));
+        }
+        else
+        {
+            _logger.LogDebug("InternalsVisibleTo for $(MSBuildProjectName).Tests already exists");
+        }
+
         if (!_options.DryRun)
         {
             var isNewFile = !File.Exists(filePath);
