@@ -173,15 +173,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                     Version = msTestVersion
                 });
                 
-                // Also add MSTest.TestAdapter for running tests
-                var adapterVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestAdapter", cancellationToken) ?? "3.1.1";
-                detectedPackageReferences.Add(new PackageReference
-                {
-                    PackageId = "MSTest.TestAdapter", 
-                    Version = adapterVersion
-                });
-                
-                _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework and MSTest.TestAdapter packages");
+                _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework package (includes MSTest.TestAdapter transitively)");
                 continue;
             }
 
@@ -301,15 +293,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                         Version = msTestVersion
                     });
                     
-                    // Also add MSTest.TestAdapter for running tests
-                    var adapterVersion = await _nugetResolver.GetLatestStableVersionAsync("MSTest.TestAdapter", cancellationToken) ?? "3.1.1";
-                    detectedPackageReferences.Add(new PackageReference
-                    {
-                        PackageId = "MSTest.TestAdapter", 
-                        Version = adapterVersion
-                    });
-                    
-                    _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework and MSTest.TestAdapter packages");
+                    _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest.TestFramework package (includes MSTest.TestAdapter transitively)");
                     continue;
                 }
                 
