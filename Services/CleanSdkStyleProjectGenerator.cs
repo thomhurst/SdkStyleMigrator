@@ -701,14 +701,27 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "Folder", "ApplicationDefinition", "Page", "Resource"
         };
 
+        // Log items being filtered out
+        var legacyItems = project.Items
+            .Where(i => LegacyProjectElements.ItemsToRemove.Contains(i.ItemType))
+            .GroupBy(i => i.ItemType);
+        
+        foreach (var group in legacyItems)
+        {
+            _logger.LogInformation("Removing legacy item type '{ItemType}' ({Count} items)", 
+                group.Key, group.Count());
+        }
+
         var customItems = project.Items
             .Where(i => !standardTypes.Contains(i.ItemType))
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
+            .Where(i => !LegacyProjectElements.ItemsToRemove.Contains(i.ItemType))
             .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.EvaluatedInclude))
             .GroupBy(i => i.ItemType);
 
         foreach (var group in customItems)
         {
+            _logger.LogDebug("Migrating custom item type: {ItemType}", group.Key);
             var itemGroup = new XElement("ItemGroup");
             foreach (var item in group)
             {
