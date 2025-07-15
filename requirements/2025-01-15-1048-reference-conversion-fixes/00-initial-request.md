@@ -1,0 +1,3 @@
+# Initial Request
+
+There's still an issue with converting references from old style to new style. Some are being converted into the wrong package references, simply because they have the same name. We should probably check the public token matches to avoid this. Some references aren't available as NuGet packages because they're still technically framework references, so we need to keep them, unless they're one of the few ones that the SDK implicitly declares. And for those we can't find a matching NuGet package for, and it's not a framework reference, we should keep it as is as it might be a custom built DLL.

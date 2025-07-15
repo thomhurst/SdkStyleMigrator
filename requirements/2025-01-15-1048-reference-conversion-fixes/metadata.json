@@ -1,0 +1,18 @@
+{
+  "id": "reference-conversion-fixes",
+  "started": "2025-01-15T10:48:00Z",
+  "lastUpdated": "2025-01-15T10:52:00Z",
+  "status": "active",
+  "phase": "complete",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 5, "total": 5 }
+  },
+  "contextFiles": [
+    "/home/thomh/dev/SdkMigrator/Services/AssemblyReferenceConverter.cs",
+    "/home/thomh/dev/SdkMigrator/Services/CleanSdkStyleProjectGenerator.cs",
+    "/home/thomh/dev/SdkMigrator/Services/NuGetAssetsResolver.cs",
+    "/home/thomh/dev/SdkMigrator/Services/PackageAssemblyResolver.cs"
+  ],
+  "relatedFeatures": []
+}

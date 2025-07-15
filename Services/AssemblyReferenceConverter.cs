@@ -110,11 +110,12 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         _nugetResolver = nugetResolver;
     }
 
-    public async Task<IEnumerable<PackageReference>> ConvertReferencesAsync(
+    public async Task<ReferenceConversionResult> ConvertReferencesAsync(
         Project legacyProject,
         string targetFramework,
         CancellationToken cancellationToken = default)
     {
+        var result = new ReferenceConversionResult();
         var detectedPackageReferences = new HashSet<PackageReference>(new PackageReferenceComparer());
 
         // Get all references
@@ -132,34 +133,73 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         // Process package references (those with HintPath)
         foreach (var referenceItem in packageReferences)
         {
-            var assemblyName = ExtractAssemblyName(referenceItem.EvaluatedInclude);
+            var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
 
             // First, try to find a package using our framework-aware PackageAssemblyResolver
-            var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyName, targetFramework, cancellationToken);
+            var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyIdentity, targetFramework, cancellationToken);
             if (packageFromResolver != null)
             {
+                // Try to match the version if specified in the original reference
+                if (!string.IsNullOrEmpty(assemblyIdentity.Version))
+                {
+                    packageFromResolver.Version = await TryMatchVersion(packageFromResolver.PackageId, assemblyIdentity.Version, cancellationToken) 
+                        ?? packageFromResolver.Version;
+                }
+                
                 detectedPackageReferences.Add(packageFromResolver);
-                _logger.LogInformation("Framework-aware resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' for TFM '{TargetFramework}'",
-                    assemblyName, packageFromResolver.PackageId, targetFramework);
+                _logger.LogInformation("Framework-aware resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' version '{Version}' for TFM '{TargetFramework}'",
+                    assemblyIdentity.Name, packageFromResolver.PackageId, packageFromResolver.Version, targetFramework);
                 continue;
             }
 
             // Fallback to the general NuGet resolver
-            var resolvedPackage = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyName, targetFramework, cancellationToken);
+            var resolvedPackage = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyIdentity.Name, targetFramework, cancellationToken);
             if (resolvedPackage != null)
             {
+                // Validate public key token if available
+                if (!string.IsNullOrEmpty(assemblyIdentity.PublicKeyToken))
+                {
+                    var isValidToken = await ValidatePublicKeyToken(resolvedPackage.PackageId, resolvedPackage.Version ?? "*", 
+                        assemblyIdentity, targetFramework, cancellationToken);
+                    
+                    if (!isValidToken)
+                    {
+                        result.Warnings.Add($"Assembly '{assemblyIdentity.Name}' with PublicKeyToken '{assemblyIdentity.PublicKeyToken}' " +
+                            $"does not match the package '{resolvedPackage.PackageId}'. Keeping as local reference.");
+                        result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem, 
+                            "Public key token mismatch with NuGet package"));
+                        continue;
+                    }
+                }
+
+                // Try to match the version
+                var version = resolvedPackage.Version;
+                if (!string.IsNullOrEmpty(assemblyIdentity.Version))
+                {
+                    version = await TryMatchVersion(resolvedPackage.PackageId, assemblyIdentity.Version, cancellationToken) 
+                        ?? resolvedPackage.Version;
+                    
+                    if (version != assemblyIdentity.Version)
+                    {
+                        result.Warnings.Add($"Assembly '{assemblyIdentity.Name}' version '{assemblyIdentity.Version}' " +
+                            $"converted to package '{resolvedPackage.PackageId}' version '{version}'");
+                    }
+                }
+
                 detectedPackageReferences.Add(new PackageReference
                 {
                     PackageId = resolvedPackage.PackageId,
-                    Version = resolvedPackage.Version ?? "*"
+                    Version = version ?? "*"
                 });
-                _logger.LogInformation("NuGet resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' for TFM '{TargetFramework}'",
-                    assemblyName, resolvedPackage.PackageId, targetFramework);
+                _logger.LogInformation("NuGet resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' version '{Version}' for TFM '{TargetFramework}'",
+                    assemblyIdentity.Name, resolvedPackage.PackageId, version, targetFramework);
             }
             else
             {
-                _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. It might be a local DLL or require manual handling.",
-                    assemblyName, targetFramework);
+                _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. Preserving as local reference.",
+                    assemblyIdentity.Name, targetFramework);
+                result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem, 
+                    "No matching NuGet package found"));
             }
         }
 
@@ -173,40 +213,54 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         {
             foreach (var referenceItem in frameworkReferences)
             {
-                var assemblyName = ExtractAssemblyName(referenceItem.EvaluatedInclude);
+                var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
 
                 // Skip built-in framework assemblies that are available in all .NET versions
-                if (IsBuiltInFrameworkAssembly(assemblyName))
+                if (IsBuiltInFrameworkAssembly(assemblyIdentity.Name))
                 {
                     _logger.LogDebug("Skipping built-in framework reference '{Assembly}' for TFM '{TargetFramework}'",
-                        assemblyName, targetFramework);
+                        assemblyIdentity.Name, targetFramework);
                     continue;
                 }
 
                 // Try to find a package for framework assemblies that need explicit packages in .NET Core/.NET 5+
-                var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyName, targetFramework, cancellationToken);
+                var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyIdentity, targetFramework, cancellationToken);
                 if (packageFromResolver != null)
                 {
                     detectedPackageReferences.Add(packageFromResolver);
                     _logger.LogInformation("Framework reference '{Assembly}' requires package '{PackageId}' for TFM '{TargetFramework}'",
-                        assemblyName, packageFromResolver.PackageId, targetFramework);
+                        assemblyIdentity.Name, packageFromResolver.PackageId, targetFramework);
                 }
                 else
                 {
                     _logger.LogDebug("Framework reference '{Assembly}' does not require a package for TFM '{TargetFramework}'",
-                        assemblyName, targetFramework);
+                        assemblyIdentity.Name, targetFramework);
                 }
             }
         }
         else
         {
-            _logger.LogDebug("Target framework {TargetFramework} is .NET Framework - skipping framework reference conversion", targetFramework);
+            // For .NET Framework targets, preserve non-built-in framework references
+            foreach (var referenceItem in frameworkReferences)
+            {
+                var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
+                
+                if (!IsBuiltInFrameworkAssembly(assemblyIdentity.Name))
+                {
+                    result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
+                        "Framework reference for .NET Framework target"));
+                }
+            }
+            
+            _logger.LogDebug("Target framework {TargetFramework} is .NET Framework - preserving non-built-in framework references", targetFramework);
         }
 
-        _logger.LogInformation("Converted {Count} assembly references to package references for target framework {TargetFramework}",
-            detectedPackageReferences.Count, targetFramework);
+        result.PackageReferences = detectedPackageReferences.ToList();
+        
+        _logger.LogInformation("Converted {ConvertedCount} assembly references to package references and preserved {UnconvertedCount} references for target framework {TargetFramework}",
+            result.PackageReferences.Count, result.UnconvertedReferences.Count, targetFramework);
 
-        return detectedPackageReferences;
+        return result;
     }
 
     /// <summary>
@@ -232,7 +286,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     /// This performs a reverse lookup through the well-known mappings.
     /// </summary>
     private async Task<PackageReference?> FindPackageUsingFrameworkAwareResolver(
-        string assemblyName,
+        AssemblyIdentity assemblyIdentity,
         string targetFramework,
         CancellationToken cancellationToken)
     {
@@ -249,7 +303,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             {
                 if (IsFrameworkCompatible(targetFramework, frameworkEntry.Key))
                 {
-                    if (frameworkEntry.Value.Contains(assemblyName, StringComparer.OrdinalIgnoreCase))
+                    if (frameworkEntry.Value.Contains(assemblyIdentity.Name, StringComparer.OrdinalIgnoreCase))
                     {
                         // Found a match - this package provides the assembly for this framework
                         var version = await _nugetResolver.GetLatestStableVersionAsync(packageMapping.Key, cancellationToken);
@@ -261,6 +315,83 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                     }
                 }
             }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Validates that a NuGet package contains an assembly with the expected public key token.
+    /// </summary>
+    private async Task<bool> ValidatePublicKeyToken(
+        string packageId, 
+        string packageVersion, 
+        AssemblyIdentity assemblyIdentity,
+        string targetFramework,
+        CancellationToken cancellationToken)
+    {
+        // For now, we'll implement a basic validation
+        // In a full implementation, this would download the package and inspect the assembly
+        // For well-known packages, we can hardcode known public key tokens
+        
+        var wellKnownTokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Newtonsoft.Json"] = "30ad4fe6b2a6aeed",
+            ["System.Data.SqlClient"] = "b03f5f7f11d50a3a",
+            ["Microsoft.EntityFrameworkCore"] = "adb9793829ddae60",
+            ["EntityFramework"] = "b77a5c561934e089"
+        };
+
+        if (wellKnownTokens.TryGetValue(packageId, out var expectedToken))
+        {
+            return string.Equals(expectedToken, assemblyIdentity.PublicKeyToken, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // For unknown packages, we can't validate the token, so it's safer to skip conversion
+        _logger.LogWarning("Cannot validate public key token for package '{PackageId}'. " +
+            "Expected token '{ExpectedToken}' for assembly '{Assembly}'", 
+            packageId, assemblyIdentity.PublicKeyToken, assemblyIdentity.Name);
+        
+        return false; // Skip conversion when we can't validate the token
+    }
+
+    /// <summary>
+    /// Attempts to find a package version that matches the assembly version.
+    /// </summary>
+    private async Task<string?> TryMatchVersion(
+        string packageId, 
+        string assemblyVersion,
+        CancellationToken cancellationToken)
+    {
+        // For now, return the assembly version directly
+        // In a full implementation, this would query NuGet to find available versions
+        // and pick the closest match
+        
+        _logger.LogDebug("Attempting to match assembly version '{AssemblyVersion}' for package '{PackageId}'",
+            assemblyVersion, packageId);
+        
+        // Common version mappings (assembly version -> package version)
+        var versionMappings = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Newtonsoft.Json"] = new Dictionary<string, string>
+            {
+                ["11.0.0.0"] = "11.0.2",
+                ["12.0.0.0"] = "12.0.3",
+                ["13.0.0.0"] = "13.0.3"
+            }
+        };
+
+        if (versionMappings.TryGetValue(packageId, out var mappings) && 
+            mappings.TryGetValue(assemblyVersion, out var packageVersion))
+        {
+            return packageVersion;
+        }
+
+        // Try to use assembly version directly (remove .0 suffix if present)
+        var simplifiedVersion = assemblyVersion.TrimEnd(".0".ToCharArray());
+        if (simplifiedVersion.Count(c => c == '.') == 2) // Ensure we have major.minor.patch
+        {
+            return simplifiedVersion;
         }
 
         return null;

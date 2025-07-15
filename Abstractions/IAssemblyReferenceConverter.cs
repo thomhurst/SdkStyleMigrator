@@ -7,13 +7,13 @@ public interface IAssemblyReferenceConverter
 {
     /// <summary>
     /// Analyzes legacy assembly references (<Reference> items) and determines corresponding NuGet PackageReferences
-    /// required for the target framework.
+    /// required for the target framework. Also returns references that could not be converted.
     /// </summary>
     /// <param name="legacyProject">The legacy MSBuild project.</param>
     /// <param name="targetFramework">The target framework moniker (e.g., "net6.0") for the new SDK-style project.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A collection of unique PackageReference models.</returns>
-    Task<IEnumerable<PackageReference>> ConvertReferencesAsync(
+    /// <returns>A result containing both converted package references and unconverted assembly references.</returns>
+    Task<ReferenceConversionResult> ConvertReferencesAsync(
         Project legacyProject,
         string targetFramework,
         CancellationToken cancellationToken = default);

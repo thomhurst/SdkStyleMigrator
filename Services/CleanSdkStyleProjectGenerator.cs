@@ -314,14 +314,20 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         // 2. Get packages from legacy assembly references (framework-aware conversion)
-        var packagesFromAssemblies = await _assemblyReferenceConverter.ConvertReferencesAsync(project, targetFramework, cancellationToken);
-        foreach (var pkg in packagesFromAssemblies)
+        var conversionResult = await _assemblyReferenceConverter.ConvertReferencesAsync(project, targetFramework, cancellationToken);
+        foreach (var pkg in conversionResult.PackageReferences)
         {
             allPackageReferences.Add(pkg);
         }
 
+        // Log any warnings from the conversion
+        foreach (var warning in conversionResult.Warnings)
+        {
+            _logger.LogWarning(warning);
+        }
+
         _logger.LogInformation("Combined {ExistingCount} existing packages with {ConvertedCount} packages from assembly references, total unique: {TotalCount}",
-            existingPackages.Count(), packagesFromAssemblies.Count(), allPackageReferences.Count);
+            existingPackages.Count(), conversionResult.PackageReferences.Count, allPackageReferences.Count);
 
         if (allPackageReferences.Any())
         {
@@ -346,6 +352,12 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
 
             projectElement.Add(itemGroup);
+        }
+
+        // Migrate unconverted references
+        if (conversionResult.UnconvertedReferences.Any())
+        {
+            MigrateUnconvertedReferences(conversionResult.UnconvertedReferences, projectElement);
         }
     }
 
@@ -567,6 +579,45 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             propertyGroup.Add(new XElement("GenerateAssemblyInfo", "true"));
         }
+    }
+
+    private void MigrateUnconvertedReferences(List<UnconvertedReference> unconvertedReferences, XElement projectElement)
+    {
+        if (!unconvertedReferences.Any())
+            return;
+
+        var itemGroup = new XElement("ItemGroup");
+
+        foreach (var reference in unconvertedReferences)
+        {
+            var element = new XElement("Reference",
+                new XAttribute("Include", reference.Identity.ToString()));
+
+            // Add HintPath if available
+            if (!string.IsNullOrEmpty(reference.HintPath))
+            {
+                element.Add(new XElement("HintPath", reference.HintPath));
+            }
+
+            // Add Private if specified
+            if (reference.Private.HasValue)
+            {
+                element.Add(new XElement("Private", reference.Private.Value.ToString()));
+            }
+
+            // Add any additional metadata
+            foreach (var metadata in reference.Metadata)
+            {
+                element.Add(new XElement(metadata.Key, metadata.Value));
+            }
+
+            itemGroup.Add(element);
+
+            _logger.LogInformation("Preserved unconverted reference '{Reference}': {Reason}",
+                reference.Identity.Name, reference.Reason);
+        }
+
+        projectElement.Add(itemGroup);
     }
 
     private void AddExcludedCompileItems(Project project, XElement projectElement)
