@@ -314,7 +314,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         // 2. Get packages from legacy assembly references (framework-aware conversion)
-        var conversionResult = await _assemblyReferenceConverter.ConvertReferencesAsync(project, targetFramework, cancellationToken);
+        var conversionResult = await _assemblyReferenceConverter.ConvertReferencesAsync(project, targetFramework, existingPackages, cancellationToken);
         foreach (var pkg in conversionResult.PackageReferences)
         {
             allPackageReferences.Add(pkg);

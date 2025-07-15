@@ -113,6 +113,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     public async Task<ReferenceConversionResult> ConvertReferencesAsync(
         Project legacyProject,
         string targetFramework,
+        IEnumerable<PackageReference> existingPackages,
         CancellationToken cancellationToken = default)
     {
         var result = new ReferenceConversionResult();
@@ -130,8 +131,16 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         _logger.LogDebug("Found {PackageCount} package references and {FrameworkCount} framework references for target framework {TargetFramework}",
             packageReferences.Count, frameworkReferences.Count, targetFramework);
 
+        // Filter out references that are already covered by existing packages
+        var filteredPackageReferences = packageReferences
+            .Where(referenceItem => !IsReferenceCoveredByExistingPackage(referenceItem, existingPackages))
+            .ToList();
+
+        _logger.LogDebug("Filtered {OriginalCount} package references down to {FilteredCount} after removing references covered by existing packages",
+            packageReferences.Count, filteredPackageReferences.Count);
+
         // Process package references (those with HintPath)
-        foreach (var referenceItem in packageReferences)
+        foreach (var referenceItem in filteredPackageReferences)
         {
             var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
 
@@ -442,6 +451,50 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                      !lowerTarget.StartsWith("netframework"),
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Checks if a Reference element is already covered by an existing package from packages.config.
+    /// This prevents duplicate processing of references that are already handled by PackageReferenceMigrator.
+    /// </summary>
+    private bool IsReferenceCoveredByExistingPackage(Microsoft.Build.Evaluation.ProjectItem referenceItem, IEnumerable<PackageReference> existingPackages)
+    {
+        if (!referenceItem.HasMetadata("HintPath"))
+            return false;
+
+        var hintPath = referenceItem.GetMetadataValue("HintPath");
+        if (string.IsNullOrEmpty(hintPath) || !hintPath.Contains("packages"))
+            return false;
+
+        // Extract package folder from HintPath (e.g., "packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll")
+        var parts = hintPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var packagesIndex = Array.FindIndex(parts, p => p.Equals("packages", StringComparison.OrdinalIgnoreCase));
+
+        if (packagesIndex >= 0 && packagesIndex < parts.Length - 1)
+        {
+            var packageFolder = parts[packagesIndex + 1];
+            
+            // Check if any existing package matches this folder
+            foreach (var existingPackage in existingPackages)
+            {
+                // Try different package folder naming patterns
+                var possibleFolders = new[]
+                {
+                    $"{existingPackage.PackageId}.{existingPackage.Version}",
+                    $"{existingPackage.PackageId}.{existingPackage.Version ?? ""}".TrimEnd('.'),
+                    existingPackage.PackageId // Some packages might not have version in folder name
+                };
+
+                if (possibleFolders.Any(folder => packageFolder.Equals(folder, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogDebug("Reference '{Assembly}' is covered by existing package '{Package}' - skipping conversion", 
+                        referenceItem.EvaluatedInclude, existingPackage.PackageId);
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }
 
