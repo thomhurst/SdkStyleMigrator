@@ -387,10 +387,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var compileItems = project.Items
             .Where(i => i.ItemType == "Compile")
-            .Where(i => !i.EvaluatedInclude.EndsWith(".cs") ||
-                       i.EvaluatedInclude.Contains("*") ||
-                       i.HasMetadata("Link") ||
-                       i.HasMetadata("DependentUpon"))
+            .Where(i => !i.EvaluatedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) // Exclude ALL .cs files
             .Where(i => !IsAssemblyInfoFile(i.EvaluatedInclude)) // Exclude AssemblyInfo files
             .ToList();
 
@@ -402,6 +399,46 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 var element = new XElement("Compile",
                     new XAttribute("Include", item.EvaluatedInclude));
+
+                PreserveMetadata(item, element);
+                itemGroup.Add(element);
+            }
+
+            projectElement.Add(itemGroup);
+        }
+        
+        // Handle .cs files with metadata using Update items
+        MigrateCsFilesWithMetadata(project, projectElement);
+    }
+
+    private void MigrateCsFilesWithMetadata(Project project, XElement projectElement)
+    {
+        // Find .cs files that have metadata that needs to be preserved
+        var csFilesWithMetadata = project.Items
+            .Where(i => i.ItemType == "Compile")
+            .Where(i => i.EvaluatedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            .Where(i => !IsAssemblyInfoFile(i.EvaluatedInclude)) // Exclude AssemblyInfo files
+            .Where(i => i.HasMetadata("DependentUpon") || 
+                       i.HasMetadata("SubType") ||
+                       i.HasMetadata("Generator") ||
+                       i.HasMetadata("LastGenOutput") ||
+                       i.HasMetadata("DesignTime") ||
+                       i.HasMetadata("AutoGen") ||
+                       i.HasMetadata("CustomToolNamespace") ||
+                       i.HasMetadata("Link")) // Linked files need explicit inclusion
+            .ToList();
+
+        if (csFilesWithMetadata.Any())
+        {
+            var itemGroup = new XElement("ItemGroup");
+
+            foreach (var item in csFilesWithMetadata)
+            {
+                // Linked files need Include (they're outside project directory)
+                // Other files with metadata use Update (they're auto-included by SDK)
+                var attributeName = item.HasMetadata("Link") ? "Include" : "Update";
+                var element = new XElement("Compile",
+                    new XAttribute(attributeName, item.EvaluatedInclude));
 
                 PreserveMetadata(item, element);
                 itemGroup.Add(element);
