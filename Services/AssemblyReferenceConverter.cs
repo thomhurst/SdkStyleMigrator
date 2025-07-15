@@ -156,20 +156,15 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             var resolvedPackage = await _nugetResolver.ResolveAssemblyToPackageAsync(assemblyIdentity.Name, targetFramework, cancellationToken);
             if (resolvedPackage != null)
             {
-                // Validate public key token if available
-                if (!string.IsNullOrEmpty(assemblyIdentity.PublicKeyToken))
+                // Validate package-assembly match using IncludedAssemblies and public key token
+                var isValidMatch = ValidatePackageAssemblyMatch(resolvedPackage, assemblyIdentity, targetFramework, cancellationToken);
+                
+                if (!isValidMatch)
                 {
-                    var isValidToken = await ValidatePublicKeyToken(resolvedPackage.PackageId, resolvedPackage.Version ?? "*", 
-                        assemblyIdentity, targetFramework, cancellationToken);
-                    
-                    if (!isValidToken)
-                    {
-                        result.Warnings.Add($"Assembly '{assemblyIdentity.Name}' with PublicKeyToken '{assemblyIdentity.PublicKeyToken}' " +
-                            $"does not match the package '{resolvedPackage.PackageId}'. Keeping as local reference.");
-                        result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem, 
-                            "Public key token mismatch with NuGet package"));
-                        continue;
-                    }
+                    result.Warnings.Add($"Assembly '{assemblyIdentity.Name}' does not match the package '{resolvedPackage.PackageId}'. Keeping as local reference.");
+                    result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem, 
+                        "Assembly-package validation failed"));
+                    continue;
                 }
 
                 // Try to match the version
@@ -321,38 +316,60 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     }
 
     /// <summary>
-    /// Validates that a NuGet package contains an assembly with the expected public key token.
+    /// Validates that a NuGet package contains the expected assembly by checking the IncludedAssemblies
+    /// from the PackageResolutionResult and optionally validating the public key token.
     /// </summary>
-    private async Task<bool> ValidatePublicKeyToken(
-        string packageId, 
-        string packageVersion, 
+    private bool ValidatePackageAssemblyMatch(
+        PackageResolutionResult packageResult,
         AssemblyIdentity assemblyIdentity,
         string targetFramework,
         CancellationToken cancellationToken)
     {
-        // For now, we'll implement a basic validation
-        // In a full implementation, this would download the package and inspect the assembly
-        // For well-known packages, we can hardcode known public key tokens
-        
-        var wellKnownTokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        // Primary validation: Check if assembly is in IncludedAssemblies
+        if (packageResult.IncludedAssemblies.Contains(assemblyIdentity.Name, StringComparer.OrdinalIgnoreCase))
         {
-            ["Newtonsoft.Json"] = "30ad4fe6b2a6aeed",
-            ["System.Data.SqlClient"] = "b03f5f7f11d50a3a",
-            ["Microsoft.EntityFrameworkCore"] = "adb9793829ddae60",
-            ["EntityFramework"] = "b77a5c561934e089"
-        };
-
-        if (wellKnownTokens.TryGetValue(packageId, out var expectedToken))
-        {
-            return string.Equals(expectedToken, assemblyIdentity.PublicKeyToken, StringComparison.OrdinalIgnoreCase);
+            _logger.LogDebug("Assembly '{Assembly}' found in package '{Package}' IncludedAssemblies", 
+                assemblyIdentity.Name, packageResult.PackageId);
+            return true;
         }
 
-        // For unknown packages, we can't validate the token, so it's safer to skip conversion
-        _logger.LogWarning("Cannot validate public key token for package '{PackageId}'. " +
-            "Expected token '{ExpectedToken}' for assembly '{Assembly}'", 
-            packageId, assemblyIdentity.PublicKeyToken, assemblyIdentity.Name);
+        // Secondary validation: Public key token check for additional security
+        if (!string.IsNullOrEmpty(assemblyIdentity.PublicKeyToken))
+        {
+            var wellKnownTokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Newtonsoft.Json"] = "30ad4fe6b2a6aeed",
+                ["System.Data.SqlClient"] = "b03f5f7f11d50a3a",
+                ["Microsoft.EntityFrameworkCore"] = "adb9793829ddae60",
+                ["EntityFramework"] = "b77a5c561934e089"
+            };
+
+            if (wellKnownTokens.TryGetValue(packageResult.PackageId, out var expectedToken))
+            {
+                var tokenMatch = string.Equals(expectedToken, assemblyIdentity.PublicKeyToken, StringComparison.OrdinalIgnoreCase);
+                if (tokenMatch)
+                {
+                    _logger.LogDebug("Public key token validation passed for package '{Package}' and assembly '{Assembly}'", 
+                        packageResult.PackageId, assemblyIdentity.Name);
+                    return true;
+                }
+                else
+                {
+                    _logger.LogWarning("Public key token mismatch for package '{Package}' and assembly '{Assembly}'. " +
+                        "Expected '{Expected}', got '{Actual}'", 
+                        packageResult.PackageId, assemblyIdentity.Name, expectedToken, assemblyIdentity.PublicKeyToken);
+                    return false;
+                }
+            }
+        }
+
+        // If no IncludedAssemblies data and no public key token validation available, 
+        // allow conversion but log a warning
+        _logger.LogWarning("Cannot validate assembly '{Assembly}' for package '{Package}'. " +
+            "No IncludedAssemblies data and no public key token validation available. Allowing conversion.", 
+            assemblyIdentity.Name, packageResult.PackageId);
         
-        return false; // Skip conversion when we can't validate the token
+        return true; // Allow conversion when we can't validate but have a resolved package
     }
 
     /// <summary>
