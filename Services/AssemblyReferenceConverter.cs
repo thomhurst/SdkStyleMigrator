@@ -177,6 +177,20 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 continue;
             }
 
+            // Special handling for Fakes framework
+            if (assemblyIdentity.Name.Equals("Microsoft.QualityTools.Testing.Fakes", StringComparison.OrdinalIgnoreCase))
+            {
+                var fakesVersion = await _nugetResolver.GetLatestStableVersionAsync("Microsoft.QualityTools.Testing.Fakes", cancellationToken) ?? "16.11.230815";
+                detectedPackageReferences.Add(new PackageReference
+                {
+                    PackageId = "Microsoft.QualityTools.Testing.Fakes",
+                    Version = fakesVersion
+                });
+                
+                _logger.LogInformation("Converted Microsoft.QualityTools.Testing.Fakes to NuGet package");
+                continue;
+            }
+
             // First, try to find a package using our framework-aware PackageAssemblyResolver
             var packageFromResolver = await FindPackageUsingFrameworkAwareResolver(assemblyIdentity, targetFramework, cancellationToken);
             if (packageFromResolver != null)
@@ -294,6 +308,20 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                     });
                     
                     _logger.LogInformation("Converted Microsoft.VisualStudio.QualityTools.UnitTestFramework to MSTest package");
+                    continue;
+                }
+                
+                // Special handling for Fakes framework even in .NET Framework targets
+                if (assemblyIdentity.Name.Equals("Microsoft.QualityTools.Testing.Fakes", StringComparison.OrdinalIgnoreCase))
+                {
+                    var fakesVersion = await _nugetResolver.GetLatestStableVersionAsync("Microsoft.QualityTools.Testing.Fakes", cancellationToken) ?? "16.11.230815";
+                    detectedPackageReferences.Add(new PackageReference
+                    {
+                        PackageId = "Microsoft.QualityTools.Testing.Fakes",
+                        Version = fakesVersion
+                    });
+                    
+                    _logger.LogInformation("Converted Microsoft.QualityTools.Testing.Fakes to NuGet package");
                     continue;
                 }
                 
