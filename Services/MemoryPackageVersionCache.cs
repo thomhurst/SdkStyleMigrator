@@ -26,29 +26,29 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
     {
         _logger = logger;
         _options = options.Value;
-        
+
         // Set up periodic cleanup of expired entries
         _cleanupTimer = new Timer(
-            CleanupExpiredEntries, 
-            null, 
-            TimeSpan.FromMinutes(5), 
+            CleanupExpiredEntries,
+            null,
+            TimeSpan.FromMinutes(5),
             TimeSpan.FromMinutes(5));
-        
+
         _logger.LogInformation("Package version cache initialized with TTL: {TTL} minutes", _options.CacheTTLMinutes);
     }
 
     public Task<string?> GetVersionAsync(string packageId, string? targetFramework = null, bool includePrerelease = false)
     {
         var key = GenerateVersionKey(packageId, targetFramework, includePrerelease);
-        
+
         if (_versionCache.TryGetValue(key, out var entry) && !entry.IsExpired)
         {
             _statistics.VersionCacheHits++;
-            _logger.LogDebug("Cache hit for package version: {PackageId} ({Framework}, prerelease={IncludePrerelease})", 
+            _logger.LogDebug("Cache hit for package version: {PackageId} ({Framework}, prerelease={IncludePrerelease})",
                 packageId, targetFramework ?? "any", includePrerelease);
             return Task.FromResult<string?>(entry.Value);
         }
-        
+
         _statistics.VersionCacheMisses++;
         return Task.FromResult<string?>(null);
     }
@@ -57,26 +57,26 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
     {
         var key = GenerateVersionKey(packageId, targetFramework, includePrerelease);
         var entry = new CacheEntry<string>(version, _options.CacheTTLMinutes);
-        
+
         _versionCache.AddOrUpdate(key, entry, (k, v) => entry);
-        _logger.LogDebug("Cached package version: {PackageId} = {Version} ({Framework}, prerelease={IncludePrerelease})", 
+        _logger.LogDebug("Cached package version: {PackageId} = {Version} ({Framework}, prerelease={IncludePrerelease})",
             packageId, version, targetFramework ?? "any", includePrerelease);
-        
+
         return Task.CompletedTask;
     }
 
     public Task<IEnumerable<string>?> GetAllVersionsAsync(string packageId, bool includePrerelease = false)
     {
         var key = $"all:{packageId}:{includePrerelease}";
-        
+
         if (_allVersionsCache.TryGetValue(key, out var entry) && !entry.IsExpired)
         {
             _statistics.VersionCacheHits++;
-            _logger.LogDebug("Cache hit for all versions: {PackageId} (prerelease={IncludePrerelease})", 
+            _logger.LogDebug("Cache hit for all versions: {PackageId} (prerelease={IncludePrerelease})",
                 packageId, includePrerelease);
             return Task.FromResult<IEnumerable<string>?>(entry.Value);
         }
-        
+
         _statistics.VersionCacheMisses++;
         return Task.FromResult<IEnumerable<string>?>(null);
     }
@@ -85,26 +85,26 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
     {
         var key = $"all:{packageId}:{includePrerelease}";
         var entry = new CacheEntry<IEnumerable<string>>(versions.ToList(), _options.CacheTTLMinutes);
-        
+
         _allVersionsCache.AddOrUpdate(key, entry, (k, v) => entry);
-        _logger.LogDebug("Cached all versions for package: {PackageId} ({Count} versions, prerelease={IncludePrerelease})", 
+        _logger.LogDebug("Cached all versions for package: {PackageId} ({Count} versions, prerelease={IncludePrerelease})",
             packageId, versions.Count(), includePrerelease);
-        
+
         return Task.CompletedTask;
     }
 
     public Task<PackageResolutionResult?> GetPackageResolutionAsync(string assemblyName, string? targetFramework = null)
     {
         var key = $"resolution:{assemblyName}:{targetFramework ?? "any"}";
-        
+
         if (_resolutionCache.TryGetValue(key, out var entry) && !entry.IsExpired)
         {
             _statistics.ResolutionCacheHits++;
-            _logger.LogDebug("Cache hit for package resolution: {AssemblyName} ({Framework})", 
+            _logger.LogDebug("Cache hit for package resolution: {AssemblyName} ({Framework})",
                 assemblyName, targetFramework ?? "any");
             return Task.FromResult<PackageResolutionResult?>(entry.Value);
         }
-        
+
         _statistics.ResolutionCacheMisses++;
         return Task.FromResult<PackageResolutionResult?>(null);
     }
@@ -113,26 +113,26 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
     {
         var key = $"resolution:{assemblyName}:{targetFramework ?? "any"}";
         var entry = new CacheEntry<PackageResolutionResult>(result, _options.CacheTTLMinutes);
-        
+
         _resolutionCache.AddOrUpdate(key, entry, (k, v) => entry);
-        _logger.LogDebug("Cached package resolution: {AssemblyName} => {PackageId} {Version} ({Framework})", 
+        _logger.LogDebug("Cached package resolution: {AssemblyName} => {PackageId} {Version} ({Framework})",
             assemblyName, result.PackageId, result.Version, targetFramework ?? "any");
-        
+
         return Task.CompletedTask;
     }
 
     public Task<HashSet<(string PackageId, string Version)>?> GetPackageDependenciesAsync(string packageId, string version, string? targetFramework = null)
     {
         var key = $"deps:{packageId}:{version}:{targetFramework ?? "any"}";
-        
+
         if (_dependencyCache.TryGetValue(key, out var entry) && !entry.IsExpired)
         {
             _statistics.DependencyCacheHits++;
-            _logger.LogDebug("Cache hit for package dependencies: {PackageId} {Version} ({Framework})", 
+            _logger.LogDebug("Cache hit for package dependencies: {PackageId} {Version} ({Framework})",
                 packageId, version, targetFramework ?? "any");
             return Task.FromResult<HashSet<(string, string)>?>(entry.Value);
         }
-        
+
         _statistics.DependencyCacheMisses++;
         return Task.FromResult<HashSet<(string, string)>?>(null);
     }
@@ -141,11 +141,11 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
     {
         var key = $"deps:{packageId}:{version}:{targetFramework ?? "any"}";
         var entry = new CacheEntry<HashSet<(string, string)>>(dependencies, _options.CacheTTLMinutes);
-        
+
         _dependencyCache.AddOrUpdate(key, entry, (k, v) => entry);
-        _logger.LogDebug("Cached package dependencies: {PackageId} {Version} ({Count} dependencies, {Framework})", 
+        _logger.LogDebug("Cached package dependencies: {PackageId} {Version} ({Count} dependencies, {Framework})",
             packageId, version, dependencies.Count, targetFramework ?? "any");
-        
+
         return Task.CompletedTask;
     }
 
@@ -155,14 +155,14 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
         _allVersionsCache.Clear();
         _resolutionCache.Clear();
         _dependencyCache.Clear();
-        
+
         _logger.LogInformation("Package version cache cleared");
         return Task.CompletedTask;
     }
 
     public CacheStatistics GetStatistics()
     {
-        _statistics.TotalEntries = _versionCache.Count + _allVersionsCache.Count + 
+        _statistics.TotalEntries = _versionCache.Count + _allVersionsCache.Count +
                                   _resolutionCache.Count + _dependencyCache.Count;
         _statistics.CacheUptime = DateTime.UtcNow - _startTime;
         return _statistics;
@@ -201,9 +201,9 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
                 _dependencyCache.TryRemove(key, out _);
             }
 
-            var totalExpired = expiredVersions.Count + expiredAllVersions.Count + 
+            var totalExpired = expiredVersions.Count + expiredAllVersions.Count +
                               expiredResolutions.Count + expiredDependencies.Count;
-            
+
             if (totalExpired > 0)
             {
                 _logger.LogDebug("Cleaned up {Count} expired cache entries", totalExpired);
@@ -221,12 +221,12 @@ public class MemoryPackageVersionCache : IPackageVersionCache, IDisposable
         {
             _cleanupTimer?.Dispose();
             _disposed = true;
-            
+
             var stats = GetStatistics();
             _logger.LogInformation(
                 "Package cache shutting down. Statistics - Total entries: {TotalEntries}, Hit rate: {HitRate:F1}%, " +
                 "Version hits: {VersionHits}, Resolution hits: {ResolutionHits}, Dependency hits: {DependencyHits}",
-                stats.TotalEntries, stats.HitRate, stats.VersionCacheHits, 
+                stats.TotalEntries, stats.HitRate, stats.VersionCacheHits,
                 stats.ResolutionCacheHits, stats.DependencyCacheHits);
         }
     }
@@ -252,7 +252,7 @@ public class PackageCacheOptions
     /// Time-to-live for cached entries in minutes. Default is 60 minutes.
     /// </summary>
     public int CacheTTLMinutes { get; set; } = 60;
-    
+
     /// <summary>
     /// Whether caching is enabled. Default is true.
     /// </summary>

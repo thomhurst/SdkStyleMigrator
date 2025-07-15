@@ -14,7 +14,7 @@ public class CachedNuGetPackageResolver : INuGetPackageResolver
     private readonly ILogger<CachedNuGetPackageResolver> _logger;
 
     public CachedNuGetPackageResolver(
-        INuGetPackageResolver innerResolver, 
+        INuGetPackageResolver innerResolver,
         IPackageVersionCache cache,
         ILogger<CachedNuGetPackageResolver> logger)
     {
@@ -35,7 +35,7 @@ public class CachedNuGetPackageResolver : INuGetPackageResolver
 
         // Fetch from inner resolver
         var version = await _innerResolver.GetLatestStableVersionAsync(packageId, cancellationToken);
-        
+
         // Cache the result if found
         if (version != null)
         {
@@ -51,14 +51,14 @@ public class CachedNuGetPackageResolver : INuGetPackageResolver
         var cachedVersion = await _cache.GetVersionAsync(packageId, targetFramework: null, includePrerelease);
         if (cachedVersion != null)
         {
-            _logger.LogDebug("Using cached latest version for {PackageId}: {Version} (prerelease={IncludePrerelease})", 
+            _logger.LogDebug("Using cached latest version for {PackageId}: {Version} (prerelease={IncludePrerelease})",
                 packageId, cachedVersion, includePrerelease);
             return cachedVersion;
         }
 
         // Fetch from inner resolver
         var version = await _innerResolver.GetLatestVersionAsync(packageId, includePrerelease, cancellationToken);
-        
+
         // Cache the result if found
         if (version != null)
         {
@@ -74,7 +74,7 @@ public class CachedNuGetPackageResolver : INuGetPackageResolver
         var cachedVersions = await _cache.GetAllVersionsAsync(packageId, includePrerelease);
         if (cachedVersions != null)
         {
-            _logger.LogDebug("Using cached versions for {PackageId}: {Count} versions (prerelease={IncludePrerelease})", 
+            _logger.LogDebug("Using cached versions for {PackageId}: {Count} versions (prerelease={IncludePrerelease})",
                 packageId, cachedVersions.Count(), includePrerelease);
             return cachedVersions;
         }
@@ -82,7 +82,7 @@ public class CachedNuGetPackageResolver : INuGetPackageResolver
         // Fetch from inner resolver
         var versions = await _innerResolver.GetAllVersionsAsync(packageId, includePrerelease, cancellationToken);
         var versionList = versions.ToList();
-        
+
         // Cache the result
         if (versionList.Any())
         {
@@ -98,14 +98,14 @@ public class CachedNuGetPackageResolver : INuGetPackageResolver
         var cachedResult = await _cache.GetPackageResolutionAsync(assemblyName, targetFramework);
         if (cachedResult != null)
         {
-            _logger.LogDebug("Using cached package resolution for {AssemblyName}: {PackageId} {Version}", 
+            _logger.LogDebug("Using cached package resolution for {AssemblyName}: {PackageId} {Version}",
                 assemblyName, cachedResult.PackageId, cachedResult.Version);
             return cachedResult;
         }
 
         // Fetch from inner resolver
         var result = await _innerResolver.ResolveAssemblyToPackageAsync(assemblyName, targetFramework, cancellationToken);
-        
+
         // Cache the result if found
         if (result != null)
         {

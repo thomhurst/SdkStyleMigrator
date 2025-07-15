@@ -800,7 +800,7 @@ Examples:
         {
             // Register the actual resolver
             services.AddSingleton<NuGetPackageResolver>();
-            
+
             // Register the cached decorator
             services.AddSingleton<INuGetPackageResolver>(provider =>
             {
@@ -865,7 +865,7 @@ Examples:
             var migrationAnalyzer = provider.GetRequiredService<IMigrationAnalyzer>();
             var options = provider.GetRequiredService<MigrationOptions>();
             var packageCache = provider.GetService<IPackageVersionCache>();
-            
+
             return new MigrationOrchestrator(
                 logger,
                 projectFileScanner,

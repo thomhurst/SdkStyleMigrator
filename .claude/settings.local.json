@@ -56,7 +56,9 @@
       "Bash(npx @wonderwhy-er/desktop-commander@latest setup)",
       "mcp__zen__planner",
       "Bash(csc:*)",
-      "Bash(./test_appconfig_debug.exe)"
+      "Bash(./test_appconfig_debug.exe)",
+      "WebFetch(domain:learn.microsoft.com)",
+      "WebFetch(domain:www.nuget.org)"
     ],
     "deny": []
   }

@@ -473,7 +473,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 _logger.LogInformation(
                     "Package cache statistics - Total entries: {TotalEntries}, Hit rate: {HitRate:F1}%, " +
                     "Version hits: {VersionHits}, Resolution hits: {ResolutionHits}, Dependency hits: {DependencyHits}",
-                    stats.TotalEntries, stats.HitRate, stats.VersionCacheHits, 
+                    stats.TotalEntries, stats.HitRate, stats.VersionCacheHits,
                     stats.ResolutionCacheHits, stats.DependencyCacheHits);
             }
         }
@@ -870,14 +870,14 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                 // Remove any references to app.config from the project file
                 var itemsToRemove = projectDoc.Descendants()
-                    .Where(e => e.Attribute("Include")?.Value == appConfigFileName || 
+                    .Where(e => e.Attribute("Include")?.Value == appConfigFileName ||
                                e.Attribute("Include")?.Value == $".\\{appConfigFileName}" ||
                                e.Attribute("Include")?.Value?.EndsWith($"\\{appConfigFileName}") == true)
                     .ToList();
 
                 foreach (var item in itemsToRemove)
                 {
-                    _logger.LogDebug("Removing reference to {AppConfig} from project file {ProjectFile}", 
+                    _logger.LogDebug("Removing reference to {AppConfig} from project file {ProjectFile}",
                         appConfigFileName, projectFile);
                     item.Remove();
                     modified = true;
@@ -897,7 +897,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 if (modified)
                 {
                     await File.WriteAllTextAsync(projectFile, projectDoc.ToString(), cancellationToken);
-                    _logger.LogInformation("Removed references to {AppConfig} from project file {ProjectFile}", 
+                    _logger.LogInformation("Removed references to {AppConfig} from project file {ProjectFile}",
                         appConfigFileName, projectFile);
                 }
             }

@@ -39,7 +39,7 @@ public class CachedNuGetTransitiveDependencyDetector : ITransitiveDependencyDete
         CancellationToken cancellationToken = default)
     {
         var packages = packageReferences.ToList();
-        
+
         // Pre-populate cache with dependency information if available
         foreach (var package in packages)
         {
@@ -48,7 +48,7 @@ public class CachedNuGetTransitiveDependencyDetector : ITransitiveDependencyDete
                 var cachedDeps = await _cache.GetPackageDependenciesAsync(package.PackageId, package.Version);
                 if (cachedDeps != null)
                 {
-                    _logger.LogDebug("Found cached dependencies for {PackageId} {Version}", 
+                    _logger.LogDebug("Found cached dependencies for {PackageId} {Version}",
                         package.PackageId, package.Version);
                 }
             }
@@ -63,9 +63,9 @@ public class CachedNuGetTransitiveDependencyDetector : ITransitiveDependencyDete
             if (!string.IsNullOrEmpty(package.Version) && NuGetVersion.TryParse(package.Version, out var version))
             {
                 var dependencies = await _innerDetector.GetPackageDependenciesAsync(
-                    package.PackageId, 
-                    package.Version, 
-                    NuGetFramework.AnyFramework, 
+                    package.PackageId,
+                    package.Version,
+                    NuGetFramework.AnyFramework,
                     cancellationToken);
 
                 if (dependencies.Any())
@@ -73,10 +73,10 @@ public class CachedNuGetTransitiveDependencyDetector : ITransitiveDependencyDete
                     var depSet = dependencies
                         .Select(d => (d.Id, d.Version.ToString()))
                         .ToHashSet();
-                    
+
                     await _cache.SetPackageDependenciesAsync(
-                        package.PackageId, 
-                        package.Version, 
+                        package.PackageId,
+                        package.Version,
                         depSet);
                 }
             }

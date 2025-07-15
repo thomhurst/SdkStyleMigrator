@@ -705,10 +705,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var legacyItems = project.Items
             .Where(i => LegacyProjectElements.ItemsToRemove.Contains(i.ItemType))
             .GroupBy(i => i.ItemType);
-        
+
         foreach (var group in legacyItems)
         {
-            _logger.LogInformation("Removing legacy item type '{ItemType}' ({Count} items)", 
+            _logger.LogInformation("Removing legacy item type '{ItemType}' ({Count} items)",
                 group.Key, group.Count());
         }
 

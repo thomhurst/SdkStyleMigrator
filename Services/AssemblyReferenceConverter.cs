@@ -61,6 +61,25 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         "System.Speech",
         "System.Threading.Tasks.Dataflow",
         "System.Web.Abstractions",
+        "System.Configuration",
+        "System.Configuration.Install",
+        "System.IdentityModel",
+        "System.IdentityModel.Selectors",
+        "System.Activities",
+        "System.Activities.Core.Presentation",
+        "System.Activities.DurableInstancing",
+        "System.Activities.Presentation",
+        "System.Data.Entity",
+        "System.Data.Entity.Design",
+        "System.Data.Linq",
+        "System.Data.OracleClient",
+        "System.Data.Services",
+        "System.Data.Services.Client",
+        "System.Data.Services.Design",
+        "System.Data.SqlXml",
+        "System.Device",
+        "System.Net.Http.WebRequest",
+        "System.Runtime.Serialization.Formatters",
         "System.Web.ApplicationServices",
         "System.Web.DataVisualization",
         "System.Web.DynamicData",
@@ -151,10 +170,10 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 // Try to match the version if specified in the original reference
                 if (!string.IsNullOrEmpty(assemblyIdentity.Version))
                 {
-                    packageFromResolver.Version = await TryMatchVersion(packageFromResolver.PackageId, assemblyIdentity.Version, cancellationToken) 
+                    packageFromResolver.Version = await TryMatchVersion(packageFromResolver.PackageId, assemblyIdentity.Version, cancellationToken)
                         ?? packageFromResolver.Version;
                 }
-                
+
                 detectedPackageReferences.Add(packageFromResolver);
                 _logger.LogInformation("Framework-aware resolver: Converted assembly reference '{Assembly}' to PackageReference '{PackageId}' version '{Version}' for TFM '{TargetFramework}'",
                     assemblyIdentity.Name, packageFromResolver.PackageId, packageFromResolver.Version, targetFramework);
@@ -167,11 +186,11 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             {
                 // Validate package-assembly match using IncludedAssemblies and public key token
                 var isValidMatch = ValidatePackageAssemblyMatch(resolvedPackage, assemblyIdentity, targetFramework, cancellationToken);
-                
+
                 if (!isValidMatch)
                 {
                     result.Warnings.Add($"Assembly '{assemblyIdentity.Name}' does not match the package '{resolvedPackage.PackageId}'. Keeping as local reference.");
-                    result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem, 
+                    result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
                         "Assembly-package validation failed"));
                     continue;
                 }
@@ -180,9 +199,9 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 var version = resolvedPackage.Version;
                 if (!string.IsNullOrEmpty(assemblyIdentity.Version))
                 {
-                    version = await TryMatchVersion(resolvedPackage.PackageId, assemblyIdentity.Version, cancellationToken) 
+                    version = await TryMatchVersion(resolvedPackage.PackageId, assemblyIdentity.Version, cancellationToken)
                         ?? resolvedPackage.Version;
-                    
+
                     if (version != assemblyIdentity.Version)
                     {
                         result.Warnings.Add($"Assembly '{assemblyIdentity.Name}' version '{assemblyIdentity.Version}' " +
@@ -202,7 +221,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             {
                 _logger.LogDebug("Assembly reference '{Assembly}' did not resolve to a known NuGet package for TFM '{TargetFramework}'. Preserving as local reference.",
                     assemblyIdentity.Name, targetFramework);
-                result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem, 
+                result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
                     "No matching NuGet package found"));
             }
         }
@@ -244,23 +263,19 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         }
         else
         {
-            // For .NET Framework targets, preserve non-built-in framework references
+            // For .NET Framework targets, preserve ALL framework references (both built-in and non-built-in)
+            // as they are all valid and available in the .NET Framework
             foreach (var referenceItem in frameworkReferences)
             {
-                var assemblyIdentity = AssemblyIdentity.Parse(referenceItem.EvaluatedInclude);
-                
-                if (!IsBuiltInFrameworkAssembly(assemblyIdentity.Name))
-                {
-                    result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
-                        "Framework reference for .NET Framework target"));
-                }
+                result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
+                    "Framework reference for .NET Framework target"));
             }
-            
-            _logger.LogDebug("Target framework {TargetFramework} is .NET Framework - preserving non-built-in framework references", targetFramework);
+
+            _logger.LogDebug("Target framework {TargetFramework} is .NET Framework - preserving all framework references", targetFramework);
         }
 
         result.PackageReferences = detectedPackageReferences.ToList();
-        
+
         _logger.LogInformation("Converted {ConvertedCount} assembly references to package references and preserved {UnconvertedCount} references for target framework {TargetFramework}",
             result.PackageReferences.Count, result.UnconvertedReferences.Count, targetFramework);
 
@@ -337,7 +352,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         // Primary validation: Check if assembly is in IncludedAssemblies
         if (packageResult.IncludedAssemblies.Contains(assemblyIdentity.Name, StringComparer.OrdinalIgnoreCase))
         {
-            _logger.LogDebug("Assembly '{Assembly}' found in package '{Package}' IncludedAssemblies", 
+            _logger.LogDebug("Assembly '{Assembly}' found in package '{Package}' IncludedAssemblies",
                 assemblyIdentity.Name, packageResult.PackageId);
             return true;
         }
@@ -358,14 +373,14 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 var tokenMatch = string.Equals(expectedToken, assemblyIdentity.PublicKeyToken, StringComparison.OrdinalIgnoreCase);
                 if (tokenMatch)
                 {
-                    _logger.LogDebug("Public key token validation passed for package '{Package}' and assembly '{Assembly}'", 
+                    _logger.LogDebug("Public key token validation passed for package '{Package}' and assembly '{Assembly}'",
                         packageResult.PackageId, assemblyIdentity.Name);
                     return true;
                 }
                 else
                 {
                     _logger.LogWarning("Public key token mismatch for package '{Package}' and assembly '{Assembly}'. " +
-                        "Expected '{Expected}', got '{Actual}'", 
+                        "Expected '{Expected}', got '{Actual}'",
                         packageResult.PackageId, assemblyIdentity.Name, expectedToken, assemblyIdentity.PublicKeyToken);
                     return false;
                 }
@@ -375,9 +390,9 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         // If no IncludedAssemblies data and no public key token validation available, 
         // allow conversion but log a warning
         _logger.LogWarning("Cannot validate assembly '{Assembly}' for package '{Package}'. " +
-            "No IncludedAssemblies data and no public key token validation available. Allowing conversion.", 
+            "No IncludedAssemblies data and no public key token validation available. Allowing conversion.",
             assemblyIdentity.Name, packageResult.PackageId);
-        
+
         return true; // Allow conversion when we can't validate but have a resolved package
     }
 
@@ -385,17 +400,17 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     /// Attempts to find a package version that matches the assembly version.
     /// </summary>
     private async Task<string?> TryMatchVersion(
-        string packageId, 
+        string packageId,
         string assemblyVersion,
         CancellationToken cancellationToken)
     {
         // For now, return the assembly version directly
         // In a full implementation, this would query NuGet to find available versions
         // and pick the closest match
-        
+
         _logger.LogDebug("Attempting to match assembly version '{AssemblyVersion}' for package '{PackageId}'",
             assemblyVersion, packageId);
-        
+
         // Common version mappings (assembly version -> package version)
         var versionMappings = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase)
         {
@@ -407,7 +422,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             }
         };
 
-        if (versionMappings.TryGetValue(packageId, out var mappings) && 
+        if (versionMappings.TryGetValue(packageId, out var mappings) &&
             mappings.TryGetValue(assemblyVersion, out var packageVersion))
         {
             return packageVersion;
@@ -473,7 +488,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
         if (packagesIndex >= 0 && packagesIndex < parts.Length - 1)
         {
             var packageFolder = parts[packagesIndex + 1];
-            
+
             // Check if any existing package matches this folder
             foreach (var existingPackage in existingPackages)
             {
@@ -487,7 +502,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
 
                 if (possibleFolders.Any(folder => packageFolder.Equals(folder, StringComparison.OrdinalIgnoreCase)))
                 {
-                    _logger.LogDebug("Reference '{Assembly}' is covered by existing package '{Package}' - skipping conversion", 
+                    _logger.LogDebug("Reference '{Assembly}' is covered by existing package '{Package}' - skipping conversion",
                         referenceItem.EvaluatedInclude, existingPackage.PackageId);
                     return true;
                 }
