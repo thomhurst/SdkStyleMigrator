@@ -16,8 +16,6 @@ public class MainViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _currentViewModel, value);
     }
 
-    public ViewModelBase CurrentView => this;
-
     public int SelectedTabIndex
     {
         get => _selectedTabIndex;

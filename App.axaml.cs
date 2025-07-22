@@ -34,11 +34,8 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var mainViewModel = Services.GetRequiredService<MainViewModel>();
-            desktop.MainWindow = new MainWindow
-            {
-                DataContext = mainViewModel
-            };
+            var mainWindow = Services.GetRequiredService<MainWindow>();
+            desktop.MainWindow = mainWindow;
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {
@@ -54,6 +51,9 @@ public partial class App : Application
 
     private void ConfigureServices(IServiceCollection services)
     {
+        // Views
+        services.AddSingleton<MainWindow>();
+        
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MigrationViewModel>();
