@@ -1,3 +1,4 @@
+using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
@@ -984,12 +985,21 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateContentAndResources(Project project, XElement projectElement)
     {
-        var contentItems = project.Items
-            .Where(i => i.ItemType == "Content" ||
-                       i.ItemType == "None" ||
-                       i.ItemType == "EmbeddedResource")
-            .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.EvaluatedInclude)) // Filter out MSBuild artifacts
-            .ToList();
+        // Get content items from explicit XML only - ignore implicit MSBuild items
+        var contentItems = new List<ProjectItemElement>();
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items)
+            {
+                if ((item.ItemType == "Content" ||
+                     item.ItemType == "None" ||
+                     item.ItemType == "EmbeddedResource") &&
+                    !_artifactDetector.IsItemArtifact(item.ItemType, item.Include))
+                {
+                    contentItems.Add(item);
+                }
+            }
+        }
 
         if (contentItems.Any())
         {
@@ -999,7 +1009,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             foreach (var item in contentItems)
             {
                 // Check if this file is automatically included by the SDK
-                if (IsAutomaticallyIncludedBySdk(item))
+                if (IsAutomaticallyIncludedBySdk(item, project))
                 {
                     // Check if the item has custom metadata that needs to be preserved
                     if (HasCustomMetadata(item))
@@ -1008,31 +1018,32 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                         var attributeName = "Update";
                         
                         // Exception: Files with Link metadata need Include (they're outside project)
-                        if (item.HasMetadata("Link"))
+                        var hasLinkMetadata = item.Metadata.Any(m => m.Name == "Link");
+                        if (hasLinkMetadata)
                         {
                             attributeName = "Include";
                         }
                         
                         var element = new XElement(item.ItemType,
-                            new XAttribute(attributeName, item.EvaluatedInclude));
+                            new XAttribute(attributeName, item.Include));
                         PreserveMetadata(item, element);
                         itemGroup.Add(element);
                         hasItems = true;
 
                         _logger.LogDebug("Using {Attribute} for SDK-default file with custom metadata: {File}", 
-                            attributeName, item.EvaluatedInclude);
+                            attributeName, item.Include);
                     }
                     else
                     {
                         // Skip entirely - SDK will handle it
-                        _logger.LogDebug("Skipping SDK-default content file: {File}", item.EvaluatedInclude);
+                        _logger.LogDebug("Skipping SDK-default content file: {File}", item.Include);
                     }
                 }
                 else
                 {
                     // Not auto-included, so we need to explicitly include it
                     var element = new XElement(item.ItemType,
-                        new XAttribute("Include", item.EvaluatedInclude));
+                        new XAttribute("Include", item.Include));
 
                     PreserveMetadata(item, element);
                     itemGroup.Add(element);
@@ -1317,27 +1328,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     
                 foreach (var item in itemGroup.Items)
                 {
-                    var itemElement = new XElement(item.ItemType);
-                    if (!string.IsNullOrEmpty(item.Include))
-                        itemElement.Add(new XAttribute("Include", item.Include));
-                    if (!string.IsNullOrEmpty(item.Update))
-                        itemElement.Add(new XAttribute("Update", item.Update));
-                    if (!string.IsNullOrEmpty(item.Remove))
-                        itemElement.Add(new XAttribute("Remove", item.Remove));
-                    if (!string.IsNullOrEmpty(item.Exclude))
-                        itemElement.Add(new XAttribute("Exclude", item.Exclude));
-                    if (!string.IsNullOrEmpty(item.Condition))
-                        itemElement.Add(new XAttribute("Condition", item.Condition));
-                        
-                    foreach (var metadata in item.Metadata)
-                    {
-                        var metaElement = new XElement(metadata.Name, metadata.Value);
-                        if (!string.IsNullOrEmpty(metadata.Condition))
-                            metaElement.Add(new XAttribute("Condition", metadata.Condition));
-                        itemElement.Add(metaElement);
-                    }
-                    
-                    itemGroupElement.Add(itemElement);
+                    // Apply transformations to items inside conditional blocks
+                    var transformedElement = TransformConditionalItem(item);
+                    if (transformedElement != null)
+                        itemGroupElement.Add(transformedElement);
                 }
                 
                 return itemGroupElement;
@@ -1384,6 +1378,219 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             default:
                 _logger.LogWarning("Unsupported project element type: {Type}", element.GetType().Name);
                 return null;
+        }
+    }
+
+    private XElement? TransformConditionalItem(Microsoft.Build.Construction.ProjectItemElement item)
+    {
+        // Handle Reference items that should be converted to PackageReference
+        if (item.ItemType == "Reference")
+        {
+            // Check if this reference can be converted to a package reference
+            var transformedItem = TransformReferenceToPackageReference(item);
+            if (transformedItem != null)
+                return transformedItem;
+        }
+        
+        // Handle COM references with proper metadata preservation
+        if (item.ItemType == "COMReference")
+        {
+            return TransformCOMReference(item);
+        }
+        
+        // For other item types, apply standard transformations while preserving structure
+        return TransformStandardItem(item);
+    }
+
+    private XElement? TransformReferenceToPackageReference(Microsoft.Build.Construction.ProjectItemElement item)
+    {
+        try
+        {
+            // Create a temporary ProjectItem for the converter
+            // Note: This is a simplified approach - ideally we'd integrate with AssemblyReferenceConverter
+            var hintPathMetadata = item.Metadata.FirstOrDefault(m => m.Name == "HintPath");
+            
+            // If it has a HintPath pointing to packages folder, likely convertible
+            if (hintPathMetadata != null && 
+                (hintPathMetadata.Value.Contains("packages\\") || hintPathMetadata.Value.Contains("packages/")))
+            {
+                // Extract package name and attempt conversion
+                var packageName = ExtractPackageNameFromReference(item.Include, hintPathMetadata.Value);
+                if (!string.IsNullOrEmpty(packageName))
+                {
+                    _logger.LogDebug("Converting conditional Reference {Reference} to PackageReference", item.Include);
+                    
+                    var packageElement = new XElement("PackageReference",
+                        new XAttribute("Include", packageName));
+                    
+                    // Try to extract version from HintPath
+                    var version = ExtractVersionFromHintPath(hintPathMetadata.Value);
+                    if (!string.IsNullOrEmpty(version))
+                    {
+                        packageElement.Add(new XAttribute("Version", version));
+                    }
+                    
+                    // Preserve condition if present
+                    if (!string.IsNullOrEmpty(item.Condition))
+                        packageElement.Add(new XAttribute("Condition", item.Condition));
+                    
+                    return packageElement;
+                }
+            }
+            
+            // If not convertible, fall back to standard transformation
+            return TransformStandardItem(item);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to transform conditional Reference {Reference}", item.Include);
+            return TransformStandardItem(item);
+        }
+    }
+
+    private XElement TransformCOMReference(Microsoft.Build.Construction.ProjectItemElement item)
+    {
+        var comElement = new XElement("COMReference",
+            new XAttribute("Include", item.Include));
+        
+        // Preserve condition if present
+        if (!string.IsNullOrEmpty(item.Condition))
+            comElement.Add(new XAttribute("Condition", item.Condition));
+            
+        // Preserve critical COM metadata
+        var comMetadata = new[]
+        {
+            "Guid", "VersionMajor", "VersionMinor", "Lcid",
+            "WrapperTool", "Isolated", "EmbedInteropTypes",
+            "Private", "HintPath"
+        };
+
+        foreach (var metadataName in comMetadata)
+        {
+            var metadata = item.Metadata.FirstOrDefault(m => m.Name == metadataName);
+            if (metadata != null && !string.IsNullOrEmpty(metadata.Value))
+            {
+                var metaElement = new XElement(metadataName, metadata.Value);
+                if (!string.IsNullOrEmpty(metadata.Condition))
+                    metaElement.Add(new XAttribute("Condition", metadata.Condition));
+                comElement.Add(metaElement);
+            }
+        }
+
+        // Ensure EmbedInteropTypes has a value (defaults differ between legacy and SDK)
+        var hasEmbedInteropTypes = item.Metadata.Any(m => m.Name == "EmbedInteropTypes");
+        if (!hasEmbedInteropTypes)
+        {
+            comElement.Add(new XElement("EmbedInteropTypes", "false"));
+        }
+        
+        return comElement;
+    }
+
+    private XElement TransformStandardItem(Microsoft.Build.Construction.ProjectItemElement item)
+    {
+        var itemElement = new XElement(item.ItemType);
+        
+        // Add attributes
+        if (!string.IsNullOrEmpty(item.Include))
+            itemElement.Add(new XAttribute("Include", item.Include));
+        if (!string.IsNullOrEmpty(item.Update))
+            itemElement.Add(new XAttribute("Update", item.Update));
+        if (!string.IsNullOrEmpty(item.Remove))
+            itemElement.Add(new XAttribute("Remove", item.Remove));
+        if (!string.IsNullOrEmpty(item.Exclude))
+            itemElement.Add(new XAttribute("Exclude", item.Exclude));
+        if (!string.IsNullOrEmpty(item.Condition))
+            itemElement.Add(new XAttribute("Condition", item.Condition));
+            
+        // Add metadata, preserving MSBuild variables in paths
+        foreach (var metadata in item.Metadata)
+        {
+            var value = metadata.Value;
+            
+            // For path-related metadata, preserve MSBuild variables
+            if (metadata.Name.EndsWith("Path", StringComparison.OrdinalIgnoreCase) && 
+                value.Contains("$("))
+            {
+                // Keep MSBuild variables as-is (e.g., $(SolutionDir), $(ProjectDir))
+                _logger.LogDebug("Preserving MSBuild variable in conditional metadata {Name}: {Value}", 
+                    metadata.Name, value);
+            }
+            
+            var metaElement = new XElement(metadata.Name, value);
+            if (!string.IsNullOrEmpty(metadata.Condition))
+                metaElement.Add(new XAttribute("Condition", metadata.Condition));
+            itemElement.Add(metaElement);
+        }
+        
+        return itemElement;
+    }
+
+    private string? ExtractPackageNameFromReference(string referenceName, string hintPath)
+    {
+        try
+        {
+            // Simple heuristic: if reference name is a known assembly, map to package
+            // This is a basic implementation - could be enhanced with a lookup table
+            var knownMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "System.Web.Http", "Microsoft.AspNet.WebApi.Core" },
+                { "EntityFramework", "EntityFramework" },
+                { "Newtonsoft.Json", "Newtonsoft.Json" },
+                { "Microsoft.Web.Infrastructure", "Microsoft.Web.Infrastructure" },
+                { "System.Web.Mvc", "Microsoft.AspNet.Mvc" }
+            };
+            
+            var assemblyName = referenceName.Split(',')[0].Trim();
+            if (knownMappings.TryGetValue(assemblyName, out var packageName))
+            {
+                return packageName;
+            }
+            
+            // Try to extract from hint path (e.g., packages\Newtonsoft.Json.12.0.3\lib...)
+            var match = System.Text.RegularExpressions.Regex.Match(hintPath, 
+                @"packages[/\\]([^/\\]+)", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                
+            if (match.Success)
+            {
+                var packageWithVersion = match.Groups[1].Value;
+                // Remove version suffix (e.g., "Newtonsoft.Json.12.0.3" -> "Newtonsoft.Json")
+                var versionMatch = System.Text.RegularExpressions.Regex.Match(packageWithVersion, @"^(.+?)\.(\d+\..*)$");
+                if (versionMatch.Success)
+                {
+                    return versionMatch.Groups[1].Value;
+                }
+                return packageWithVersion;
+            }
+            
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private string? ExtractVersionFromHintPath(string hintPath)
+    {
+        try
+        {
+            // Extract version from packages path (e.g., packages\Newtonsoft.Json.12.0.3\lib...)
+            var match = System.Text.RegularExpressions.Regex.Match(hintPath, 
+                @"packages[/\\][^/\\]+\.(\d+(?:\.\d+)*(?:-[^/\\]*)?)[/\\]", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+            
+            return null;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -1496,24 +1703,40 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateDesignerItems(Project project, XElement projectElement)
     {
-        // Check if UseWPF will be set (affects how we handle WPF items)
-        var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
+        // Get items from explicit XML only - ignore implicit MSBuild items
+        var wpfItems = new List<ProjectItemElement>();
+        var winFormsItems = new List<ProjectItemElement>();
         
-        // WPF items
-        var wpfItems = project.Items
-            .Where(i => i.ItemType == "ApplicationDefinition" ||
-                       i.ItemType == "Page" ||
-                       i.ItemType == "Resource")
-            .ToList();
-
-        // WinForms items with SubType
-        var winFormsItems = project.Items
-            .Where(i => i.ItemType == "Compile" &&
-                       i.HasMetadata("SubType") &&
-                       (i.GetMetadataValue("SubType") == "Form" ||
-                        i.GetMetadataValue("SubType") == "UserControl" ||
-                        i.GetMetadataValue("SubType") == "Component"))
-            .ToList();
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items)
+            {
+                // WPF items
+                if (item.ItemType == "ApplicationDefinition" ||
+                    item.ItemType == "Page" ||
+                    item.ItemType == "Resource")
+                {
+                    wpfItems.Add(item);
+                }
+                
+                // WinForms items with SubType
+                if (item.ItemType == "Compile")
+                {
+                    var subTypeMetadata = item.Metadata.FirstOrDefault(m => m.Name == "SubType");
+                    if (subTypeMetadata != null)
+                    {
+                        var subType = subTypeMetadata.Value;
+                        if (subType == "Form" || subType == "UserControl" || subType == "Component")
+                        {
+                            winFormsItems.Add(item);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check if UseWPF will be set (affects how we handle WPF items)
+        var hasWpfItems = wpfItems.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
 
         if (wpfItems.Any() || winFormsItems.Any())
         {
@@ -1528,7 +1751,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     if (HasCustomMetadata(item))
                     {
                         var element = new XElement(item.ItemType,
-                            new XAttribute("Update", item.EvaluatedInclude));
+                            new XAttribute("Update", item.Include));
                         PreserveMetadata(item, element);
                         itemGroup.Add(element);
                     }
@@ -1538,7 +1761,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     // Not auto-included, use Include
                     var element = new XElement(item.ItemType,
-                        new XAttribute("Include", item.EvaluatedInclude));
+                        new XAttribute("Include", item.Include));
                     PreserveMetadata(item, element);
                     itemGroup.Add(element);
                 }
@@ -1565,8 +1788,19 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             "Folder", "ApplicationDefinition", "Page", "Resource"
         };
 
+        // Get custom items from explicit XML only - ignore implicit MSBuild items
+        var allExplicitItems = new List<ProjectItemElement>();
+        
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items)
+            {
+                allExplicitItems.Add(item);
+            }
+        }
+
         // Log items being filtered out
-        var legacyItems = project.Items
+        var legacyItems = allExplicitItems
             .Where(i => LegacyProjectElements.ItemsToRemove.Contains(i.ItemType))
             .GroupBy(i => i.ItemType);
 
@@ -1576,11 +1810,11 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 group.Key, group.Count());
         }
 
-        var customItems = project.Items
+        var customItems = allExplicitItems
             .Where(i => !standardTypes.Contains(i.ItemType))
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
             .Where(i => !LegacyProjectElements.ItemsToRemove.Contains(i.ItemType))
-            .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.EvaluatedInclude))
+            .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.Include))
             .GroupBy(i => i.ItemType);
 
         foreach (var group in customItems)
@@ -1590,7 +1824,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             foreach (var item in group)
             {
                 var element = new XElement(item.ItemType,
-                    new XAttribute("Include", item.EvaluatedInclude));
+                    new XAttribute("Include", item.Include));
                 PreserveMetadata(item, element);
                 itemGroup.Add(element);
             }
@@ -1629,9 +1863,19 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateCOMReferences(Project project, XElement projectElement)
     {
-        var comReferences = project.Items
-            .Where(i => i.ItemType == "COMReference")
-            .ToList();
+        // Get COM references from explicit XML only - ignore implicit MSBuild items
+        var comReferences = new List<ProjectItemElement>();
+        
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items)
+            {
+                if (item.ItemType == "COMReference")
+                {
+                    comReferences.Add(item);
+                }
+            }
+        }
 
         if (comReferences.Any())
         {
@@ -1640,7 +1884,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             foreach (var comRef in comReferences)
             {
                 var element = new XElement("COMReference",
-                    new XAttribute("Include", comRef.EvaluatedInclude));
+                    new XAttribute("Include", comRef.Include));
 
                 // Preserve critical COM metadata
                 var comMetadata = new[]
@@ -1650,20 +1894,18 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     "Private", "HintPath"
                 };
 
-                foreach (var metadata in comMetadata)
+                foreach (var metadataName in comMetadata)
                 {
-                    if (comRef.HasMetadata(metadata))
+                    var metadata = comRef.Metadata.FirstOrDefault(m => m.Name == metadataName);
+                    if (metadata != null && !string.IsNullOrEmpty(metadata.Value))
                     {
-                        var value = comRef.GetMetadataValue(metadata);
-                        if (!string.IsNullOrEmpty(value))
-                        {
-                            element.Add(new XElement(metadata, value));
-                        }
+                        element.Add(new XElement(metadataName, metadata.Value));
                     }
                 }
 
                 // Ensure EmbedInteropTypes has a value (defaults differ between legacy and SDK)
-                if (!comRef.HasMetadata("EmbedInteropTypes"))
+                var hasEmbedInteropTypes = comRef.Metadata.Any(m => m.Name == "EmbedInteropTypes");
+                if (!hasEmbedInteropTypes)
                 {
                     // Legacy projects often defaulted to false, SDK projects default to true
                     // Explicitly set to false to maintain legacy behavior
@@ -1919,5 +2161,185 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             _logger.LogWarning(ex, "Failed to migrate InternalsVisibleTo attributes");
         }
+    }
+
+    // Overloaded helper methods for XML elements (ProjectItemElement instead of ProjectItem)
+    
+    private bool HasCustomMetadata(ProjectItemElement item)
+    {
+        // List of metadata that indicates custom behavior
+        var customMetadata = new[]
+        {
+            "CopyToOutputDirectory",
+            "CopyToPublishDirectory",
+            "Link",
+            "DependentUpon",
+            "Generator",
+            "LastGenOutput",
+            "CustomToolNamespace",
+            "SubType",
+            "DesignTime",
+            "AutoGen",
+            "DesignTimeSharedInput",
+            "Private"
+        };
+
+        foreach (var metadata in customMetadata)
+        {
+            var metadataElement = item.Metadata.FirstOrDefault(m => m.Name == metadata);
+            if (metadataElement != null && !string.IsNullOrEmpty(metadataElement.Value))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsAutomaticallyIncludedBySdk(ProjectItemElement item, Project? project = null)
+    {
+        var fileName = Path.GetFileName(item.Include);
+        var extension = Path.GetExtension(item.Include)?.ToLowerInvariant();
+        var fileNameLower = fileName?.ToLowerInvariant();
+
+        // SDK automatically includes certain files as Content
+        if (item.ItemType == "Content")
+        {
+            // Check if this is likely a web project (will use Web SDK)
+            if (project != null)
+            {
+                var projectTypeGuids = project.Properties
+                    .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
+                var isWebProject = projectTypeGuids?.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase) ?? false;
+
+                if (isWebProject)
+                {
+                    // Web SDK auto-includes these patterns
+                    var webSdkPatterns = new[]
+                    {
+                        "wwwroot/**/*",
+                        "Areas/**/*.cshtml",
+                        "Areas/**/*.razor",
+                        "Views/**/*.cshtml",
+                        "Views/**/*.razor",
+                        "Pages/**/*.cshtml",
+                        "Pages/**/*.razor",
+                        "appsettings.json",
+                        "appsettings.*.json",
+                        "web.config"
+                    };
+
+                    foreach (var pattern in webSdkPatterns)
+                    {
+                        if (IsMatchingPattern(item.Include, pattern))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Check for specific file patterns that are auto-included by all SDKs
+            if (fileName != null)
+            {
+                // These files are auto-included as Content by Microsoft.NET.Sdk
+                if (fileNameLower == "app.config" || fileNameLower == "packages.config")
+                {
+                    return true;
+                }
+            }
+        }
+
+        // SDK automatically includes .resx files as EmbeddedResource
+        if (item.ItemType == "EmbeddedResource" && extension == ".resx")
+        {
+            // Only if it doesn't have custom metadata
+            var hasGenerator = item.Metadata.Any(m => m.Name == "Generator");
+            var hasLastGenOutput = item.Metadata.Any(m => m.Name == "LastGenOutput");
+            if (!hasGenerator && !hasLastGenOutput)
+            {
+                return true;
+            }
+        }
+
+        // None items that are auto-included by SDK
+        if (item.ItemType == "None")
+        {
+            // Check for files that SDK includes as None by default
+            if (fileName != null)
+            {
+                // .config files (except app.config which is Content)
+                if (extension == ".config" && fileNameLower != "app.config" && fileNameLower != "web.config")
+                {
+                    return true;
+                }
+
+                // .json files (except appsettings which are Content in web projects)
+                if (extension == ".json" && fileNameLower != null && !fileNameLower.StartsWith("appsettings"))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void PreserveMetadata(ProjectItemElement item, XElement element)
+    {
+        // Critical metadata to preserve
+        var importantMetadata = new[]
+        {
+            "Link", "DependentUpon", "SubType", "Generator",
+            "LastGenOutput", "CopyToOutputDirectory", "Private",
+            "SpecificVersion", "CustomToolNamespace", "DesignTime",
+            "AutoGen", "DesignTimeSharedInput"
+        };
+
+        foreach (var metadataName in importantMetadata)
+        {
+            var metadata = item.Metadata.FirstOrDefault(m => m.Name == metadataName);
+            if (metadata != null && !string.IsNullOrEmpty(metadata.Value))
+            {
+                element.Add(new XElement(metadataName, metadata.Value));
+            }
+        }
+    }
+
+    private bool IsWpfItemAutoIncluded(ProjectItemElement item)
+    {
+        var extension = Path.GetExtension(item.Include).ToLowerInvariant();
+        var fileName = Path.GetFileName(item.Include);
+        var fileNameLower = fileName?.ToLowerInvariant();
+        
+        // ApplicationDefinition: App.xaml or Application.xaml
+        if (item.ItemType == "ApplicationDefinition")
+        {
+            if (fileNameLower == "app.xaml" || fileNameLower == "application.xaml")
+            {
+                return true;
+            }
+        }
+        
+        // Page: all .xaml files except App.xaml/Application.xaml
+        if (item.ItemType == "Page" && extension == ".xaml")
+        {
+            if (fileNameLower != "app.xaml" && fileNameLower != "application.xaml")
+            {
+                return true;
+            }
+        }
+        
+        // Resource: image files and other resources
+        if (item.ItemType == "Resource")
+        {
+            var imageExtensions = new[] { ".bmp", ".ico", ".gif", ".jpg", ".jpeg", ".png", ".tiff", ".pdf" };
+            if (imageExtensions.Contains(extension))
+            {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }
