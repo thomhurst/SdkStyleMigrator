@@ -17,7 +17,8 @@ namespace SdkMigrator;
 
 class Program
 {
-    static async Task<int> Main(string[] args)
+    [STAThread]
+    static int Main(string[] args)
     {
         InitializeMSBuild();
         
@@ -527,7 +528,7 @@ Examples:
   SdkMigrator clean-deps ./src --dry-run
   SdkMigrator clean-cpm ./src";
 
-        return await rootCommand.InvokeAsync(args);
+        return rootCommand.Invoke(args);
     }
 
     static async Task<int> RunAnalysis(MigrationOptions options)
@@ -1743,11 +1744,15 @@ Examples:
             Console.WriteLine("Step B4: Adding debug logging...");
             builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Debug);
             Console.WriteLine("✅ LogToTrace() successful");
+            
+            Console.WriteLine("Step B5: Adding ReactiveUI integration...");
+            builder = builder.UseReactiveUI();
+            Console.WriteLine("✅ UseReactiveUI() successful");
 
             // Add platform-specific configuration for Linux/WSL
             if (OperatingSystem.IsLinux())
             {
-                Console.WriteLine("Step B5: Adding Linux/X11 platform options...");
+                Console.WriteLine("Step B6: Adding Linux/X11 platform options...");
                 try
                 {
                     builder = builder.With(new X11PlatformOptions

@@ -105,17 +105,17 @@ public class DialogService : IDialogService
             }
 
             // Now guaranteed to be on UI thread - proceed directly
-            var window = GetMainWindow();
-            if (window == null)
+            var topLevel = GetMainTopLevel();
+            if (topLevel == null)
             {
                 throw new InvalidOperationException("Could not find main window for dialog");
             }
 
-            // Ensure window is loaded
-            await EnsureWindowLoaded(window);
+            // Ensure TopLevel is loaded
+            await EnsureTopLevelLoaded(topLevel);
 
             // Check StorageProvider availability
-            if (window.StorageProvider == null)
+            if (topLevel.StorageProvider == null)
             {
                 throw new InvalidOperationException(
                     "StorageProvider is not available. This may occur on systems missing native dialog dependencies.");
@@ -130,7 +130,7 @@ public class DialogService : IDialogService
 
             // Call StorageProvider directly - we're already on UI thread
             // ConfigureAwait(true) ensures continuation returns to UI thread
-            var result = await window.StorageProvider.OpenFolderPickerAsync(options).ConfigureAwait(true);
+            var result = await topLevel.StorageProvider.OpenFolderPickerAsync(options).ConfigureAwait(true);
             
             return result?.FirstOrDefault()?.Path.LocalPath;
         }
@@ -243,17 +243,17 @@ public class DialogService : IDialogService
             }
 
             // Now guaranteed to be on UI thread - proceed directly
-            var window = GetMainWindow();
-            if (window == null)
+            var topLevel = GetMainTopLevel();
+            if (topLevel == null)
             {
                 throw new InvalidOperationException("Could not find main window for dialog");
             }
 
-            // Ensure window is loaded
-            await EnsureWindowLoaded(window);
+            // Ensure TopLevel is loaded
+            await EnsureTopLevelLoaded(topLevel);
 
             // Check StorageProvider availability
-            if (window.StorageProvider == null)
+            if (topLevel.StorageProvider == null)
             {
                 throw new InvalidOperationException(
                     "StorageProvider is not available. This may occur on systems missing native dialog dependencies.");
@@ -273,7 +273,7 @@ public class DialogService : IDialogService
 
             // Call StorageProvider directly - we're already on UI thread
             // ConfigureAwait(true) ensures continuation returns to UI thread
-            var result = await window.StorageProvider.OpenFilePickerAsync(options).ConfigureAwait(true);
+            var result = await topLevel.StorageProvider.OpenFilePickerAsync(options).ConfigureAwait(true);
             
             return result?.FirstOrDefault()?.Path.LocalPath;
         }
@@ -375,7 +375,7 @@ public class DialogService : IDialogService
         }
     }
 
-    private Window? GetMainWindow()
+    private TopLevel? GetMainTopLevel()
     {
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -384,10 +384,10 @@ public class DialogService : IDialogService
         return null;
     }
 
-    private async Task EnsureWindowLoaded(Window window)
+    private async Task EnsureTopLevelLoaded(TopLevel topLevel)
     {
-        // If window is not loaded, wait a short time for it to initialize
-        if (!window.IsLoaded)
+        // If TopLevel is not loaded, wait a short time for it to initialize
+        if (topLevel is Window window && !window.IsLoaded)
         {
             await Task.Delay(50);
         }
@@ -416,14 +416,21 @@ public class DialogService : IDialogService
 
             Console.WriteLine("Step 2: Getting main window...");
             
-            // Get the main window for parent
-            var window = GetMainWindow();
-            Console.WriteLine($"Main window: {window != null}");
-            if (window != null)
+            // Get the main TopLevel for parent
+            var topLevel = GetMainTopLevel();
+            Console.WriteLine($"Main TopLevel: {topLevel != null}");
+            if (topLevel != null)
             {
-                Console.WriteLine($"Window state: Loaded={window.IsLoaded}, Visible={window.IsVisible}");
-                Console.WriteLine($"Window title: {window.Title}");
-                Console.WriteLine($"Window size: {window.Width}x{window.Height}");
+                if (topLevel is Window window)
+                {
+                    Console.WriteLine($"Window state: Loaded={window.IsLoaded}, Visible={window.IsVisible}");
+                    Console.WriteLine($"Window title: {window.Title}");
+                    Console.WriteLine($"Window size: {window.Width}x{window.Height}");
+                }
+                else
+                {
+                    Console.WriteLine($"TopLevel type: {topLevel.GetType().Name}");
+                }
             }
             
             Console.WriteLine("Step 3: Pre-MessageBox system validation...");
@@ -477,7 +484,7 @@ public class DialogService : IDialogService
                 Console.WriteLine($"Process still alive: PID={System.Diagnostics.Process.GetCurrentProcess().Id}");
                 Console.WriteLine($"UI thread access: {Dispatcher.UIThread.CheckAccess()}");
                 
-                if (window != null)
+                if (topLevel is Window window)
                 {
                     Console.WriteLine("Step 5b: Showing as window dialog...");
                     Console.WriteLine("About to call ShowWindowDialogAsync...");
