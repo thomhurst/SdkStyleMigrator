@@ -30,21 +30,69 @@ class Program
             
             try
             {
-                // Add global exception handlers for UI mode
+                // Enhanced global exception handlers for UI mode
                 AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
                 {
-                    Console.Error.WriteLine($"Unhandled exception: {e.ExceptionObject}");
+                    Console.Error.WriteLine("=== GLOBAL UNHANDLED EXCEPTION ===");
+                    Console.Error.WriteLine($"Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                    Console.Error.WriteLine($"Sender: {sender?.GetType().Name ?? "null"}");
+                    Console.Error.WriteLine($"IsTerminating: {e.IsTerminating}");
+                    Console.Error.WriteLine($"Thread ID: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+                    
                     if (e.ExceptionObject is Exception ex)
                     {
-                        Console.Error.WriteLine($"Exception type: {ex.GetType().FullName}");
-                        Console.Error.WriteLine($"Message: {ex.Message}");
-                        Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+                        // Exception details
+                        Console.Error.WriteLine($"Exception Type: {ex.GetType().FullName}");
+                        Console.Error.WriteLine($"Exception Message: {ex.Message}");
+                        Console.Error.WriteLine($"Exception Source: {ex.Source}");
+                        Console.Error.WriteLine($"Exception TargetSite: {ex.TargetSite}");
+                        Console.Error.WriteLine($"Exception HResult: {ex.HResult:X8}");
+                        Console.Error.WriteLine($"Stack Trace:");
+                        Console.Error.WriteLine(ex.StackTrace);
+                        
+                        // Inner exceptions
+                        var innerEx = ex.InnerException;
+                        int innerCount = 0;
+                        while (innerEx != null && innerCount < 3)
+                        {
+                            innerCount++;
+                            Console.Error.WriteLine($"Inner Exception #{innerCount}: {innerEx.GetType().FullName}: {innerEx.Message}");
+                            innerEx = innerEx.InnerException;
+                        }
                     }
+                    else
+                    {
+                        Console.Error.WriteLine($"Non-Exception Object: {e.ExceptionObject}");
+                    }
+                    
+                    // Environment information
+                    Console.Error.WriteLine("Environment:");
+                    Console.Error.WriteLine($"  OS: {Environment.OSVersion}");
+                    Console.Error.WriteLine($"  DISPLAY: {Environment.GetEnvironmentVariable("DISPLAY") ?? "Not set"}");
+                    Console.Error.WriteLine($"  WSL_DISTRO_NAME: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "Not set"}");
+                    Console.Error.WriteLine($"  Process: {System.Diagnostics.Process.GetCurrentProcess().ProcessName} (PID: {System.Diagnostics.Process.GetCurrentProcess().Id})");
+                    Console.Error.WriteLine("====================================");
                 };
 
                 TaskScheduler.UnobservedTaskException += (sender, e) =>
                 {
-                    Console.Error.WriteLine($"Unobserved task exception: {e.Exception}");
+                    Console.Error.WriteLine("=== UNOBSERVED TASK EXCEPTION ===");
+                    Console.Error.WriteLine($"Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                    Console.Error.WriteLine($"Sender: {sender?.GetType().Name ?? "null"}");
+                    Console.Error.WriteLine($"Thread ID: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+                    Console.Error.WriteLine($"Task Exception: {e.Exception}");
+                    
+                    if (e.Exception?.InnerException != null)
+                    {
+                        Console.Error.WriteLine($"Inner Exception: {e.Exception.InnerException.GetType().FullName}: {e.Exception.InnerException.Message}");
+                        Console.Error.WriteLine($"Inner Stack: {e.Exception.InnerException.StackTrace}");
+                    }
+                    
+                    Console.Error.WriteLine("Environment:");
+                    Console.Error.WriteLine($"  OS: {Environment.OSVersion}");
+                    Console.Error.WriteLine($"  DISPLAY: {Environment.GetEnvironmentVariable("DISPLAY") ?? "Not set"}");
+                    Console.Error.WriteLine($"  WSL_DISTRO_NAME: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "Not set"}");
+                    Console.Error.WriteLine("==================================");
                     e.SetObserved();
                 };
 
@@ -1594,6 +1642,18 @@ Examples:
     
     static AppBuilder BuildAvaloniaApp()
     {
+        // Enhanced diagnostics: Log environment information
+        Console.WriteLine("=== Environment Diagnostics ===");
+        Console.WriteLine($"OS: {Environment.OSVersion}");
+        Console.WriteLine($"Runtime: {Environment.Version}");
+        Console.WriteLine($"Process Architecture: {Environment.ProcessorCount} cores");
+        Console.WriteLine($"DISPLAY: {Environment.GetEnvironmentVariable("DISPLAY") ?? "Not set"}");
+        Console.WriteLine($"WSL_DISTRO_NAME: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "Not set"}");
+        Console.WriteLine($"XDG_CURRENT_DESKTOP: {Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP") ?? "Not set"}");
+        Console.WriteLine($"WAYLAND_DISPLAY: {Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") ?? "Not set"}");
+        Console.WriteLine($"Working Directory: {Environment.CurrentDirectory}");
+        Console.WriteLine("================================");
+        
         // Force software rendering in WSL
         if (OperatingSystem.IsLinux())
         {
@@ -1604,7 +1664,7 @@ Examples:
         var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
-            .LogToTrace();
+            .LogToTrace(Avalonia.Logging.LogEventLevel.Debug); // Enhanced: Enable debug logging
 
         // Add platform-specific configuration for Linux/WSL
         if (OperatingSystem.IsLinux())
