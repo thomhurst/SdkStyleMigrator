@@ -114,7 +114,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             HandleAssemblyInfo(legacyProject, mainPropertyGroup, inheritedProperties);
 
             // Migrate package references
-            var migratedPackages = await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, result, cancellationToken);
+            var migratedPackages = await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, result, sdkType, cancellationToken);
 
             // Migrate project references
             MigrateProjectReferences(legacyProject, projectElement);
@@ -171,6 +171,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             result.Success = true;
             result.MigratedPackages.AddRange(migratedPackages);
+
+            // Add build validation warnings for MSBuild.SDK.SystemWeb projects
+            if (sdkType == "MSBuild.SDK.SystemWeb")
+            {
+                result.Warnings.Add("This project uses MSBuild.SDK.SystemWeb and requires 'msbuild' for building (not 'dotnet build')");
+                result.Warnings.Add("Publishing requires 'msbuild' with standard msdeploy scripts (not 'dotnet publish')");
+                result.Warnings.Add("Ensure your CI/CD pipeline uses 'msbuild' commands for .NET Framework web projects");
+                result.Warnings.Add("MSBuild.SDK.SystemWeb provides modern SDK-style project format while maintaining .NET Framework compatibility");
+            }
             
             // Extract target frameworks from the generated project
             var targetFrameworksProperty = projectElement.Elements("PropertyGroup")
@@ -208,24 +217,49 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var targetFramework = ConvertTargetFramework(project);
 
-        // For .NET Framework projects, always use the default SDK
-        if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Microsoft.NET.Sdk";
-        }
-
+        // CRITICAL: Check for web projects FIRST, before .NET Framework override
         var projectTypeGuids = project.Properties
             .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
 
         if (!string.IsNullOrEmpty(projectTypeGuids))
         {
-            // Web project
+            // Web Application Project
             if (projectTypeGuids.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase))
-                return "Microsoft.NET.Sdk.Web";
+            {
+                if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("Detected .NET Framework web project - using MSBuild.SDK.SystemWeb");
+                    return "MSBuild.SDK.SystemWeb";
+                }
+                else
+                {
+                    return "Microsoft.NET.Sdk.Web";
+                }
+            }
+
+            // Web Site Project (less common, but also supported by SystemWeb)
+            if (projectTypeGuids.Contains("{E24C65DC-7377-472B-9ABA-BC803B73C61A}", StringComparison.OrdinalIgnoreCase))
+            {
+                if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("Detected .NET Framework web site project - using MSBuild.SDK.SystemWeb");
+                    return "MSBuild.SDK.SystemWeb";
+                }
+                else
+                {
+                    return "Microsoft.NET.Sdk.Web";
+                }
+            }
 
             // Blazor WebAssembly (only for .NET Core 3.0+)
             if (projectTypeGuids.Contains("{A9ACE9BB-CECE-4E62-9AA4-C7E7C5BD2124}", StringComparison.OrdinalIgnoreCase))
                 return "Microsoft.NET.Sdk.BlazorWebAssembly";
+        }
+
+        // For .NET Framework projects (non-web), use the default SDK
+        if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Microsoft.NET.Sdk";
         }
 
         // Check for WPF/WinForms by items (only from explicit XML)
@@ -795,13 +829,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return "netstandard2.0";
     }
 
-    private async Task<List<PackageReference>> MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, MigrationResult result, CancellationToken cancellationToken)
+    private async Task<List<PackageReference>> MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, MigrationResult result, string sdkType, CancellationToken cancellationToken)
     {
         // Determine the target framework early, as it's needed for assembly-to-package conversion
         var targetFramework = ConvertTargetFramework(project);
 
         // Collect all package references from various sources
         var allPackageReferences = new HashSet<Models.PackageReference>(new PackageReferenceComparer());
+
 
         // 1. Get packages from packages.config / existing PackageReference items
         var existingPackages = await _packageMigrator.MigratePackagesAsync(project, cancellationToken);
