@@ -22,6 +22,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IDirectoryBuildPropsReader _directoryBuildPropsReader;
     private readonly IMSBuildArtifactDetector _artifactDetector;
     private readonly IAssemblyReferenceConverter _assemblyReferenceConverter;
+    private readonly ITestProjectHandler _testProjectHandler;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -32,7 +33,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         IAuditService auditService,
         IDirectoryBuildPropsReader directoryBuildPropsReader,
         IMSBuildArtifactDetector artifactDetector,
-        IAssemblyReferenceConverter assemblyReferenceConverter)
+        IAssemblyReferenceConverter assemblyReferenceConverter,
+        ITestProjectHandler testProjectHandler)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -43,6 +45,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _directoryBuildPropsReader = directoryBuildPropsReader;
         _artifactDetector = artifactDetector;
         _assemblyReferenceConverter = assemblyReferenceConverter;
+        _testProjectHandler = testProjectHandler;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -88,7 +91,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             HandleAssemblyInfo(legacyProject, mainPropertyGroup, inheritedProperties);
 
             // Migrate package references
-            await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, cancellationToken);
+            await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, result, cancellationToken);
 
             // Migrate project references
             MigrateProjectReferences(legacyProject, projectElement);
@@ -114,8 +117,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate InternalsVisibleTo from AssemblyInfo
             await MigrateInternalsVisibleToAsync(legacyProject, projectElement, cancellationToken);
 
-            // Migrate custom targets and build events
-            MigrateCustomTargets(legacyProject, projectElement);
+            // Migrate conditional elements (Choose/When/Otherwise)
+            MigrateConditionalElements(legacyProject, projectElement);
+
+            // Migrate conditional properties (DefineConstants, etc.)
+            MigrateConditionalProperties(legacyProject, projectElement, inheritedProperties.Any(p => p.Key == "TargetFrameworks"));
+
+            // Migrate custom imports, targets and build events
+            MigrateCustomImports(legacyProject, projectElement, result);
+            MigrateCustomTargets(legacyProject, projectElement, result);
 
             // Save the project
             var doc = new XDocument(
@@ -210,9 +220,41 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             propertyGroup.Add(new XElement(name, value));
         }
 
-        // Target framework
-        var targetFramework = ConvertTargetFramework(project);
-        AddPropertyIfNotInherited("TargetFramework", targetFramework);
+        // Check if project needs multi-targeting
+        var targetFrameworkVersions = project.Properties
+            .Where(p => p.Name == "TargetFrameworkVersion")
+            .Select(p => new { Version = p.EvaluatedValue, Condition = p.Xml?.Condition })
+            .Where(x => !string.IsNullOrEmpty(x.Version))
+            .GroupBy(x => x.Version)
+            .ToList();
+
+        var targetFrameworkProfiles = project.Properties
+            .Where(p => p.Name == "TargetFrameworkProfile")
+            .Select(p => new { Profile = p.EvaluatedValue, Condition = p.Xml?.Condition })
+            .Where(x => !string.IsNullOrEmpty(x.Profile))
+            .Distinct()
+            .ToList();
+
+        // Determine if multi-targeting is needed
+        var needsMultiTargeting = targetFrameworkVersions.Count > 1 || 
+                                  targetFrameworkProfiles.Count > 1 ||
+                                  (project.Properties.Any(p => p.Name == "TargetFrameworks")); // Already multi-targeted
+
+        string targetFramework = string.Empty;
+        if (needsMultiTargeting)
+        {
+            _logger.LogInformation("Project requires multi-targeting support");
+            var frameworks = DetermineTargetFrameworks(project, targetFrameworkVersions, targetFrameworkProfiles);
+            AddPropertyIfNotInherited("TargetFrameworks", string.Join(";", frameworks));
+            // For multi-targeting, use the first framework for compatibility checks
+            targetFramework = frameworks.FirstOrDefault() ?? ConvertTargetFramework(project);
+        }
+        else
+        {
+            // Single target framework
+            targetFramework = ConvertTargetFramework(project);
+            AddPropertyIfNotInherited("TargetFramework", targetFramework);
+        }
 
         // Output type
         var outputType = project.Properties
@@ -248,22 +290,142 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Strong naming properties
         MigrateStrongNaming(project, propertyGroup, inheritedProperties);
 
-        // For .NET 5+ WPF/WinForms projects (not .NET Framework)
-        if (targetFramework?.StartsWith("net") == true &&
-            !targetFramework.Contains(".") &&
-            !targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+        // For multi-targeting, check each framework for WPF/WinForms needs
+        if (needsMultiTargeting)
         {
-            var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
-            var hasWinFormsItems = project.Items.Any(i =>
-                i.ItemType == "Compile" &&
-                i.HasMetadata("SubType") &&
-                (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+            var frameworks = DetermineTargetFrameworks(project, targetFrameworkVersions, targetFrameworkProfiles);
+            
+            // Check if any modern framework needs WPF/WinForms
+            var needsWpfOrWinForms = frameworks.Any(f => 
+                f.StartsWith("net") && !f.Contains(".") && !f.StartsWith("net4", StringComparison.OrdinalIgnoreCase));
+                
+            if (needsWpfOrWinForms)
+            {
+                var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
+                var hasWinFormsItems = project.Items.Any(i =>
+                    i.ItemType == "Compile" &&
+                    i.HasMetadata("SubType") &&
+                    (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
 
-            if (hasWpfItems)
-                propertyGroup.Add(new XElement("UseWPF", "true"));
-            if (hasWinFormsItems)
-                propertyGroup.Add(new XElement("UseWindowsForms", "true"));
+                if (hasWpfItems)
+                    propertyGroup.Add(new XElement("UseWPF", "true"));
+                if (hasWinFormsItems)
+                    propertyGroup.Add(new XElement("UseWindowsForms", "true"));
+            }
         }
+        else
+        {
+            // For .NET 5+ WPF/WinForms projects (not .NET Framework)
+            if (targetFramework?.StartsWith("net") == true &&
+                !targetFramework.Contains(".") &&
+                !targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
+            {
+                var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
+                var hasWinFormsItems = project.Items.Any(i =>
+                    i.ItemType == "Compile" &&
+                    i.HasMetadata("SubType") &&
+                    (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+
+                if (hasWpfItems)
+                    propertyGroup.Add(new XElement("UseWPF", "true"));
+                if (hasWinFormsItems)
+                    propertyGroup.Add(new XElement("UseWindowsForms", "true"));
+            }
+        }
+
+        // Migrate conditional compilation symbols will be done later with the projectElement
+    }
+
+    private void MigrateConditionalProperties(Project project, XElement projectElement, bool isMultiTargeting)
+    {
+        // Get all DefineConstants across configurations
+        var defineConstantsByCondition = project.Properties
+            .Where(p => p.Name == "DefineConstants" && !string.IsNullOrEmpty(p.Xml?.Condition))
+            .GroupBy(p => p.Xml?.Condition ?? "")
+            .ToList();
+
+        if (defineConstantsByCondition.Any())
+        {
+            foreach (var group in defineConstantsByCondition)
+            {
+                var condition = group.Key;
+                var defineConstants = group.First().EvaluatedValue;
+
+                if (string.IsNullOrEmpty(defineConstants))
+                    continue;
+
+                // Convert legacy conditions to modern framework conditions if multi-targeting
+                if (isMultiTargeting)
+                {
+                    condition = ConvertConditionToFrameworkSpecific(condition);
+                }
+
+                var propGroup = new XElement("PropertyGroup");
+                if (!string.IsNullOrEmpty(condition))
+                {
+                    propGroup.Add(new XAttribute("Condition", condition));
+                }
+                propGroup.Add(new XElement("DefineConstants", defineConstants));
+                projectElement.Add(propGroup);
+
+                _logger.LogDebug("Migrated conditional DefineConstants: {Constants} with condition: {Condition}", 
+                    defineConstants, condition);
+            }
+        }
+
+        // Migrate other conditional properties (PlatformTarget, etc.)
+        var otherConditionalProps = project.Properties
+            .Where(p => new[] { "PlatformTarget", "Prefer32Bit", "AllowUnsafeBlocks", "DebugType", "DebugSymbols", "Optimize" }
+                .Contains(p.Name) && !string.IsNullOrEmpty(p.Xml?.Condition))
+            .GroupBy(p => p.Xml?.Condition ?? "")
+            .ToList();
+
+        foreach (var group in otherConditionalProps)
+        {
+            var condition = group.Key;
+            if (isMultiTargeting)
+            {
+                condition = ConvertConditionToFrameworkSpecific(condition);
+            }
+
+            var propGroup = new XElement("PropertyGroup");
+            if (!string.IsNullOrEmpty(condition))
+            {
+                propGroup.Add(new XAttribute("Condition", condition));
+            }
+
+            foreach (var prop in group)
+            {
+                propGroup.Add(new XElement(prop.Name, prop.EvaluatedValue));
+            }
+
+            projectElement.Add(propGroup);
+        }
+    }
+
+    private string ConvertConditionToFrameworkSpecific(string condition)
+    {
+        // Common legacy conditions to framework-specific conditions
+        if (condition.Contains("'$(Configuration)|$(Platform)'"))
+        {
+            // Keep configuration/platform conditions as-is
+            return condition;
+        }
+        
+        // Convert TargetFrameworkVersion conditions to TargetFramework
+        if (condition.Contains("TargetFrameworkVersion"))
+        {
+            // Example: '$(TargetFrameworkVersion)' == 'v4.5' becomes '$(TargetFramework)' == 'net45'
+            var pattern = @"'\$\(TargetFrameworkVersion\)'\s*==\s*'v?(\d+\.\d+)'";
+            var match = System.Text.RegularExpressions.Regex.Match(condition, pattern);
+            if (match.Success)
+            {
+                var version = match.Groups[1].Value.Replace(".", "");
+                return $"'$(TargetFramework)' == 'net{version}'";
+            }
+        }
+
+        return condition;
     }
 
     private string ConvertTargetFramework(Project project)
@@ -271,16 +433,46 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var targetFrameworkVersion = project.Properties
             .FirstOrDefault(p => p.Name == "TargetFrameworkVersion")?.EvaluatedValue;
 
+        var targetFrameworkProfile = project.Properties
+            .FirstOrDefault(p => p.Name == "TargetFrameworkProfile")?.EvaluatedValue;
+
+        // Handle PCL projects
+        if (!string.IsNullOrEmpty(targetFrameworkProfile) && targetFrameworkProfile.StartsWith("Profile"))
+        {
+            return ConvertPortableClassLibrary(targetFrameworkProfile);
+        }
+
         if (string.IsNullOrEmpty(targetFrameworkVersion))
             return "net8.0";
 
         // Remove 'v' prefix and convert
         var version = targetFrameworkVersion.TrimStart('v');
 
+        // Handle Client Profile
+        if (targetFrameworkProfile == "Client")
+        {
+            // Client profiles should upgrade to full framework
+            _logger.LogInformation("Converting .NET Framework Client Profile to full framework");
+        }
+
         // .NET Framework 4.x
         if (version.StartsWith("4."))
         {
             return $"net{version.Replace(".", "")}";
+        }
+
+        // .NET Framework 3.5 and earlier
+        if (version == "3.5")
+        {
+            return "net35";
+        }
+        if (version == "3.0")
+        {
+            return "net30";
+        }
+        if (version == "2.0")
+        {
+            return "net20";
         }
 
         // .NET Core 2.x, 3.x
@@ -298,7 +490,132 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return "net8.0";
     }
 
-    private async Task MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, CancellationToken cancellationToken)
+    private List<string> DetermineTargetFrameworks(Project project, 
+        dynamic targetFrameworkVersions,
+        dynamic targetFrameworkProfiles)
+    {
+        var frameworks = new HashSet<string>();
+
+        // If we have multiple framework versions, add each
+        if (targetFrameworkVersions.Any())
+        {
+            foreach (var group in targetFrameworkVersions)
+            {
+                var tempProject = project;
+                // Temporarily set the property to get the correct conversion
+                var originalValue = project.Properties.FirstOrDefault(p => p.Name == "TargetFrameworkVersion")?.EvaluatedValue;
+                
+                // Convert each framework version
+                var version = group.Key.TrimStart('v');
+                
+                // Check if there's a corresponding profile
+                var profilesForVersion = new List<dynamic>();
+                foreach (var p in targetFrameworkProfiles)
+                {
+                    if (p.Condition?.Contains(version) == true)
+                    {
+                        profilesForVersion.Add(p);
+                    }
+                }
+
+                if (profilesForVersion.Any())
+                {
+                    foreach (var profile in profilesForVersion)
+                    {
+                        if (profile.Profile.StartsWith("Profile"))
+                        {
+                            frameworks.Add(ConvertPortableClassLibrary(profile.Profile));
+                        }
+                        else
+                        {
+                            frameworks.Add(ConvertFrameworkVersion(version, profile.Profile));
+                        }
+                    }
+                }
+                else
+                {
+                    frameworks.Add(ConvertFrameworkVersion(version, null));
+                }
+            }
+        }
+        else
+        {
+            // Just convert the current framework
+            frameworks.Add(ConvertTargetFramework(project));
+        }
+
+        // Always add a modern framework for compatibility
+        if (!frameworks.Any(f => f.StartsWith("net") && !f.StartsWith("net4") && !f.StartsWith("netcoreapp")))
+        {
+            frameworks.Add("net8.0");
+        }
+
+        return frameworks.OrderBy(f => f).ToList();
+    }
+
+    private string ConvertFrameworkVersion(string version, string? profile)
+    {
+        // Handle Client Profile
+        if (profile == "Client")
+        {
+            _logger.LogInformation("Converting .NET Framework Client Profile to full framework");
+        }
+
+        // .NET Framework 4.x
+        if (version.StartsWith("4."))
+        {
+            return $"net{version.Replace(".", "")}";
+        }
+
+        // .NET Framework 3.5 and earlier
+        if (version == "3.5") return "net35";
+        if (version == "3.0") return "net30";
+        if (version == "2.0") return "net20";
+
+        // .NET Core 2.x, 3.x
+        if (version.StartsWith("2.") || version.StartsWith("3."))
+        {
+            return $"netcoreapp{version}";
+        }
+
+        // .NET 5+
+        if (int.TryParse(version.Split('.')[0], out var majorVersion) && majorVersion >= 5)
+        {
+            return $"net{version}";
+        }
+
+        return "net8.0";
+    }
+
+    private string ConvertPortableClassLibrary(string profile)
+    {
+        // Map PCL profiles to .NET Standard versions
+        var pclToNetStandardMap = new Dictionary<string, string>
+        {
+            ["Profile7"] = "netstandard1.1",    // .NET Framework 4.5, Windows 8
+            ["Profile31"] = "netstandard1.0",   // Windows 8.1, Windows Phone 8.1
+            ["Profile32"] = "netstandard1.2",   // Windows 8.1, Windows Phone 8.1
+            ["Profile44"] = "netstandard1.2",   // .NET Framework 4.5.1, Windows 8.1
+            ["Profile49"] = "netstandard1.0",   // .NET Framework 4.5, Windows Phone 8
+            ["Profile78"] = "netstandard1.0",   // .NET Framework 4.5, Windows 8, Windows Phone 8
+            ["Profile84"] = "netstandard1.0",   // Windows Phone 8.1
+            ["Profile111"] = "netstandard1.1",  // .NET Framework 4.5, Windows 8, Windows Phone 8.1
+            ["Profile151"] = "netstandard1.2",  // .NET Framework 4.5.1, Windows 8.1, Windows Phone 8.1
+            ["Profile157"] = "netstandard1.0",  // Windows 8.1, Windows Phone 8.1, Windows Phone 8
+            ["Profile259"] = "netstandard1.0"   // .NET Framework 4.5, Windows 8, Windows Phone 8.1, Windows Phone 8
+        };
+
+        if (pclToNetStandardMap.TryGetValue(profile, out var netStandard))
+        {
+            _logger.LogInformation("Converting PCL {Profile} to {NetStandard}", profile, netStandard);
+            return netStandard;
+        }
+
+        _logger.LogWarning("Unknown PCL profile {Profile}, defaulting to netstandard2.0", profile);
+        return "netstandard2.0";
+    }
+
+    private async Task MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, MigrationResult result, CancellationToken cancellationToken)
     {
         // Determine the target framework early, as it's needed for assembly-to-package conversion
         var targetFramework = ConvertTargetFramework(project);
@@ -328,6 +645,30 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         _logger.LogInformation("Combined {ExistingCount} existing packages with {ConvertedCount} packages from assembly references, total unique: {TotalCount}",
             existingPackages.Count(), conversionResult.PackageReferences.Count, allPackageReferences.Count);
+
+        // 3. Detect and handle test project specifics
+        var testProjectInfo = await _testProjectHandler.DetectTestFrameworkAsync(project, cancellationToken);
+        if (testProjectInfo.DetectedFrameworks.Any())
+        {
+            _logger.LogInformation("Detected test project with frameworks: {Frameworks}", 
+                string.Join(", ", testProjectInfo.DetectedFrameworks));
+            
+            // Let the test handler add/update packages and configuration
+            var packageList = allPackageReferences.ToList();
+            await _testProjectHandler.MigrateTestConfigurationAsync(
+                testProjectInfo, 
+                projectElement, 
+                packageList,
+                result,
+                cancellationToken);
+            
+            // Update the set with any new packages added by test handler
+            allPackageReferences.Clear();
+            foreach (var pkg in packageList)
+            {
+                allPackageReferences.Add(pkg);
+            }
+        }
 
         if (allPackageReferences.Any())
         {
@@ -556,35 +897,346 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return false;
     }
 
-    private void MigrateCustomTargets(Project project, XElement projectElement)
+    private void MigrateCustomImports(Project project, XElement projectElement, MigrationResult result)
     {
-        // Migrate pre/post build events
+        // Get all imports from the legacy project
+        var customImports = project.Xml.Imports
+            .Where(i => !IsKnownSystemImport(i.Project))
+            .ToList();
+
+        foreach (var import in customImports)
+        {
+            var importElement = new XElement("Import",
+                new XAttribute("Project", import.Project));
+            
+            if (!string.IsNullOrEmpty(import.Condition))
+            {
+                importElement.Add(new XAttribute("Condition", import.Condition));
+            }
+            
+            if (!string.IsNullOrEmpty(import.Label))
+            {
+                importElement.Add(new XAttribute("Label", import.Label));
+            }
+            
+            projectElement.Add(importElement);
+            
+            result.Warnings.Add($"Preserved custom import: {import.Project}. Verify compatibility with SDK-style projects.");
+            _logger.LogInformation("Preserved custom import: {Import}", import.Project);
+        }
+    }
+
+    private bool IsKnownSystemImport(string importPath)
+    {
+        if (string.IsNullOrEmpty(importPath))
+            return false;
+
+        // List of known system imports that are handled by the SDK
+        var knownImports = new[]
+        {
+            "Microsoft.Common.props",
+            "Microsoft.CSharp.targets",
+            "Microsoft.VisualBasic.targets", 
+            "Microsoft.FSharp.targets",
+            "Microsoft.Common.targets",
+            "Microsoft.WebApplication.targets",
+            "Microsoft.NET.Sdk.props",
+            "Microsoft.NET.Sdk.targets",
+            "System.Data.Entity.Design.targets",
+            "EntityFramework.targets",
+            "Microsoft.Bcl.Build.targets",
+            "Microsoft.TestPlatform.targets",
+            "VSTest.targets"
+        };
+
+        return knownImports.Any(known => 
+            importPath.EndsWith(known, StringComparison.OrdinalIgnoreCase) ||
+            importPath.Contains($"\\{known}", StringComparison.OrdinalIgnoreCase) ||
+            importPath.Contains($"/{known}", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void MigrateCustomTargets(Project project, XElement projectElement, MigrationResult result)
+    {
+        // Migrate all custom targets from the legacy project
+        foreach (var target in project.Xml.Targets)
+        {
+            // Skip common targets that are handled by the SDK
+            if (IsCommonSdkTarget(target.Name))
+            {
+                _logger.LogDebug("Skipping SDK-handled target: {TargetName}", target.Name);
+                continue;
+            }
+
+            var targetElement = new XElement("Target",
+                new XAttribute("Name", target.Name));
+
+            // Add target attributes
+            if (!string.IsNullOrEmpty(target.BeforeTargets))
+                targetElement.Add(new XAttribute("BeforeTargets", target.BeforeTargets));
+            if (!string.IsNullOrEmpty(target.AfterTargets))
+                targetElement.Add(new XAttribute("AfterTargets", target.AfterTargets));
+            if (!string.IsNullOrEmpty(target.DependsOnTargets))
+                targetElement.Add(new XAttribute("DependsOnTargets", target.DependsOnTargets));
+            if (!string.IsNullOrEmpty(target.Condition))
+                targetElement.Add(new XAttribute("Condition", target.Condition));
+            if (!string.IsNullOrEmpty(target.Inputs))
+                targetElement.Add(new XAttribute("Inputs", target.Inputs));
+            if (!string.IsNullOrEmpty(target.Outputs))
+                targetElement.Add(new XAttribute("Outputs", target.Outputs));
+            if (!string.IsNullOrEmpty(target.Returns))
+                targetElement.Add(new XAttribute("Returns", target.Returns));
+
+            // Migrate target tasks
+            foreach (var task in target.Children)
+            {
+                var taskElement = ConvertProjectElementToXElement(task);
+                if (taskElement != null)
+                {
+                    targetElement.Add(taskElement);
+                }
+            }
+
+            projectElement.Add(targetElement);
+            result.Warnings.Add($"Preserved custom target '{target.Name}'. Manual review recommended.");
+            _logger.LogInformation("Preserved custom target: {TargetName}", target.Name);
+        }
+
+        // Migrate pre/post build events (simplified format for common cases)
         var preBuild = project.Properties
             .FirstOrDefault(p => p.Name == "PreBuildEvent")?.EvaluatedValue;
         var postBuild = project.Properties
             .FirstOrDefault(p => p.Name == "PostBuildEvent")?.EvaluatedValue;
 
-        if (!string.IsNullOrWhiteSpace(preBuild) || !string.IsNullOrWhiteSpace(postBuild))
+        if (!string.IsNullOrWhiteSpace(preBuild))
         {
-            if (!string.IsNullOrWhiteSpace(preBuild))
-            {
-                var target = new XElement("Target",
-                    new XAttribute("Name", "PreBuild"),
-                    new XAttribute("BeforeTargets", "PreBuildEvent"),
-                    new XElement("Exec", new XAttribute("Command", preBuild)));
+            var target = new XElement("Target",
+                new XAttribute("Name", "PreBuild"),
+                new XAttribute("BeforeTargets", "PreBuildEvent"),
+                new XElement("Exec", new XAttribute("Command", preBuild)));
 
-                projectElement.Add(target);
+            projectElement.Add(target);
+            _logger.LogInformation("Migrated PreBuildEvent to Target");
+        }
+
+        if (!string.IsNullOrWhiteSpace(postBuild))
+        {
+            var runPostBuildEvent = project.Properties
+                .FirstOrDefault(p => p.Name == "RunPostBuildEvent")?.EvaluatedValue;
+
+            var target = new XElement("Target",
+                new XAttribute("Name", "PostBuild"),
+                new XAttribute("AfterTargets", "PostBuildEvent"),
+                new XElement("Exec", new XAttribute("Command", postBuild)));
+
+            // Preserve RunPostBuildEvent condition if specified
+            if (!string.IsNullOrEmpty(runPostBuildEvent) && runPostBuildEvent != "OnBuildSuccess")
+            {
+                target.Add(new XAttribute("Condition", $"'$(RunPostBuildEvent)' == '{runPostBuildEvent}'"));
             }
 
-            if (!string.IsNullOrWhiteSpace(postBuild))
-            {
-                var target = new XElement("Target",
-                    new XAttribute("Name", "PostBuild"),
-                    new XAttribute("AfterTargets", "PostBuildEvent"),
-                    new XElement("Exec", new XAttribute("Command", postBuild)));
+            projectElement.Add(target);
+            _logger.LogInformation("Migrated PostBuildEvent to Target");
+        }
 
-                projectElement.Add(target);
+        // Migrate UsingTask elements
+        foreach (var usingTask in project.Xml.UsingTasks)
+        {
+            var element = new XElement("UsingTask",
+                new XAttribute("TaskName", usingTask.TaskName));
+                
+            if (!string.IsNullOrEmpty(usingTask.AssemblyFile))
+                element.Add(new XAttribute("AssemblyFile", usingTask.AssemblyFile));
+            if (!string.IsNullOrEmpty(usingTask.AssemblyName))
+                element.Add(new XAttribute("AssemblyName", usingTask.AssemblyName));
+            if (!string.IsNullOrEmpty(usingTask.Condition))
+                element.Add(new XAttribute("Condition", usingTask.Condition));
+            if (!string.IsNullOrEmpty(usingTask.TaskFactory))
+                element.Add(new XAttribute("TaskFactory", usingTask.TaskFactory));
+                
+            projectElement.Add(element);
+            result.Warnings.Add($"Preserved UsingTask '{usingTask.TaskName}'. Verify custom task compatibility.");
+            _logger.LogInformation("Preserved UsingTask: {TaskName}", usingTask.TaskName);
+        }
+    }
+
+    private void MigrateConditionalElements(Project project, XElement projectElement)
+    {
+        // Migrate Choose/When/Otherwise constructs from the root level
+        foreach (var choose in project.Xml.ChooseElements)
+        {
+            var chooseElement = new XElement("Choose");
+            
+            foreach (var when in choose.WhenElements)
+            {
+                var whenElement = new XElement("When",
+                    new XAttribute("Condition", when.Condition));
+                
+                // Process all children of the When element
+                foreach (var child in when.Children)
+                {
+                    var childElement = ConvertProjectElementToXElement(child);
+                    if (childElement != null)
+                        whenElement.Add(childElement);
+                }
+                
+                chooseElement.Add(whenElement);
             }
+            
+            // Add Otherwise element if present
+            if (choose.OtherwiseElement != null)
+            {
+                var otherwiseElement = new XElement("Otherwise");
+                foreach (var child in choose.OtherwiseElement.Children)
+                {
+                    var childElement = ConvertProjectElementToXElement(child);
+                    if (childElement != null)
+                        otherwiseElement.Add(childElement);
+                }
+                chooseElement.Add(otherwiseElement);
+            }
+            
+            projectElement.Add(chooseElement);
+            _logger.LogInformation("Preserved conditional Choose/When/Otherwise construct");
+        }
+    }
+
+    private bool IsCommonSdkTarget(string targetName)
+    {
+        var commonTargets = new[]
+        {
+            "Build", "Rebuild", "Clean", "Compile", "Publish",
+            "BeforeBuild", "AfterBuild", "BeforeRebuild", "AfterRebuild",
+            "BeforeClean", "AfterClean", "BeforePublish", "AfterPublish",
+            "BeforeCompile", "AfterCompile", "CoreCompile",
+            "PrepareForBuild", "PrepareForRun", "PrepareResources",
+            "AssignTargetPaths", "GetTargetPath", "GetCopyToOutputDirectoryItems"
+        };
+
+        return commonTargets.Contains(targetName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private XElement? ConvertProjectElementToXElement(Microsoft.Build.Construction.ProjectElement element)
+    {
+        switch (element)
+        {
+            case Microsoft.Build.Construction.ProjectTaskElement task:
+                var taskElement = new XElement(task.Name);
+                
+                if (!string.IsNullOrEmpty(task.Condition))
+                    taskElement.Add(new XAttribute("Condition", task.Condition));
+                    
+                foreach (var param in task.Parameters)
+                {
+                    taskElement.Add(new XAttribute(param.Key, param.Value));
+                }
+                
+                // Handle task outputs
+                foreach (var output in task.Outputs)
+                {
+                    var outputElement = new XElement("Output");
+                    if (!string.IsNullOrEmpty(output.TaskParameter))
+                        outputElement.Add(new XAttribute("TaskParameter", output.TaskParameter));
+                    if (!string.IsNullOrEmpty(output.PropertyName))
+                        outputElement.Add(new XAttribute("PropertyName", output.PropertyName));
+                    if (!string.IsNullOrEmpty(output.ItemType))
+                        outputElement.Add(new XAttribute("ItemName", output.ItemType));
+                    if (!string.IsNullOrEmpty(output.Condition))
+                        outputElement.Add(new XAttribute("Condition", output.Condition));
+                    
+                    taskElement.Add(outputElement);
+                }
+                
+                return taskElement;
+                
+            case Microsoft.Build.Construction.ProjectPropertyGroupElement propGroup:
+                var propGroupElement = new XElement("PropertyGroup");
+                if (!string.IsNullOrEmpty(propGroup.Condition))
+                    propGroupElement.Add(new XAttribute("Condition", propGroup.Condition));
+                    
+                foreach (var prop in propGroup.Properties)
+                {
+                    var propElement = new XElement(prop.Name, prop.Value);
+                    if (!string.IsNullOrEmpty(prop.Condition))
+                        propElement.Add(new XAttribute("Condition", prop.Condition));
+                    propGroupElement.Add(propElement);
+                }
+                
+                return propGroupElement;
+                
+            case Microsoft.Build.Construction.ProjectItemGroupElement itemGroup:
+                var itemGroupElement = new XElement("ItemGroup");
+                if (!string.IsNullOrEmpty(itemGroup.Condition))
+                    itemGroupElement.Add(new XAttribute("Condition", itemGroup.Condition));
+                    
+                foreach (var item in itemGroup.Items)
+                {
+                    var itemElement = new XElement(item.ItemType);
+                    if (!string.IsNullOrEmpty(item.Include))
+                        itemElement.Add(new XAttribute("Include", item.Include));
+                    if (!string.IsNullOrEmpty(item.Update))
+                        itemElement.Add(new XAttribute("Update", item.Update));
+                    if (!string.IsNullOrEmpty(item.Remove))
+                        itemElement.Add(new XAttribute("Remove", item.Remove));
+                    if (!string.IsNullOrEmpty(item.Exclude))
+                        itemElement.Add(new XAttribute("Exclude", item.Exclude));
+                    if (!string.IsNullOrEmpty(item.Condition))
+                        itemElement.Add(new XAttribute("Condition", item.Condition));
+                        
+                    foreach (var metadata in item.Metadata)
+                    {
+                        var metaElement = new XElement(metadata.Name, metadata.Value);
+                        if (!string.IsNullOrEmpty(metadata.Condition))
+                            metaElement.Add(new XAttribute("Condition", metadata.Condition));
+                        itemElement.Add(metaElement);
+                    }
+                    
+                    itemGroupElement.Add(itemElement);
+                }
+                
+                return itemGroupElement;
+                
+            case Microsoft.Build.Construction.ProjectOnErrorElement onError:
+                var onErrorElement = new XElement("OnError",
+                    new XAttribute("ExecuteTargets", onError.ExecuteTargetsAttribute));
+                if (!string.IsNullOrEmpty(onError.Condition))
+                    onErrorElement.Add(new XAttribute("Condition", onError.Condition));
+                return onErrorElement;
+                
+            case Microsoft.Build.Construction.ProjectChooseElement choose:
+                var chooseElement = new XElement("Choose");
+                
+                foreach (var when in choose.WhenElements)
+                {
+                    var whenElement = new XElement("When",
+                        new XAttribute("Condition", when.Condition));
+                    
+                    foreach (var child in when.Children)
+                    {
+                        var childElement = ConvertProjectElementToXElement(child);
+                        if (childElement != null)
+                            whenElement.Add(childElement);
+                    }
+                    
+                    chooseElement.Add(whenElement);
+                }
+                
+                if (choose.OtherwiseElement != null)
+                {
+                    var otherwiseElement = new XElement("Otherwise");
+                    foreach (var child in choose.OtherwiseElement.Children)
+                    {
+                        var childElement = ConvertProjectElementToXElement(child);
+                        if (childElement != null)
+                            otherwiseElement.Add(childElement);
+                    }
+                    chooseElement.Add(otherwiseElement);
+                }
+                
+                return chooseElement;
+                
+            default:
+                _logger.LogWarning("Unsupported project element type: {Type}", element.GetType().Name);
+                return null;
         }
     }
 

@@ -768,6 +768,7 @@ Examples:
         // Register the clean SDK-style project generator
         services.AddSingleton<ISdkStyleProjectGenerator, CleanSdkStyleProjectGenerator>();
         services.AddSingleton<IDirectoryBuildPropsReader, DirectoryBuildPropsReader>();
+        services.AddSingleton<ITestProjectHandler, TestProjectHandler>();
 
         services.AddSingleton<IProjectFileScanner, ProjectFileScanner>();
         services.AddSingleton<ProjectParser>();
