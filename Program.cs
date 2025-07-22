@@ -3,6 +3,7 @@ using System.CommandLine.Invocation;
 using System.Xml;
 using System.Xml.Linq;
 using Avalonia;
+using Avalonia.ReactiveUI;
 using Avalonia.X11;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
