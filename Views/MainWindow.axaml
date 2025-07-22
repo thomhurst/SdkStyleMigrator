@@ -13,7 +13,6 @@
         WindowStartupLocation="CenterScreen"
         Background="#FAFBFC"
         TransparencyBackgroundFallback="#FAFBFC"
-        Icon="/Assets/icon.ico"
         CanResize="true">
 
     <!-- Modern gradient background -->
