@@ -1,5 +1,6 @@
 using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;

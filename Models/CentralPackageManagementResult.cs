@@ -16,4 +16,8 @@ public class CpmPackageVersionConflict
     public List<string> Versions { get; set; } = new();
     public string ResolvedVersion { get; set; } = string.Empty;
     public string ResolutionReason { get; set; } = string.Empty;
+    public string Strategy { get; set; } = string.Empty;
+    public List<string> TargetFrameworks { get; set; } = new();
+    public bool HasWarnings { get; set; }
+    public List<string> Warnings { get; set; } = new();
 }

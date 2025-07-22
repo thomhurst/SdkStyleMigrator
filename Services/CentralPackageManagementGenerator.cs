@@ -1,4 +1,5 @@
 using System.Xml;
+using System.Linq;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SdkMigrator.Abstractions;
@@ -11,15 +12,24 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
     private readonly ILogger<CentralPackageManagementGenerator> _logger;
     private readonly IAuditService _auditService;
     private readonly MigrationOptions _options;
+    private readonly CpmVersionResolver _versionResolver;
+    private readonly CpmPackageClassifier _packageClassifier;
+    private readonly ExistingCpmDetector _existingCpmDetector;
 
     public CentralPackageManagementGenerator(
         ILogger<CentralPackageManagementGenerator> logger,
         IAuditService auditService,
-        MigrationOptions options)
+        MigrationOptions options,
+        CpmVersionResolver versionResolver,
+        CpmPackageClassifier packageClassifier,
+        ExistingCpmDetector existingCpmDetector)
     {
         _logger = logger;
         _auditService = auditService;
         _options = options;
+        _versionResolver = versionResolver;
+        _packageClassifier = packageClassifier;
+        _existingCpmDetector = existingCpmDetector;
     }
 
     public async Task<CentralPackageManagementResult> GenerateDirectoryPackagesPropsAsync(
@@ -32,6 +42,15 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
         try
         {
             _logger.LogInformation("Analyzing packages for Central Package Management...");
+
+            // Check for existing CPM setup
+            var existingCpm = _existingCpmDetector.DetectExistingCpm(solutionDirectory);
+            
+            if (existingCpm.HasExistingCpm)
+            {
+                _logger.LogInformation("Found existing Directory.Packages.props at {Path} with {PackageCount} packages", 
+                    existingCpm.DirectoryPackagesPropsPath, existingCpm.ExistingPackages.Count);
+            }
 
             // Collect all package references from migration results
             var allPackages = migrationResults
@@ -48,67 +67,112 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 return result;
             }
 
+            // Collect all target frameworks from migration results
+            var allTargetFrameworks = migrationResults
+                .Where(r => r.Success && r.TargetFrameworks != null)
+                .SelectMany(r => r.TargetFrameworks!)
+                .Distinct()
+                .ToList();
+
             result.PackageCount = allPackages.Count;
 
-            // Check for version conflicts
+            // Check for version conflicts using enhanced resolution
             foreach (var packageGroup in allPackages)
             {
                 var versions = packageGroup.Select(p => p.Version).Distinct().ToList();
                 if (versions.Count > 1)
                 {
+                    var resolution = _versionResolver.ResolveVersionConflict(
+                        packageGroup.Key, 
+                        versions, 
+                        allTargetFrameworks, 
+                        _options.CpmOptions);
+
                     var conflict = new CpmPackageVersionConflict
                     {
                         PackageId = packageGroup.Key,
                         Versions = versions,
-                        ResolvedVersion = ResolveVersionConflict(versions),
-                        ResolutionReason = "Selected highest version"
+                        ResolvedVersion = resolution.ResolvedVersion,
+                        ResolutionReason = resolution.ResolutionReason,
+                        Strategy = resolution.Strategy,
+                        TargetFrameworks = allTargetFrameworks,
+                        HasWarnings = resolution.HasWarnings,
+                        Warnings = resolution.Warnings
                     };
                     result.VersionConflicts.Add(conflict);
 
-                    _logger.LogWarning("Version conflict for package {PackageId}: {Versions}. Resolved to {ResolvedVersion}",
-                        packageGroup.Key, string.Join(", ", versions), conflict.ResolvedVersion);
+                    var logLevel = resolution.HasWarnings ? LogLevel.Warning : LogLevel.Information;
+                    _logger.Log(logLevel, "Version conflict for package {PackageId}: {Versions}. Resolved to {ResolvedVersion} using {Strategy}",
+                        packageGroup.Key, string.Join(", ", versions), conflict.ResolvedVersion, resolution.Strategy);
+
+                    if (resolution.HasWarnings)
+                    {
+                        foreach (var warning in resolution.Warnings)
+                        {
+                            _logger.LogWarning("CPM Warning for {PackageId}: {Warning}", packageGroup.Key, warning);
+                        }
+                    }
                 }
             }
 
-            // Generate Directory.Packages.props
+            // Classify packages for better organization
+            var packageClassifications = allPackages
+                .ToDictionary(packageGroup => packageGroup.Key, packageGroup =>
+                {
+                    var versions = packageGroup.Select(p => p.Version).Distinct().ToList();
+                    var resolvedVersion = versions.Count == 1 ? versions[0] :
+                        result.VersionConflicts.First(c => c.PackageId == packageGroup.Key).ResolvedVersion;
+                    
+                    return _packageClassifier.ClassifyPackage(packageGroup.Key, resolvedVersion, allTargetFrameworks);
+                });
+
+            // Generate Directory.Packages.props with organized package groups
             var directoryPackagesProps = new XDocument(
                 new XComment("Central Package Management - Generated by SdkMigrator"),
                 new XElement("Project",
                     new XElement("PropertyGroup",
                         new XElement("ManagePackageVersionsCentrally", "true"),
-                        new XElement("CentralPackageTransitivePinningEnabled", "true")),
-                    new XElement("ItemGroup",
-                        allPackages.Select(packageGroup =>
-                        {
-                            var versions = packageGroup.Select(p => p.Version).Distinct().ToList();
-                            var version = versions.Count == 1 ? versions[0] :
-                                result.VersionConflicts.First(c => c.PackageId == packageGroup.Key).ResolvedVersion;
+                        new XElement("CentralPackageTransitivePinningEnabled", "true"))));
 
-                            return new XElement("PackageVersion",
-                                new XAttribute("Include", packageGroup.Key),
-                                new XAttribute("Version", version));
-                        }))));
+            var root = directoryPackagesProps.Root!;
 
-            // Add GlobalPackageReferences if any analyzers were found
-            var analyzerPackages = allPackages
-                .Where(g => IsAnalyzerPackage(g.Key))
-                .ToList();
+            // Group packages by type for better organization
+            var packageTypes = packageClassifications.Values
+                .GroupBy(c => c.PackageType)
+                .OrderBy(g => packageClassifications.Values.Where(v => v.PackageType == g.Key).Min(v => v.Priority));
 
-            if (analyzerPackages.Any())
+            foreach (var packageTypeGroup in packageTypes)
             {
-                directoryPackagesProps.Root?.Add(
-                    new XComment("Global analyzer packages applied to all projects"),
-                    new XElement("ItemGroup",
-                        analyzerPackages.Select(packageGroup =>
-                        {
-                            var versions = packageGroup.Select(p => p.Version).Distinct().ToList();
-                            var version = versions.Count == 1 ? versions[0] :
-                                result.VersionConflicts.First(c => c.PackageId == packageGroup.Key).ResolvedVersion;
+                var packagesInGroup = packageTypeGroup.Where(c => !c.IsGlobalReference).ToList();
+                var globalPackagesInGroup = packageTypeGroup.Where(c => c.IsGlobalReference).ToList();
 
-                            return new XElement("GlobalPackageReference",
-                                new XAttribute("Include", packageGroup.Key),
-                                new XAttribute("Version", version));
-                        })));
+                // Add regular package references grouped by type
+                if (packagesInGroup.Any())
+                {
+                    var groupComment = GetPackageGroupComment(packageTypeGroup.Key);
+                    root.Add(new XComment(groupComment));
+                    
+                    root.Add(new XElement("ItemGroup",
+                        packagesInGroup
+                            .OrderBy(c => c.PackageId)
+                            .Select(classification => new XElement("PackageVersion",
+                                new XAttribute("Include", classification.PackageId),
+                                new XAttribute("Version", classification.Version)))));
+                }
+
+                // Add global package references (analyzers, build tools) 
+                if (globalPackagesInGroup.Any())
+                {
+                    var globalGroupComment = GetGlobalPackageGroupComment(packageTypeGroup.Key);
+                    root.Add(new XComment(globalGroupComment));
+                    
+                    root.Add(new XElement("ItemGroup",
+                        globalPackagesInGroup
+                            .OrderBy(c => c.PackageId)
+                            .Select(classification => new XElement("GlobalPackageReference",
+                                new XAttribute("Include", classification.PackageId),
+                                new XAttribute("Version", classification.Version)))));
+                }
             }
 
             var outputPath = Path.Combine(solutionDirectory, "Directory.Packages.props");
@@ -247,6 +311,30 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
         return versions
             .OrderByDescending(v => v, new VersionComparer())
             .First();
+    }
+
+    private string GetPackageGroupComment(CpmPackageType packageType)
+    {
+        return packageType switch
+        {
+            CpmPackageType.MicrosoftRuntime => "Microsoft Runtime and Framework Packages",
+            CpmPackageType.Runtime => "Runtime Packages",
+            CpmPackageType.ThirdPartyRuntime => "Third-Party Runtime Packages",
+            CpmPackageType.Testing => "Testing Framework Packages",
+            CpmPackageType.BuildTool => "Build Tools and MSBuild Packages",
+            CpmPackageType.DevelopmentOnly => "Development and Design-Time Packages",
+            _ => "Other Packages"
+        };
+    }
+
+    private string GetGlobalPackageGroupComment(CpmPackageType packageType)
+    {
+        return packageType switch
+        {
+            CpmPackageType.Analyzer => "Code Analysis and Static Analysis Tools (Applied Globally)",
+            CpmPackageType.BuildTool => "Build Tools Applied Globally",
+            _ => "Global Package References"
+        };
     }
 
     private bool IsAnalyzerPackage(string packageId)

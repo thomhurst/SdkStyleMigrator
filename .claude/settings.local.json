@@ -58,7 +58,9 @@
       "Bash(csc:*)",
       "Bash(./test_appconfig_debug.exe)",
       "WebFetch(domain:learn.microsoft.com)",
-      "WebFetch(domain:www.nuget.org)"
+      "WebFetch(domain:www.nuget.org)",
+      "mcp__desktop-commander__write_file",
+      "mcp__desktop-commander__create_directory"
     ],
     "deny": []
   }

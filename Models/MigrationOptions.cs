@@ -14,6 +14,7 @@ public class MigrationOptions
     public bool UseOfflineMode { get; set; }
     public string? NuGetConfigPath { get; set; }
     public bool EnableCentralPackageManagement { get; set; }
+    public CpmVersionResolutionOptions CpmOptions { get; set; } = new();
     public bool DisableCache { get; set; }
     public int? CacheTTLMinutes { get; set; }
 }

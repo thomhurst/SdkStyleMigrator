@@ -48,6 +48,16 @@ class Program
             aliases: new[] { "--central-package-management", "-cpm" },
             description: "Enable Central Package Management (Directory.Packages.props)");
 
+        var cpmVersionStrategyOption = new Option<string>(
+            aliases: new[] { "--cpm-version-strategy" },
+            getDefaultValue: () => "UseHighest",
+            description: "CPM version resolution strategy (UseHighest|UseLowest|UseLatestStable|UseMostCommon|SemanticCompatible|FrameworkCompatible)");
+
+        var cpmPreferStableOption = new Option<bool>(
+            aliases: new[] { "--cpm-prefer-stable" },
+            getDefaultValue: () => true,
+            description: "Prefer stable versions over prereleases in CPM resolution");
+
         var forceOption = new Option<bool>(
             aliases: new[] { "--force", "-f" },
             description: "Force migration without prompts");
@@ -88,6 +98,8 @@ class Program
         rootCommand.AddOption(targetFrameworkOption);
         rootCommand.AddOption(targetFrameworksOption);
         rootCommand.AddOption(centralPackageManagementOption);
+        rootCommand.AddOption(cpmVersionStrategyOption);
+        rootCommand.AddOption(cpmPreferStableOption);
         rootCommand.AddOption(forceOption);
         rootCommand.AddOption(noBackupOption);
         rootCommand.AddOption(parallelOption);
@@ -331,6 +343,11 @@ class Program
                 TargetFramework = context.ParseResult.GetValueForOption(targetFrameworkOption),
                 TargetFrameworks = context.ParseResult.GetValueForOption(targetFrameworksOption),
                 EnableCentralPackageManagement = context.ParseResult.GetValueForOption(centralPackageManagementOption),
+                CpmOptions = new CpmVersionResolutionOptions
+                {
+                    Strategy = ParseCpmStrategy(context.ParseResult.GetValueForOption(cpmVersionStrategyOption)!),
+                    PreferStableVersions = context.ParseResult.GetValueForOption(cpmPreferStableOption)
+                },
                 Force = context.ParseResult.GetValueForOption(forceOption),
                 CreateBackup = !context.ParseResult.GetValueForOption(noBackupOption),
                 MaxDegreeOfParallelism = context.ParseResult.GetValueForOption(parallelOption) ?? 1,
@@ -831,6 +848,9 @@ Examples:
         services.AddSingleton<ILockService, LockService>();
         services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<ILocalPackageFilesCleaner, LocalPackageFilesCleaner>();
+        services.AddSingleton<CpmVersionResolver>();
+        services.AddSingleton<CpmPackageClassifier>();
+        services.AddSingleton<ExistingCpmDetector>();
         services.AddSingleton<ICentralPackageManagementGenerator, CentralPackageManagementGenerator>();
         services.AddSingleton<IPostMigrationValidator, PostMigrationValidator>();
         services.AddSingleton<IMSBuildArtifactDetector, MSBuildArtifactDetector>();
@@ -1469,6 +1489,20 @@ Examples:
         public bool Success { get; set; }
         public int RemovedCount { get; set; }
         public string? Error { get; set; }
+    }
+
+    static CpmVersionResolutionStrategy ParseCpmStrategy(string strategy)
+    {
+        return strategy?.ToLowerInvariant() switch
+        {
+            "usehighest" => CpmVersionResolutionStrategy.UseHighest,
+            "uselowest" => CpmVersionResolutionStrategy.UseLowest,
+            "uselateststable" => CpmVersionResolutionStrategy.UseLatestStable,
+            "usemostcommon" => CpmVersionResolutionStrategy.UseMostCommon,
+            "semanticcompatible" => CpmVersionResolutionStrategy.SemanticCompatible,
+            "frameworkcompatible" => CpmVersionResolutionStrategy.FrameworkCompatible,
+            _ => CpmVersionResolutionStrategy.UseHighest
+        };
     }
 
     static void InitializeMSBuild()
