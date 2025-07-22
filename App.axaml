@@ -20,29 +20,53 @@
         
         <Style Selector="Button">
             <Setter Property="Padding" Value="12,8"/>
-            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="CornerRadius" Value="8"/>
             <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#E5E7EB"/>
+            <Setter Property="Background" Value="White"/>
             <Setter Property="Transitions">
                 <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
                 </Transitions>
             </Setter>
         </Style>
         
         <Style Selector="Button:pointerover">
-            <Setter Property="Background" Value="#E8E8E8"/>
+            <Setter Property="Background" Value="#F9FAFB"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="RenderTransform" Value="scale(1.01)"/>
+        </Style>
+        
+        <Style Selector="Button:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.99)"/>
         </Style>
         
         
         <Style Selector="TextBox">
-            <Setter Property="Padding" Value="10,8"/>
-            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="CornerRadius" Value="8"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#E5E5E5"/>
+            <Setter Property="BorderBrush" Value="#E5E7EB"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15"/>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
         </Style>
         
         <Style Selector="TextBox:focus">
             <Setter Property="BorderBrush" Value="#0EA5E9"/>
+            <Setter Property="Background" Value="#FEFEFE"/>
+        </Style>
+        
+        <Style Selector="TextBox:pointerover">
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
         </Style>
         
         <Style Selector="ComboBox">
@@ -58,21 +82,45 @@
         
         <Style Selector="TabItem">
             <Setter Property="Padding" Value="16,12"/>
-            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
             <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#6B7280"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                    <BrushTransition Property="Foreground" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
         </Style>
         
         <Style Selector="TabItem:selected">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#0EA5E9"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        
+        <Style Selector="TabItem:pointerover">
+            <Setter Property="Background" Value="#F1F5F9"/>
+            <Setter Property="Foreground" Value="#374151"/>
+        </Style>
+        
+        <Style Selector="TabItem:selected:pointerover">
             <Setter Property="Background" Value="White"/>
             <Setter Property="Foreground" Value="#0EA5E9"/>
         </Style>
         
         <Style Selector="Border.Card">
             <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="BoxShadow" Value="0 1 3 0 #00000014"/>
-            <Setter Property="Padding" Value="20"/>
-            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="BoxShadow" Value="0 1 3 0 rgba(0,0,0,0.1), 0 1 2 0 rgba(0,0,0,0.06)"/>
+            <Setter Property="Padding" Value="24"/>
+            <Setter Property="Margin" Value="0,0,0,16"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#F3F4F6"/>
         </Style>
         
         <Style Selector="TextBlock.SectionHeader">
@@ -137,16 +185,28 @@
             <Setter Property="BorderBrush" Value="#E5E7EB"/>
         </Style>
         
-        <Style Selector="Button.PrimaryButton">
+        <Style Selector="Button.Primary">
             <Setter Property="Background" Value="#0EA5E9"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="12,8"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
+                </Transitions>
+            </Setter>
         </Style>
         
-        <Style Selector="Button.PrimaryButton:pointerover">
+        <Style Selector="Button.Primary:pointerover">
             <Setter Property="Background" Value="#0284C7"/>
+            <Setter Property="RenderTransform" Value="scale(1.02)"/>
+        </Style>
+        
+        <Style Selector="Button.Primary:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.98)"/>
         </Style>
         
         <Style Selector="Button.SecondaryButton">

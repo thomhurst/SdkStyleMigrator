@@ -8,14 +8,36 @@
         Title="SDK Migrator"
         Width="1200"
         Height="800"
+        MinWidth="900"
+        MinHeight="600"
         WindowStartupLocation="CenterScreen"
-        Background="White"
-        TransparencyBackgroundFallback="White">
+        Background="#FAFBFC"
+        TransparencyBackgroundFallback="#FAFBFC"
+        Icon="/Assets/icon.ico"
+        CanResize="true">
 
-    <Canvas>
-        <Rectangle Width="1200" Height="800" Fill="White" />
-        <Border Width="1200" Height="800" Background="White">
-            <views:MainView/>
+    <!-- Modern gradient background -->
+    <Panel>
+        <Border Background="White">
+            <Border.OpacityMask>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="White" Offset="0"/>
+                    <GradientStop Color="#F8FAFC" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.OpacityMask>
         </Border>
-    </Canvas>
+        
+        <!-- Subtle decorative gradient overlay -->
+        <Border Background="White">
+            <Border.OpacityMask>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#FAFBFC" Offset="0"/>
+                    <GradientStop Color="#F1F5F9" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.OpacityMask>
+        </Border>
+        
+        <!-- Main content -->
+        <views:MainView/>
+    </Panel>
 </Window>
