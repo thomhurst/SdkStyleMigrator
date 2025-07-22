@@ -158,6 +158,17 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             result.Success = true;
             result.MigratedPackages.AddRange(migratedPackages);
+            
+            // Extract target frameworks from the generated project
+            var targetFrameworksProperty = projectElement.Elements("PropertyGroup")
+                .SelectMany(pg => pg.Elements())
+                .FirstOrDefault(p => p.Name == "TargetFrameworks" || p.Name == "TargetFramework");
+            if (targetFrameworksProperty != null && !string.IsNullOrEmpty(targetFrameworksProperty.Value))
+            {
+                result.TargetFrameworks = targetFrameworksProperty.Value.Contains(';') 
+                    ? targetFrameworksProperty.Value.Split(';', StringSplitOptions.RemoveEmptyEntries).ToList()
+                    : new List<string> { targetFrameworksProperty.Value };
+            }
             _logger.LogInformation("Successfully generated SDK-style project at: {OutputPath}", outputPath);
 
             // Log the migration
@@ -347,11 +358,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                                   (project.Properties.Any(p => p.Name == "TargetFrameworks")); // Already multi-targeted
 
         string targetFramework = string.Empty;
+        List<string> allTargetFrameworks = new();
+        
         if (needsMultiTargeting)
         {
             _logger.LogInformation("Project requires multi-targeting support");
             var frameworks = DetermineTargetFrameworks(project, targetFrameworkVersions, targetFrameworkProfiles);
             AddPropertyIfNotInherited("TargetFrameworks", string.Join(";", frameworks));
+            allTargetFrameworks.AddRange(frameworks);
             // For multi-targeting, use the first framework for compatibility checks
             targetFramework = frameworks.FirstOrDefault() ?? ConvertTargetFramework(project);
         }
@@ -360,6 +374,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Single target framework
             targetFramework = ConvertTargetFramework(project);
             AddPropertyIfNotInherited("TargetFramework", targetFramework);
+            allTargetFrameworks.Add(targetFramework);
         }
 
         // Get properties that are explicitly defined in the project file (not MSBuild defaults)

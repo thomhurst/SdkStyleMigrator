@@ -23,6 +23,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IPostMigrationValidator _postMigrationValidator;
     private readonly IMigrationAnalyzer _migrationAnalyzer;
     private readonly IPackageVersionConflictResolver _packageVersionConflictResolver;
+    private readonly IConfigurationFileGenerator _configurationFileGenerator;
     private readonly MigrationOptions _options;
     private readonly IPackageVersionCache? _packageCache;
 
@@ -42,6 +43,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         IPostMigrationValidator postMigrationValidator,
         IMigrationAnalyzer migrationAnalyzer,
         IPackageVersionConflictResolver packageVersionConflictResolver,
+        IConfigurationFileGenerator configurationFileGenerator,
         MigrationOptions options,
         IPackageVersionCache? packageCache = null)
     {
@@ -60,6 +62,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _postMigrationValidator = postMigrationValidator;
         _migrationAnalyzer = migrationAnalyzer;
         _packageVersionConflictResolver = packageVersionConflictResolver;
+        _configurationFileGenerator = configurationFileGenerator;
         _options = options;
         _packageCache = packageCache;
     }
@@ -929,7 +932,17 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         {
             appConfigPath = Path.Combine(projectDirectory, "App.config");
             if (!File.Exists(appConfigPath))
-                return;
+            {
+                // Also check for web.config
+                var webConfigPath = Path.Combine(projectDirectory, "web.config");
+                if (!File.Exists(webConfigPath))
+                {
+                    webConfigPath = Path.Combine(projectDirectory, "Web.config");
+                    if (!File.Exists(webConfigPath))
+                        return;
+                }
+                appConfigPath = webConfigPath;
+            }
         }
 
         try
@@ -952,10 +965,38 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 _logger.LogInformation("Removed assembly binding redirects from {File}", appConfigPath);
             }
 
-            // Check if app.config has any other content
+            // Check if app.config has any other meaningful content
             var hasOtherContent = configuration.Elements()
                 .Any(e => e.Name != "runtime" ||
                          (e.Name == "runtime" && e.Elements().Any()));
+
+            // Generate appsettings.json and migration code if there's meaningful content
+            var targetFramework = result.TargetFrameworks?.FirstOrDefault() ?? "net472";
+            bool generatedAppSettings = false;
+            bool generatedMigrationCode = false;
+
+            if (hasOtherContent)
+            {
+                // Try to generate appsettings.json from the configuration
+                generatedAppSettings = await _configurationFileGenerator.GenerateAppSettingsFromConfigAsync(
+                    appConfigPath, projectDirectory, cancellationToken);
+
+                // Generate migration code examples
+                generatedMigrationCode = await _configurationFileGenerator.GenerateStartupMigrationCodeAsync(
+                    projectDirectory, targetFramework, cancellationToken);
+
+                if (generatedAppSettings)
+                {
+                    result.GeneratedFiles.Add("appsettings.json");
+                    result.Warnings.Add("Generated appsettings.json from configuration file. Review and update as needed.");
+                }
+
+                if (generatedMigrationCode)
+                {
+                    result.GeneratedFiles.Add("ConfigurationMigration.cs");
+                    result.Warnings.Add("Generated configuration migration code. Review ConfigurationMigration.cs for integration steps.");
+                }
+            }
 
             if (!hasOtherContent)
             {
@@ -967,22 +1008,38 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
 
                 File.Delete(appConfigPath);
-                result.RemovedElements.Add($"App.config file (contained only binding redirects)");
+                result.RemovedElements.Add($"Configuration file (contained only binding redirects)");
                 _logger.LogInformation("Removed {File} as it only contained binding redirects", appConfigPath);
 
                 // Also remove any references to app.config from the project file
                 await RemoveAppConfigFromProjectFileAsync(projectDirectory, appConfigPath, cancellationToken);
             }
+            else if (targetFramework.StartsWith("net5") || targetFramework.StartsWith("net6") ||
+                     targetFramework.StartsWith("net7") || targetFramework.StartsWith("net8") ||
+                     targetFramework.Contains("netcore"))
+            {
+                // For .NET Core/5+ projects, recommend removing app.config in favor of appsettings.json
+                if (generatedAppSettings)
+                {
+                    result.Warnings.Add($"Consider removing {Path.GetFileName(appConfigPath)} in favor of appsettings.json for .NET {targetFramework.Replace("net", "")}+ projects.");
+                }
+                else
+                {
+                    // Save the modified app.config without binding redirects
+                    await File.WriteAllTextAsync(appConfigPath, doc.ToString(), cancellationToken);
+                    _logger.LogInformation("Updated {File} - removed binding redirects", appConfigPath);
+                }
+            }
             else
             {
-                // Save the modified app.config without binding redirects
+                // For .NET Framework projects, keep the modified app.config
                 await File.WriteAllTextAsync(appConfigPath, doc.ToString(), cancellationToken);
                 _logger.LogInformation("Updated {File} - removed binding redirects", appConfigPath);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to process app.config file: {File}", appConfigPath);
+            _logger.LogWarning(ex, "Failed to process configuration file: {File}", appConfigPath);
         }
     }
 

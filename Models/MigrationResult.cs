@@ -14,6 +14,8 @@ public class MigrationResult
     public bool LoadedWithDefensiveParsing { get; set; }
     public List<string> ConvertedHintPaths { get; set; } = new();
     public List<RemovedMSBuildElement> RemovedMSBuildElements { get; set; } = new();
+    public List<string> GeneratedFiles { get; set; } = new();
+    public List<string>? TargetFrameworks { get; set; }
 
     // Edge case tracking
     public ProjectTypeInfo? DetectedProjectType { get; set; }

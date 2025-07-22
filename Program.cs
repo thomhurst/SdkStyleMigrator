@@ -849,6 +849,7 @@ Examples:
         services.AddSingleton<PackageAssemblyResolver>();
         services.AddSingleton<NuGetAssetsResolver>();
         services.AddSingleton<IAssemblyReferenceConverter, AssemblyReferenceConverter>();
+        services.AddSingleton<IConfigurationFileGenerator, ConfigurationFileGenerator>();
 
         services.AddSingleton<IMigrationOrchestrator>(provider =>
         {
@@ -866,6 +867,7 @@ Examples:
             var centralPackageManagementGenerator = provider.GetRequiredService<ICentralPackageManagementGenerator>();
             var postMigrationValidator = provider.GetRequiredService<IPostMigrationValidator>();
             var migrationAnalyzer = provider.GetRequiredService<IMigrationAnalyzer>();
+            var configurationFileGenerator = provider.GetRequiredService<IConfigurationFileGenerator>();
             var options = provider.GetRequiredService<MigrationOptions>();
             var packageCache = provider.GetService<IPackageVersionCache>();
 
@@ -885,6 +887,7 @@ Examples:
                 postMigrationValidator,
                 migrationAnalyzer,
                 provider.GetRequiredService<IPackageVersionConflictResolver>(),
+                configurationFileGenerator,
                 options,
                 packageCache);
         });
