@@ -110,18 +110,37 @@
                                 CornerRadius="4"
                                 Padding="10"
                                 MaxHeight="300">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <ItemsControl ItemsSource="{Binding LogMessages}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}" 
-                                                       FontFamily="Consolas,Cascadia Code,monospace"
-                                                       FontSize="12"
-                                                       Margin="0,1"/>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
+                            <ListBox ItemsSource="{Binding LogMessages}"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     Background="Transparent"
+                                     BorderThickness="0">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" 
+                                                   FontFamily="Consolas,Cascadia Code,monospace"
+                                                   FontSize="12"
+                                                   Margin="0,1"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                                <ListBox.Styles>
+                                    <Style Selector="ListBoxItem">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="MinHeight" Value="0"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                    </Style>
+                                    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                    </Style>
+                                    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                        <Setter Property="Background" Value="#E3F2FD"/>
+                                    </Style>
+                                </ListBox.Styles>
+                            </ListBox>
                         </Border>
                     </StackPanel>
                 </Border>

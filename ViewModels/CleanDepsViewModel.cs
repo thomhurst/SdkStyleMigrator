@@ -16,6 +16,7 @@ public class CleanDepsViewModel : ViewModelBase
 {
     private readonly ILogger<CleanDepsViewModel> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private const int MaxLogMessages = 1000;
     private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
@@ -215,6 +216,15 @@ public class CleanDepsViewModel : ViewModelBase
 
     private void AddLogMessage(string message)
     {
-        Dispatcher.UIThread.InvokeAsync(() => LogMessages.Add($"[{DateTime.Now:HH:mm:ss}] {message}"));
+        Dispatcher.UIThread.InvokeAsync(() => 
+        {
+            LogMessages.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+            
+            // Limit log messages to prevent unbounded growth
+            while (LogMessages.Count > MaxLogMessages)
+            {
+                LogMessages.RemoveAt(0);
+            }
+        });
     }
 }

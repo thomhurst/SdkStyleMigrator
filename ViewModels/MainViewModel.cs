@@ -1,5 +1,5 @@
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
-using Microsoft.Extensions.DependencyInjection;
 using ReactiveUI;
 
 namespace SdkMigrator.ViewModels;
@@ -8,7 +8,11 @@ public class MainViewModel : ViewModelBase
 {
     private ViewModelBase _currentViewModel;
     private int _selectedTabIndex;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly Lazy<MigrationViewModel> _migrationViewModel;
+    private readonly Lazy<RollbackViewModel> _rollbackViewModel;
+    private readonly Lazy<AnalysisViewModel> _analysisViewModel;
+    private readonly Lazy<CleanDepsViewModel> _cleanDepsViewModel;
+    private readonly Lazy<CleanCpmViewModel> _cleanCpmViewModel;
 
     public ViewModelBase CurrentViewModel
     {
@@ -19,31 +23,64 @@ public class MainViewModel : ViewModelBase
     public int SelectedTabIndex
     {
         get => _selectedTabIndex;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _selectedTabIndex, value);
-            UpdateCurrentViewModel(value);
-        }
+        set => this.RaiseAndSetIfChanged(ref _selectedTabIndex, value);
     }
 
-    public MainViewModel(IServiceProvider serviceProvider)
+    public MainViewModel(
+        Lazy<MigrationViewModel> migrationViewModel,
+        Lazy<RollbackViewModel> rollbackViewModel,
+        Lazy<AnalysisViewModel> analysisViewModel,
+        Lazy<CleanDepsViewModel> cleanDepsViewModel,
+        Lazy<CleanCpmViewModel> cleanCpmViewModel)
     {
-        _serviceProvider = serviceProvider;
+        _migrationViewModel = migrationViewModel;
+        _rollbackViewModel = rollbackViewModel;
+        _analysisViewModel = analysisViewModel;
+        _cleanDepsViewModel = cleanDepsViewModel;
+        _cleanCpmViewModel = cleanCpmViewModel;
         
         // Initialize with Migration view
-        _currentViewModel = _serviceProvider.GetRequiredService<MigrationViewModel>();
+        _currentViewModel = _migrationViewModel.Value;
+        
+        // Subscribe to tab changes
+        this.WhenAnyValue(x => x.SelectedTabIndex)
+            .Subscribe(UpdateCurrentViewModel)
+            .DisposeWith(Disposables);
     }
 
     private void UpdateCurrentViewModel(int index)
     {
-        CurrentViewModel = index switch
+        // Dispose previous ViewModel if it's disposable
+        if (CurrentViewModel is IDisposable disposable && CurrentViewModel != GetViewModelForIndex(index))
         {
-            0 => _serviceProvider.GetRequiredService<MigrationViewModel>(),
-            1 => _serviceProvider.GetRequiredService<RollbackViewModel>(),
-            2 => _serviceProvider.GetRequiredService<AnalysisViewModel>(),
-            3 => _serviceProvider.GetRequiredService<CleanDepsViewModel>(),
-            4 => _serviceProvider.GetRequiredService<CleanCpmViewModel>(),
-            _ => _serviceProvider.GetRequiredService<MigrationViewModel>()
-        };
+            disposable.Dispose();
+        }
+        
+        CurrentViewModel = GetViewModelForIndex(index);
+    }
+    
+    private ViewModelBase GetViewModelForIndex(int index) => index switch
+    {
+        0 => _migrationViewModel.Value,
+        1 => _rollbackViewModel.Value,
+        2 => _analysisViewModel.Value,
+        3 => _cleanDepsViewModel.Value,
+        4 => _cleanCpmViewModel.Value,
+        _ => _migrationViewModel.Value
+    };
+    
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            // Dispose all ViewModels if they were created
+            if (_migrationViewModel.IsValueCreated) (_migrationViewModel.Value as IDisposable)?.Dispose();
+            if (_rollbackViewModel.IsValueCreated) (_rollbackViewModel.Value as IDisposable)?.Dispose();
+            if (_analysisViewModel.IsValueCreated) (_analysisViewModel.Value as IDisposable)?.Dispose();
+            if (_cleanDepsViewModel.IsValueCreated) (_cleanDepsViewModel.Value as IDisposable)?.Dispose();
+            if (_cleanCpmViewModel.IsValueCreated) (_cleanCpmViewModel.Value as IDisposable)?.Dispose();
+        }
+        
+        base.Dispose(disposing);
     }
 }

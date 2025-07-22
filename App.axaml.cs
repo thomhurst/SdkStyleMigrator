@@ -62,6 +62,18 @@ public partial class App : Application
         services.AddTransient<CleanDepsViewModel>();
         services.AddTransient<CleanCpmViewModel>();
         
+        // Register Lazy<T> for ViewModels
+        services.AddTransient<Lazy<MigrationViewModel>>(provider => 
+            new Lazy<MigrationViewModel>(() => provider.GetRequiredService<MigrationViewModel>()));
+        services.AddTransient<Lazy<RollbackViewModel>>(provider => 
+            new Lazy<RollbackViewModel>(() => provider.GetRequiredService<RollbackViewModel>()));
+        services.AddTransient<Lazy<AnalysisViewModel>>(provider => 
+            new Lazy<AnalysisViewModel>(() => provider.GetRequiredService<AnalysisViewModel>()));
+        services.AddTransient<Lazy<CleanDepsViewModel>>(provider => 
+            new Lazy<CleanDepsViewModel>(() => provider.GetRequiredService<CleanDepsViewModel>()));
+        services.AddTransient<Lazy<CleanCpmViewModel>>(provider => 
+            new Lazy<CleanCpmViewModel>(() => provider.GetRequiredService<CleanCpmViewModel>()));
+        
         // UI Services
         services.AddSingleton<IDialogService, DialogService>();
 

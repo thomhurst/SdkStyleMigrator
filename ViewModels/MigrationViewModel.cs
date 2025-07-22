@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using ReactiveUI.Validation.Extensions;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
 
@@ -17,6 +18,7 @@ public class MigrationViewModel : ViewModelBase
 {
     private readonly ILogger<MigrationViewModel> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private const int MaxLogMessages = 1000;
     private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
@@ -202,10 +204,32 @@ public class MigrationViewModel : ViewModelBase
         _serviceProvider = serviceProvider;
         _dialogService = dialogService;
 
+        // Set up validation rules
+        this.ValidationRule(
+            viewModel => viewModel.DirectoryPath,
+            path => !string.IsNullOrWhiteSpace(path),
+            "Solution directory is required");
+            
+        this.ValidationRule(
+            viewModel => viewModel.DirectoryPath,
+            path => string.IsNullOrWhiteSpace(path) || Directory.Exists(path),
+            "Directory must exist");
+            
+        this.ValidationRule(
+            viewModel => viewModel.OutputDirectory,
+            path => string.IsNullOrWhiteSpace(path) || Directory.Exists(path),
+            "Output directory must exist if specified");
+            
+        this.ValidationRule(
+            viewModel => viewModel.TargetFramework,
+            framework => string.IsNullOrWhiteSpace(framework) || IsValidFramework(framework),
+            "Invalid target framework format");
+
         var canRun = this.WhenAnyValue(
             x => x.DirectoryPath,
             x => x.IsRunning,
-            (dir, running) => !string.IsNullOrWhiteSpace(dir) && !running);
+            x => x.ValidationContext.IsValid,
+            (dir, running, isValid) => !string.IsNullOrWhiteSpace(dir) && !running && isValid);
 
         BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
         BrowseOutputDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseOutputDirectoryAsync);
@@ -294,15 +318,15 @@ public class MigrationViewModel : ViewModelBase
                 
                 if (report.TotalProjectsFailed > 0)
                 {
-                    LogMessages.Add($"⚠ {report.TotalProjectsFailed} project(s) failed to migrate");
+                    AddLogMessage($"⚠ {report.TotalProjectsFailed} project(s) failed to migrate");
                 }
 
                 foreach (var result in report.Results.Where(r => r.Warnings.Any()))
                 {
-                    LogMessages.Add($"⚠ {result.ProjectPath}:");
+                    AddLogMessage($"⚠ {result.ProjectPath}:");
                     foreach (var warning in result.Warnings)
                     {
-                        LogMessages.Add($"  - {warning}");
+                        AddLogMessage($"  - {warning}");
                     }
                 }
             });
@@ -313,7 +337,7 @@ public class MigrationViewModel : ViewModelBase
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 StatusMessage = $"Migration failed: {ex.Message}";
-                LogMessages.Add($"❌ Error: {ex.Message}");
+                AddLogMessage($"❌ Error: {ex.Message}");
             });
         }
         finally
@@ -324,6 +348,24 @@ public class MigrationViewModel : ViewModelBase
 
     private void AddLogMessage(string message)
     {
-        Dispatcher.UIThread.InvokeAsync(() => LogMessages.Add($"[{DateTime.Now:HH:mm:ss}] {message}"));
+        Dispatcher.UIThread.InvokeAsync(() => 
+        {
+            LogMessages.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+            
+            // Limit log messages to prevent unbounded growth
+            while (LogMessages.Count > MaxLogMessages)
+            {
+                LogMessages.RemoveAt(0);
+            }
+        });
+    }
+    
+    private static bool IsValidFramework(string framework)
+    {
+        // Basic validation for .NET framework monikers
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            framework, 
+            @"^(net\d+\.\d+|net\d+|netstandard\d+\.\d+|netcoreapp\d+\.\d+)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 }
