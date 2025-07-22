@@ -570,10 +570,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                 // Store cleanup information for later processing
                 // Files will be cleaned after all projects are migrated to avoid file lock issues
-                if (result.ConvertedHintPaths.Any() || result.MigratedPackages.Any())
-                {
-                    projectCleanupInfo.Add((projectDir, result.MigratedPackages, result.ConvertedHintPaths));
-                }
+                // Always add successful migrations for packages.config cleanup
+                projectCleanupInfo.Add((projectDir, result.MigratedPackages, result.ConvertedHintPaths));
             }
 
             if (result.Success && outputPath != projectFile)
