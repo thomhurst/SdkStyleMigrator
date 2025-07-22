@@ -30,10 +30,16 @@
                                Foreground="#DC2626" 
                                FontWeight="SemiBold"
                                FontSize="13"/>
-                    <TextBlock Text="{Binding ValidationContext.Text}" 
-                               Foreground="#DC2626" 
-                               FontSize="12" 
-                               Margin="0,4,0,0"/>
+                    <ItemsControl ItemsSource="{Binding ValidationContext.Errors}"
+                                  Margin="0,4,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" 
+                                           Foreground="#DC2626" 
+                                           FontSize="12"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
                 
                 <!-- Status and Button -->
@@ -76,7 +82,7 @@
                             <TextBlock Text="Select the root directory of your solution" Classes="HelpText"/>
                             
                             <!-- Validation Errors -->
-                            <ItemsControl ItemsSource="{Binding ValidationContext.Text}"
+                            <ItemsControl ItemsSource="{Binding ValidationContext.Errors}"
                                           IsVisible="{Binding !ValidationContext.IsValid}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
