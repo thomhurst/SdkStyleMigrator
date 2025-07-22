@@ -9,10 +9,13 @@
         Width="1200"
         Height="800"
         WindowStartupLocation="CenterScreen"
-        Background="#FFFFFF">
+        Background="White"
+        TransparencyBackgroundFallback="White">
 
-    <Grid Background="#FFFFFF">
-        <!-- Main Content -->
-        <views:MainView/>
-    </Grid>
+    <Canvas>
+        <Rectangle Width="1200" Height="800" Fill="White" />
+        <Border Width="1200" Height="800" Background="White">
+            <views:MainView/>
+        </Border>
+    </Canvas>
 </Window>

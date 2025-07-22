@@ -1610,9 +1610,7 @@ Examples:
             builder = builder.With(new X11PlatformOptions
             {
                 EnableMultiTouch = false,
-                UseDBusMenu = false,
-                UseEGL = false,
-                UseDeferredRendering = false
+                UseDBusMenu = false
             });
         }
 

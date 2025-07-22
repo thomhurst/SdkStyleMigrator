@@ -10,8 +10,7 @@
         
         <!-- Custom Styles for Modern Look -->
         <Style Selector="Window">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="TransparencyLevelHint" Value="None"/>
+            <Setter Property="Background" Value="White"/>
         </Style>
         
         <Style Selector="Button">
@@ -223,7 +222,7 @@
         <SolidColorBrush x:Key="SuccessColor">#10B981</SolidColorBrush>
         <SolidColorBrush x:Key="WarningColor">#F59E0B</SolidColorBrush>
         <SolidColorBrush x:Key="ErrorColor">#EF4444</SolidColorBrush>
-        <SolidColorBrush x:Key="BackgroundColor">#FAFAFA</SolidColorBrush>
+        <SolidColorBrush x:Key="BackgroundColor">White</SolidColorBrush>
         <SolidColorBrush x:Key="CardBackground">White</SolidColorBrush>
         
         <!-- Converters -->
