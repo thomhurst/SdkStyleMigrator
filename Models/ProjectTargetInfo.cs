@@ -1,9 +1,11 @@
+using ReactiveUI;
+
 namespace SdkMigrator.Models;
 
 /// <summary>
 /// Represents information about a target in a project file
 /// </summary>
-public class ProjectTargetInfo
+public class ProjectTargetInfo : ReactiveObject
 {
     public string ProjectPath { get; set; } = string.Empty;
     public string TargetName { get; set; } = string.Empty;
@@ -15,7 +17,12 @@ public class ProjectTargetInfo
     public bool IsSystemTarget { get; set; }
     public string Category { get; set; } = "Custom";
     public List<string> Tasks { get; set; } = new();
-    public bool UserDecision { get; set; } = true; // Default to keep
+    private bool _userDecision = true;
+    public bool UserDecision
+    {
+        get => _userDecision;
+        set => this.RaiseAndSetIfChanged(ref _userDecision, value);
+    } // Default to keep
     
     /// <summary>
     /// Gets a brief description of what this target does based on its tasks

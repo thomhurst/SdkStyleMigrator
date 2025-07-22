@@ -1,9 +1,11 @@
+using ReactiveUI;
+
 namespace SdkMigrator.Models;
 
 /// <summary>
 /// Represents information about an import statement in a project file
 /// </summary>
-public class ProjectImportInfo
+public class ProjectImportInfo : ReactiveObject
 {
     public string ProjectPath { get; set; } = string.Empty;
     public string ImportPath { get; set; } = string.Empty;
@@ -13,7 +15,12 @@ public class ProjectImportInfo
     public bool IsSystemImport { get; set; }
     public string Category { get; set; } = "Custom";
     public string? ResolvedPath { get; set; }
-    public bool UserDecision { get; set; } = true; // Default to keep
+    private bool _userDecision = true;
+    public bool UserDecision
+    {
+        get => _userDecision;
+        set => this.RaiseAndSetIfChanged(ref _userDecision, value);
+    } // Default to keep
 }
 
 /// <summary>

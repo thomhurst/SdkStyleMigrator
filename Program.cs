@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Xml;
 using System.Xml.Linq;
+using Avalonia;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,13 @@ class Program
     static async Task<int> Main(string[] args)
     {
         InitializeMSBuild();
+        
+        // If no arguments provided, launch UI mode
+        if (args.Length == 0)
+        {
+            return BuildAvaloniaApp()
+                .StartWithClassicDesktopLifetime(args);
+        }
 
         var rootCommand = new RootCommand("SDK Migrator - Migrate legacy MSBuild project files to SDK-style format");
 
@@ -1548,4 +1556,10 @@ Examples:
             Environment.Exit(1);
         }
     }
+    
+    static AppBuilder BuildAvaloniaApp()
+        => AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
 }

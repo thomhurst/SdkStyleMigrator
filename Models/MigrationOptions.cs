@@ -2,6 +2,8 @@ namespace SdkMigrator.Models;
 
 public class MigrationOptions
 {
+    public static MigrationOptions Default => new();
+    
     public string DirectoryPath { get; set; } = string.Empty;
     public bool DryRun { get; set; }
     public string? OutputDirectory { get; set; }

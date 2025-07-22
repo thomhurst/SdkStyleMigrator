@@ -1,0 +1,124 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SdkMigrator.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SdkMigrator.Views.CleanCpmView"
+             x:DataType="vm:CleanCpmViewModel">
+    
+    <Grid RowDefinitions="Auto,*" Margin="20">
+        <!-- Header -->
+        <TextBlock Text="Clean Central Package Management" 
+                   Classes="PageTitle" 
+                   Grid.Row="0" 
+                   Margin="0,0,0,20"/>
+        
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="20">
+                <!-- Directory Selection Card -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Solution Directory" Classes="SectionTitle"/>
+                        <TextBlock Text="Select the directory containing Directory.Packages.props"
+                                   TextWrapping="Wrap"
+                                   Foreground="#64748B"/>
+                        
+                        <Grid ColumnDefinitions="*,Auto" Classes="InputGroup">
+                            <TextBox Grid.Column="0" 
+                                     Text="{Binding DirectoryPath}"
+                                     Watermark="C:\Projects\MySolution"
+                                     Classes="ModernTextBox"/>
+                            <Button Grid.Column="1" 
+                                    Command="{Binding BrowseDirectoryCommand}"
+                                    Classes="SecondaryButton"
+                                    Content="Browse"
+                                    Margin="8,0,0,0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Options Card -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Cleanup Options" Classes="SectionTitle"/>
+                        
+                        <CheckBox IsChecked="{Binding DryRun}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Dry Run Mode" FontWeight="Medium"/>
+                                <TextBlock Text="Preview unused packages without removing them"
+                                           FontSize="12"
+                                           Foreground="#64748B"/>
+                            </StackPanel>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Action and Status Card -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="15">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="5">
+                                <TextBlock Text="Status" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding StatusMessage}" 
+                                           Foreground="#64748B"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            
+                            <Button Grid.Column="1"
+                                    Command="{Binding RunCleanupCommand}"
+                                    Classes="PrimaryButton"
+                                    IsVisible="{Binding !IsRunning}"
+                                    HorizontalAlignment="Right">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource delete_regular}" 
+                                              Height="16" Width="16"/>
+                                    <TextBlock Text="Clean Unused Packages"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        
+                        <!-- Progress Bar -->
+                        <ProgressBar IsIndeterminate="True" 
+                                     IsVisible="{Binding IsRunning}"
+                                     Height="4"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Removed Packages Card -->
+                <Border Classes="Card" IsVisible="{Binding RemovedPackages.Count}">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Removed Packages" Classes="SectionTitle"/>
+                        <TextBlock Text="{Binding RemovedPackages.Count, StringFormat='{}{0} packages removed from Central Package Management'}"
+                                   Foreground="#64748B"
+                                   FontSize="12"/>
+                        
+                        <Border Background="#F8FAFC" 
+                                BorderBrush="#E5E7EB" 
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="10"
+                                MaxHeight="200">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding RemovedPackages}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                                                <TextBlock Grid.Column="0" Text="•" Margin="0,0,8,0"/>
+                                                <TextBlock Grid.Column="1" 
+                                                           Text="{Binding}" 
+                                                           FontFamily="Consolas,Cascadia Code,monospace"
+                                                           FontSize="12"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

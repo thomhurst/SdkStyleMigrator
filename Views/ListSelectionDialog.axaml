@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SdkMigrator.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="300"
+        x:Class="SdkMigrator.Views.ListSelectionDialog"
+        x:DataType="vm:ListSelectionViewModel"
+        Title="Select Option"
+        Width="400"
+        MinHeight="200"
+        MaxHeight="500"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="{Binding Prompt}" 
+                   TextWrapping="Wrap"
+                   FontSize="14"
+                   Margin="0,0,0,15"/>
+        
+        <!-- Options List -->
+        <ListBox Grid.Row="1" 
+                 ItemsSource="{Binding Options}"
+                 SelectedIndex="{Binding SelectedIndex}"
+                 BorderBrush="#E5E7EB"
+                 BorderThickness="1"
+                 CornerRadius="4"
+                 Margin="0,0,0,15">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" 
+                               Padding="10,8"
+                               FontSize="13"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        
+        <!-- Actions -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto">
+            <Button Grid.Column="1" 
+                    Classes="SecondaryButton"
+                    Content="Cancel"
+                    Command="{Binding CancelCommand}"
+                    Click="OnCancelClick"
+                    Margin="0,0,10,0"/>
+            <Button Grid.Column="2" 
+                    Classes="PrimaryButton"
+                    Content="OK"
+                    Command="{Binding OkCommand}"
+                    Click="OnOkClick"
+                    IsDefault="True"/>
+        </Grid>
+    </Grid>
+</Window>

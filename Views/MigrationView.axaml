@@ -1,0 +1,244 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SdkMigrator.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+             x:Class="SdkMigrator.Views.MigrationView"
+             x:DataType="vm:MigrationViewModel">
+    
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="Project Migration" 
+                   Classes="SectionHeader"/>
+        
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="16">
+                <!-- Basic Configuration -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Basic Configuration" FontSize="16" FontWeight="SemiBold"/>
+                        
+                        <!-- Directory Path -->
+                        <StackPanel>
+                            <TextBlock Text="Solution Directory" Classes="Label"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" 
+                                         Text="{Binding DirectoryPath}"
+                                         Watermark="Select the directory containing your solution"/>
+                                <Button Grid.Column="1" 
+                                        Content="Browse"
+                                        Command="{Binding BrowseDirectoryCommand}"/>
+                            </Grid>
+                            <TextBlock Text="Select the root directory of your solution" Classes="HelpText"/>
+                        </StackPanel>
+                        
+                        <!-- Output Directory -->
+                        <StackPanel>
+                            <TextBlock Text="Output Directory (Optional)" Classes="Label"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" 
+                                         Text="{Binding OutputDirectory}"
+                                         Watermark="Leave empty to update in-place"/>
+                                <Button Grid.Column="1" 
+                                        Content="Browse"
+                                        Command="{Binding BrowseOutputDirectoryCommand}"/>
+                            </Grid>
+                            <TextBlock Text="Specify a different directory for migrated projects" Classes="HelpText"/>
+                        </StackPanel>
+                        
+                        <!-- Target Framework -->
+                        <Grid ColumnDefinitions="*,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Target Framework" Classes="Label"/>
+                                <TextBox Text="{Binding TargetFramework}"
+                                         Watermark="e.g., net8.0"/>
+                                <TextBlock Text="Override the target framework" Classes="HelpText"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Multi-targeting" Classes="Label"/>
+                                <TextBox Text="{Binding TargetFrameworks}"
+                                         Watermark="e.g., net8.0;net472"/>
+                                <TextBlock Text="Semicolon-separated frameworks" Classes="HelpText"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Central Package Management -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="12">
+                        <CheckBox IsChecked="{Binding EnableCpm}"
+                                  Content="Enable Central Package Management"
+                                  FontWeight="SemiBold"/>
+                        
+                        <Grid ColumnDefinitions="*,*" IsVisible="{Binding EnableCpm}">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Version Strategy" Classes="Label"/>
+                                <ComboBox ItemsSource="{Binding CpmVersionStrategies}"
+                                          SelectedItem="{Binding CpmVersionStrategy}"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="12,0,0,0">
+                                <CheckBox IsChecked="{Binding CpmPreferStable}"
+                                          Content="Prefer stable versions"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Advanced Options -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Advanced Options" FontSize="16" FontWeight="SemiBold"/>
+                        
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,*">
+                            
+                            <!-- Row 1 -->
+                            <CheckBox Grid.Row="0" Grid.Column="0"
+                                      IsChecked="{Binding DryRun}"
+                                      Content="Dry Run (preview changes)"/>
+                            
+                            <CheckBox Grid.Row="0" Grid.Column="1"
+                                      IsChecked="{Binding CreateBackup}"
+                                      Content="Create Backup"/>
+                            
+                            <!-- Row 2 -->
+                            <CheckBox Grid.Row="1" Grid.Column="0"
+                                      IsChecked="{Binding Force}"
+                                      Content="Force migration"/>
+                            
+                            <CheckBox Grid.Row="1" Grid.Column="1"
+                                      IsChecked="{Binding Offline}"
+                                      Content="Offline mode"/>
+                            
+                            <!-- Row 3 -->
+                            <CheckBox Grid.Row="2" Grid.Column="0"
+                                      IsChecked="{Binding InteractiveImports}"
+                                      Content="Interactive import selection"/>
+                            
+                            <CheckBox Grid.Row="2" Grid.Column="1"
+                                      IsChecked="{Binding InteractiveTargets}"
+                                      Content="Interactive target selection"/>
+                            
+                            <!-- Row 4 -->
+                            <CheckBox Grid.Row="3" Grid.Column="0"
+                                      IsChecked="{Binding DisableCache}"
+                                      Content="Disable cache"/>
+                            
+                            <StackPanel Grid.Row="3" Grid.Column="1">
+                                <TextBlock Text="Cache TTL (minutes)" Classes="Label"/>
+                                <NumericUpDown Value="{Binding CacheTtl}"
+                                               Minimum="1"
+                                               Maximum="1440"
+                                               IsEnabled="{Binding !DisableCache}"/>
+                            </StackPanel>
+                        </Grid>
+                        
+                        <!-- Additional Settings -->
+                        <Grid ColumnDefinitions="*,*,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Parallelism" Classes="Label"/>
+                                <NumericUpDown Value="{Binding Parallelism}"
+                                               Minimum="1"
+                                               Maximum="32"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Log Level" Classes="Label"/>
+                                <ComboBox ItemsSource="{Binding LogLevels}"
+                                          SelectedItem="{Binding LogLevel}"
+                                          HorizontalAlignment="Stretch"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="NuGet Config" Classes="Label"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBox Grid.Column="0" 
+                                             Text="{Binding NugetConfig}"
+                                             FontSize="12"/>
+                                    <Button Grid.Column="1" 
+                                            Content="..."
+                                            Padding="8,4"
+                                            Margin="4,0,0,0"
+                                            Command="{Binding BrowseNugetConfigCommand}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Progress -->
+                <Border Classes="Card" IsVisible="{Binding IsRunning}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding StatusMessage}"/>
+                        <ProgressBar Value="{Binding Progress}" 
+                                     Maximum="100"
+                                     ShowProgressText="True"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Log Output -->
+                <Border Classes="Card" MinHeight="200">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                            <TextBlock Grid.Column="0" 
+                                       Text="Migration Log" 
+                                       FontWeight="SemiBold"/>
+                            <Button Grid.Column="1" 
+                                    Content="Clear"
+                                    Command="{Binding ClearLogsCommand}"
+                                    Padding="8,4"
+                                    FontSize="12"/>
+                        </Grid>
+                        
+                        <Border Grid.Row="1" 
+                                BorderThickness="1" 
+                                BorderBrush="#E5E5E5"
+                                CornerRadius="4"
+                                Background="#F9F9F9">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding LogMessages}"
+                                              Margin="8">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" 
+                                                       FontFamily="Consolas,Monaco,monospace"
+                                                       FontSize="12"
+                                                       Margin="0,2"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+        
+        <!-- Action Buttons -->
+        <Border Grid.Row="2" 
+                Background="{DynamicResource CardBackground}"
+                Padding="20"
+                Margin="-20,0,-20,-20">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" 
+                           Text="{Binding StatusMessage}"
+                           VerticalAlignment="Center"
+                           Foreground="#6B7280"/>
+                
+                <Button Grid.Column="1"
+                        Content="Run Migration"
+                        Command="{Binding RunMigrationCommand}"
+                        Classes="Primary"
+                        Padding="20,10"
+                        FontSize="14"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

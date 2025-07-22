@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SdkMigrator.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+        x:Class="SdkMigrator.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="SDK Migrator"
+        Width="1200"
+        Height="800"
+        WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="-1">
+
+    <Panel>
+        <!-- Custom Title Bar -->
+        <Grid RowDefinitions="Auto,*">
+            <Border Grid.Row="0" 
+                    Background="{DynamicResource CardBackground}"
+                    Height="40"
+                    IsHitTestVisible="False">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <!-- App Icon and Title -->
+                    <StackPanel Grid.Column="0" 
+                                Orientation="Horizontal" 
+                                Margin="12,0,0,0"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="🔧" 
+                                   FontSize="18" 
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="SDK Migrator" 
+                                   FontSize="14" 
+                                   FontWeight="SemiBold"
+                                   Margin="8,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Main Content -->
+            <ContentControl Grid.Row="1" 
+                            Content="{Binding CurrentView}"/>
+        </Grid>
+    </Panel>
+</Window>

@@ -1,0 +1,190 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SdkMigrator.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SdkMigrator.Views.AnalysisView"
+             x:DataType="vm:AnalysisViewModel">
+    
+    <Grid RowDefinitions="Auto,*" Margin="20">
+        <!-- Header -->
+        <TextBlock Text="Migration Analysis" 
+                   Classes="PageTitle" 
+                   Grid.Row="0" 
+                   Margin="0,0,0,20"/>
+        
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="20">
+                <!-- Directory Selection Card -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Solution Directory" Classes="SectionTitle"/>
+                        <TextBlock Text="Select the directory containing your solution or projects to analyze"
+                                   TextWrapping="Wrap"
+                                   Foreground="#64748B"/>
+                        
+                        <Grid ColumnDefinitions="*,Auto" Classes="InputGroup">
+                            <TextBox Grid.Column="0" 
+                                     Text="{Binding DirectoryPath}"
+                                     Watermark="C:\Projects\MySolution"
+                                     Classes="ModernTextBox"/>
+                            <Button Grid.Column="1" 
+                                    Command="{Binding BrowseDirectoryCommand}"
+                                    Classes="SecondaryButton"
+                                    Content="Browse"
+                                    Margin="8,0,0,0"/>
+                        </Grid>
+                        
+                        <Button Command="{Binding RunAnalysisCommand}"
+                                Classes="PrimaryButton"
+                                IsVisible="{Binding !IsRunning}"
+                                HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource document_search_regular}" 
+                                          Height="16" Width="16"/>
+                                <TextBlock Text="Analyze Projects"/>
+                            </StackPanel>
+                        </Button>
+                        
+                        <!-- Progress Bar -->
+                        <ProgressBar IsIndeterminate="True" 
+                                     IsVisible="{Binding IsRunning}"
+                                     Height="4"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Analysis Summary Card -->
+                <Border Classes="Card" IsVisible="{Binding AnalysisReport, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Analysis Summary" Classes="SectionTitle"/>
+                        
+                        <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Overall Risk" FontWeight="Medium" Margin="0,0,0,4"/>
+                                <TextBlock Text="{Binding AnalysisReport.OverallRisk}" 
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding AnalysisReport.OverallRisk, Converter={StaticResource RiskLevelToColorConverter}}"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Estimated Effort" FontWeight="Medium" Margin="0,0,0,4"/>
+                                <TextBlock FontSize="18" FontWeight="Bold">
+                                    <TextBlock.Text>
+                                        <MultiBinding StringFormat="{}{0}h">
+                                            <Binding Path="AnalysisReport.EstimatedManualEffortHours"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Projects" FontWeight="Medium" Margin="0,0,0,4"/>
+                                <TextBlock Text="{Binding ProjectAnalyses.Count}" 
+                                           FontSize="18"
+                                           FontWeight="Bold"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,10,0,0">
+                                <TextBlock Text="Recommendations" FontWeight="Medium" Margin="0,0,0,8"/>
+                                <ItemsControl ItemsSource="{Binding AnalysisReport.GlobalRecommendations}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                                                <TextBlock Grid.Column="0" Text="•" Margin="0,0,8,0"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Project Details Card -->
+                <Border Classes="Card" IsVisible="{Binding ProjectAnalyses.Count}">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Project Details" Classes="SectionTitle"/>
+                        
+                        <ItemsControl ItemsSource="{Binding ProjectAnalyses}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Classes="SubCard" Margin="0,0,0,10">
+                                        <StackPanel Spacing="10">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding ProjectName}" 
+                                                               FontWeight="SemiBold"
+                                                               FontSize="14"/>
+                                                    <TextBlock Text="{Binding ProjectType}" 
+                                                               FontSize="12"
+                                                               Foreground="#64748B"/>
+                                                </StackPanel>
+                                                <Border Grid.Column="1" 
+                                                        Background="{Binding RiskColor}"
+                                                        CornerRadius="4"
+                                                        Padding="8,4">
+                                                    <TextBlock Text="{Binding RiskLevel}" 
+                                                               Foreground="White"
+                                                               FontSize="12"
+                                                               FontWeight="Medium"/>
+                                                </Border>
+                                            </Grid>
+                                            
+                                            <StackPanel Spacing="4" IsVisible="{Binding IssueCount}">
+                                                <TextBlock Text="{Binding IssueCount, StringFormat='Issues ({0}):'}" 
+                                                           FontWeight="Medium"
+                                                           FontSize="12"/>
+                                                <ItemsControl ItemsSource="{Binding Issues}" 
+                                                              MaxHeight="150">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
+                                                                <TextBlock Grid.Column="0" 
+                                                                           Text="•" 
+                                                                           Margin="8,0,8,0"/>
+                                                                <TextBlock Grid.Column="1" 
+                                                                           Text="{Binding Description}" 
+                                                                           TextWrapping="Wrap"
+                                                                           FontSize="12"/>
+                                                                <TextBlock Grid.Column="2" 
+                                                                           Text="{Binding Severity}"
+                                                                           FontSize="11"
+                                                                           Foreground="#64748B"
+                                                                           Margin="8,0,0,0"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                            
+                                            <TextBlock Text="✓ Ready to migrate" 
+                                                       Foreground="#10B981"
+                                                       FontSize="12"
+                                                       FontWeight="Medium"
+                                                       IsVisible="{Binding CanMigrate}"/>
+                                            <TextBlock Text="✗ Cannot migrate automatically" 
+                                                       Foreground="#EF4444"
+                                                       FontSize="12"
+                                                       FontWeight="Medium"
+                                                       IsVisible="{Binding !CanMigrate}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Status -->
+                <TextBlock Text="{Binding StatusMessage}" 
+                           Foreground="#64748B"
+                           HorizontalAlignment="Center"
+                           IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

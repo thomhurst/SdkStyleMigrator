@@ -1,0 +1,96 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SdkMigrator.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="500"
+        x:Class="SdkMigrator.Views.ImportSelectionDialog"
+        x:DataType="vm:ImportSelectionViewModel"
+        Title="Select Imports to Keep"
+        Width="600"
+        Height="500"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="10" Margin="0,0,0,20">
+            <TextBlock Text="Select Imports to Keep" 
+                       FontSize="20" 
+                       FontWeight="SemiBold"/>
+            <TextBlock Text="Review the custom imports found in your project files and select which ones to keep during migration."
+                       TextWrapping="Wrap"
+                       Foreground="#64748B"/>
+        </StackPanel>
+        
+        <!-- Import Groups -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding ImportGroups}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Classes="Card" Margin="0,0,0,15">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding GroupName}" 
+                                                   FontWeight="SemiBold"
+                                                   FontSize="14"/>
+                                        <TextBlock Text="{Binding Imports.Count, StringFormat='{}{0} imports'}" 
+                                                   FontSize="12"
+                                                   Foreground="#64748B"/>
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" 
+                                              IsChecked="{Binding AllSelected}"
+                                              ToolTip.Tip="Select/Deselect All"/>
+                                </Grid>
+                                
+                                <Border Background="#F8FAFC" 
+                                        BorderBrush="#E5E7EB" 
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="10">
+                                    <ItemsControl ItemsSource="{Binding Imports}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox IsChecked="{Binding UserDecision}" Margin="0,2">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Text="{Binding ImportPath}" 
+                                                                   FontFamily="Consolas,Cascadia Code,monospace"
+                                                                   FontSize="12"/>
+                                                        <TextBlock Text="{Binding Category}" 
+                                                                   FontSize="11"
+                                                                   Foreground="#64748B"/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+        
+        <!-- Actions -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,20,0,0">
+            <TextBlock Grid.Column="0" 
+                       Text="{Binding SelectedCount, StringFormat='{}{0} imports selected'}"
+                       VerticalAlignment="Center"
+                       Foreground="#64748B"/>
+            <Button Grid.Column="1" 
+                    Classes="SecondaryButton"
+                    Content="Cancel"
+                    Command="{Binding CancelCommand}"
+                    Click="OnCancelClick"
+                    Margin="0,0,10,0"/>
+            <Button Grid.Column="2" 
+                    Classes="PrimaryButton"
+                    Content="OK"
+                    Command="{Binding OkCommand}"
+                    Click="OnOkClick"
+                    IsDefault="True"/>
+        </Grid>
+    </Grid>
+</Window>

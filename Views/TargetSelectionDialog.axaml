@@ -1,0 +1,107 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SdkMigrator.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="600"
+        x:Class="SdkMigrator.Views.TargetSelectionDialog"
+        x:DataType="vm:TargetSelectionViewModel"
+        Title="Select Custom Targets to Keep"
+        Width="700"
+        Height="600"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="10" Margin="0,0,0,20">
+            <TextBlock Text="Select Custom Targets to Keep" 
+                       FontSize="20" 
+                       FontWeight="SemiBold"/>
+            <TextBlock Text="Review the custom MSBuild targets found in your project files and select which ones to keep during migration."
+                       TextWrapping="Wrap"
+                       Foreground="#64748B"/>
+        </StackPanel>
+        
+        <!-- Target Groups -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding TargetGroups}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Classes="Card" Margin="0,0,0,15">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Category}" 
+                                                   FontWeight="SemiBold"
+                                                   FontSize="14"/>
+                                        <TextBlock Text="{Binding Targets.Count, StringFormat='{}{0} targets'}" 
+                                                   FontSize="12"
+                                                   Foreground="#64748B"/>
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" 
+                                              IsChecked="{Binding AllSelected}"
+                                              ToolTip.Tip="Select/Deselect All"/>
+                                </Grid>
+                                
+                                <Border Background="#F8FAFC" 
+                                        BorderBrush="#E5E7EB" 
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="10">
+                                    <ItemsControl ItemsSource="{Binding Targets}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox IsChecked="{Binding UserDecision}" Margin="0,4">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Text="{Binding TargetName}" 
+                                                                   FontFamily="Consolas,Cascadia Code,monospace"
+                                                                   FontSize="13"
+                                                                   FontWeight="Medium"/>
+                                                        <TextBlock Text="{Binding ProjectPath, Converter={StaticResource FileNameConverter}}" 
+                                                                   FontSize="11"
+                                                                   Foreground="#64748B"/>
+                                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                                            <TextBlock Text="{Binding Tasks.Count, StringFormat='{}{0} tasks'}" 
+                                                                       FontSize="11"
+                                                                       Foreground="#64748B"
+                                                                       IsVisible="{Binding Tasks.Count}"/>
+                                                            <TextBlock Text="{Binding DependsOnTargets, StringFormat='Depends on: {0}'}" 
+                                                                       FontSize="11"
+                                                                       Foreground="#64748B"
+                                                                       IsVisible="{Binding DependsOnTargets, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+        
+        <!-- Actions -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,20,0,0">
+            <TextBlock Grid.Column="0" 
+                       Text="{Binding SelectedCount, StringFormat='{}{0} targets selected'}"
+                       VerticalAlignment="Center"
+                       Foreground="#64748B"/>
+            <Button Grid.Column="1" 
+                    Classes="SecondaryButton"
+                    Content="Cancel"
+                    Command="{Binding CancelCommand}"
+                    Click="OnCancelClick"
+                    Margin="0,0,10,0"/>
+            <Button Grid.Column="2" 
+                    Classes="PrimaryButton"
+                    Content="OK"
+                    Command="{Binding OkCommand}"
+                    Click="OnOkClick"
+                    IsDefault="True"/>
+        </Grid>
+    </Grid>
+</Window>

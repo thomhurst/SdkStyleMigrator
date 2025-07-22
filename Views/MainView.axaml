@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SdkMigrator.ViewModels"
+             xmlns:views="using:SdkMigrator.Views"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SdkMigrator.Views.MainView"
+             x:DataType="vm:MainViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+        <!-- Navigation Tabs -->
+        <Border Grid.Row="0" 
+                Background="{DynamicResource CardBackground}"
+                BoxShadow="0 2 4 0 #00000014"
+                Padding="20,0">
+            <TabControl SelectedIndex="{Binding SelectedTabIndex}"
+                        BorderThickness="0">
+                <TabControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                </TabControl.ItemsPanel>
+                
+                <TabItem Header="Migration" />
+                <TabItem Header="Rollback" />
+                <TabItem Header="Analysis" />
+                <TabItem Header="Clean Dependencies" />
+                <TabItem Header="Clean CPM" />
+            </TabControl>
+        </Border>
+
+        <!-- Content Area -->
+        <ScrollViewer Grid.Row="1" 
+                      Padding="20"
+                      HorizontalScrollBarVisibility="Disabled">
+            <ContentControl Content="{Binding CurrentViewModel}">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="{x:Type vm:MigrationViewModel}">
+                        <views:MigrationView />
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type vm:RollbackViewModel}">
+                        <views:RollbackView />
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type vm:AnalysisViewModel}">
+                        <views:AnalysisView />
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type vm:CleanDepsViewModel}">
+                        <views:CleanDepsView />
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type vm:CleanCpmViewModel}">
+                        <views:CleanCpmView />
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
