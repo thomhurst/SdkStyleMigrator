@@ -91,6 +91,14 @@ class Program
             aliases: new[] { "--cache-ttl" },
             description: "Cache time-to-live in minutes (default: 60)");
 
+        var interactiveImportsOption = new Option<bool>(
+            aliases: new[] { "--interactive-imports", "-ii" },
+            description: "Enable interactive import selection during migration");
+            
+        var interactiveTargetsOption = new Option<bool>(
+            aliases: new[] { "--interactive-targets", "-it" },
+            description: "Enable interactive target selection during migration");
+
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
         rootCommand.AddOption(dryRunOption);
@@ -108,6 +116,8 @@ class Program
         rootCommand.AddOption(nugetConfigOption);
         rootCommand.AddOption(disableCacheOption);
         rootCommand.AddOption(cacheTTLOption);
+        rootCommand.AddOption(interactiveImportsOption);
+        rootCommand.AddOption(interactiveTargetsOption);
 
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
@@ -355,7 +365,9 @@ class Program
                 UseOfflineMode = context.ParseResult.GetValueForOption(offlineOption),
                 NuGetConfigPath = context.ParseResult.GetValueForOption(nugetConfigOption),
                 DisableCache = context.ParseResult.GetValueForOption(disableCacheOption),
-                CacheTTLMinutes = context.ParseResult.GetValueForOption(cacheTTLOption)
+                CacheTTLMinutes = context.ParseResult.GetValueForOption(cacheTTLOption),
+                InteractiveImportSelection = context.ParseResult.GetValueForOption(interactiveImportsOption),
+                InteractiveTargetSelection = context.ParseResult.GetValueForOption(interactiveTargetsOption)
             };
 
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);
@@ -851,6 +863,9 @@ Examples:
         services.AddSingleton<CpmVersionResolver>();
         services.AddSingleton<CpmPackageClassifier>();
         services.AddSingleton<ExistingCpmDetector>();
+        services.AddSingleton<IImportScanner, ImportScanner>();
+        services.AddSingleton<ITargetScanner, TargetScanner>();
+        services.AddSingleton<IUserInteractionService, ConsoleUserInteractionService>();
         services.AddSingleton<ICentralPackageManagementGenerator, CentralPackageManagementGenerator>();
         services.AddSingleton<IPostMigrationValidator, PostMigrationValidator>();
         services.AddSingleton<IMSBuildArtifactDetector, MSBuildArtifactDetector>();
@@ -888,6 +903,8 @@ Examples:
             var postMigrationValidator = provider.GetRequiredService<IPostMigrationValidator>();
             var migrationAnalyzer = provider.GetRequiredService<IMigrationAnalyzer>();
             var configurationFileGenerator = provider.GetRequiredService<IConfigurationFileGenerator>();
+            var importScanner = provider.GetRequiredService<IImportScanner>();
+            var userInteractionService = provider.GetRequiredService<IUserInteractionService>();
             var options = provider.GetRequiredService<MigrationOptions>();
             var packageCache = provider.GetService<IPackageVersionCache>();
 
@@ -908,6 +925,9 @@ Examples:
                 migrationAnalyzer,
                 provider.GetRequiredService<IPackageVersionConflictResolver>(),
                 configurationFileGenerator,
+                importScanner,
+                provider.GetRequiredService<ITargetScanner>(),
+                userInteractionService,
                 options,
                 packageCache);
         });

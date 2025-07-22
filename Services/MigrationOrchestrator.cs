@@ -24,8 +24,13 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IMigrationAnalyzer _migrationAnalyzer;
     private readonly IPackageVersionConflictResolver _packageVersionConflictResolver;
     private readonly IConfigurationFileGenerator _configurationFileGenerator;
+    private readonly IImportScanner _importScanner;
+    private readonly ITargetScanner _targetScanner;
+    private readonly IUserInteractionService _userInteractionService;
     private readonly MigrationOptions _options;
     private readonly IPackageVersionCache? _packageCache;
+    private ImportScanResult? _importScanResult;
+    private TargetScanResult? _targetScanResult;
 
     public MigrationOrchestrator(
         ILogger<MigrationOrchestrator> logger,
@@ -44,6 +49,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         IMigrationAnalyzer migrationAnalyzer,
         IPackageVersionConflictResolver packageVersionConflictResolver,
         IConfigurationFileGenerator configurationFileGenerator,
+        IImportScanner importScanner,
+        ITargetScanner targetScanner,
+        IUserInteractionService userInteractionService,
         MigrationOptions options,
         IPackageVersionCache? packageCache = null)
     {
@@ -63,6 +71,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _migrationAnalyzer = migrationAnalyzer;
         _packageVersionConflictResolver = packageVersionConflictResolver;
         _configurationFileGenerator = configurationFileGenerator;
+        _importScanner = importScanner;
+        _targetScanner = targetScanner;
+        _userInteractionService = userInteractionService;
         _options = options;
         _packageCache = packageCache;
     }
@@ -135,6 +146,54 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             report.TotalProjectsFound = projectFilesList.Count;
 
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
+
+            // Scan imports if interactive mode is enabled
+            if (_options.InteractiveImportSelection && projectFilesList.Count > 0)
+            {
+                _logger.LogInformation("Scanning project imports for interactive selection...");
+                
+                // Scan imports by reading project XML directly (to avoid missing imports due to validation errors)
+                _importScanResult = await _importScanner.ScanProjectFileImportsAsync(projectFilesList, cancellationToken);
+                
+                if (_importScanResult.HasCustomImports)
+                {
+                    _importScanResult = await _userInteractionService.SelectImportsAsync(
+                        _importScanResult, 
+                        _options.ImportOptions, 
+                        cancellationToken);
+                    
+                    _logger.LogInformation("Import selection complete. {SelectedCount}/{TotalCount} imports will be kept",
+                        _importScanResult.SelectedImports, _importScanResult.TotalImports);
+                }
+                else
+                {
+                    _logger.LogInformation("No custom imports found to select");
+                }
+            }
+
+            // Scan targets if interactive mode is enabled
+            if (_options.InteractiveTargetSelection && projectFilesList.Count > 0)
+            {
+                _logger.LogInformation("Scanning project targets for interactive selection...");
+                
+                // Scan targets by reading project XML directly (to avoid missing targets due to validation errors)
+                _targetScanResult = await _targetScanner.ScanProjectFileTargetsAsync(projectFilesList, cancellationToken);
+                
+                if (_targetScanResult.HasCustomTargets)
+                {
+                    _targetScanResult = await _userInteractionService.SelectTargetsAsync(
+                        _targetScanResult, 
+                        _options.TargetOptions, 
+                        cancellationToken);
+                    
+                    _logger.LogInformation("Target selection complete. {SelectedCount}/{TotalCount} targets will be kept",
+                        _targetScanResult.SelectedTargets, _targetScanResult.TotalTargets);
+                }
+                else
+                {
+                    _logger.LogInformation("No custom targets found to select");
+                }
+            }
 
             var projectAssemblyProperties = new System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyProperties>();
             var projectMappings = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
@@ -549,6 +608,10 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             var outputPath = await GenerateOutputPathAsync(projectFile, cancellationToken);
 
+            // Set import and target scan results if available
+            _sdkStyleProjectGenerator.SetImportScanResult(_importScanResult);
+            _sdkStyleProjectGenerator.SetTargetScanResult(_targetScanResult);
+            
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);
 

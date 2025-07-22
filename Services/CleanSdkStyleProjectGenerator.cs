@@ -28,6 +28,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IDesignerFileHandler _designerFileHandler;
     private readonly IBuildEventMigrator _buildEventMigrator;
     private readonly INativeDependencyHandler _nativeDependencyHandler;
+    private ImportScanResult? _importScanResult;
+    private TargetScanResult? _targetScanResult;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -57,6 +59,16 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _designerFileHandler = designerFileHandler;
         _buildEventMigrator = buildEventMigrator;
         _nativeDependencyHandler = nativeDependencyHandler;
+    }
+
+    public void SetImportScanResult(ImportScanResult? importScanResult)
+    {
+        _importScanResult = importScanResult;
+    }
+    
+    public void SetTargetScanResult(TargetScanResult? targetScanResult)
+    {
+        _targetScanResult = targetScanResult;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -1115,6 +1127,31 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         foreach (var import in customImports)
         {
+            // Check if user has decided to keep this import
+            bool shouldKeepImport = true;
+            
+            if (_importScanResult != null)
+            {
+                // Find this import in the scan result
+                var importInfo = _importScanResult.ImportGroups
+                    .SelectMany(g => g.Imports)
+                    .FirstOrDefault(i => 
+                        i.ProjectPath == project.FullPath && 
+                        i.ImportPath == import.Project);
+                
+                if (importInfo != null)
+                {
+                    shouldKeepImport = importInfo.UserDecision;
+                    
+                    if (!shouldKeepImport)
+                    {
+                        _logger.LogInformation("Skipping import {Import} based on user selection", import.Project);
+                        result.Warnings.Add($"Removed import: {import.Project} (based on user selection)");
+                        continue;
+                    }
+                }
+            }
+            
             var importElement = new XElement("Import",
                 new XAttribute("Project", import.Project));
             
@@ -1174,6 +1211,31 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             {
                 _logger.LogDebug("Skipping SDK-handled target: {TargetName}", target.Name);
                 continue;
+            }
+            
+            // Check if user has decided to keep this target
+            bool shouldKeepTarget = true;
+            
+            if (_targetScanResult != null)
+            {
+                // Find this target in the scan result
+                var targetInfo = _targetScanResult.TargetGroups
+                    .SelectMany(g => g.Targets)
+                    .FirstOrDefault(t => 
+                        t.ProjectPath == project.FullPath && 
+                        t.TargetName == target.Name);
+                
+                if (targetInfo != null)
+                {
+                    shouldKeepTarget = targetInfo.UserDecision;
+                    
+                    if (!shouldKeepTarget)
+                    {
+                        _logger.LogInformation("Skipping target {Target} based on user selection", target.Name);
+                        result.Warnings.Add($"Removed target: {target.Name} (based on user selection)");
+                        continue;
+                    }
+                }
             }
 
             var targetElement = new XElement("Target",

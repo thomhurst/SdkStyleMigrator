@@ -17,4 +17,8 @@ public class MigrationOptions
     public CpmVersionResolutionOptions CpmOptions { get; set; } = new();
     public bool DisableCache { get; set; }
     public int? CacheTTLMinutes { get; set; }
+    public bool InteractiveImportSelection { get; set; }
+    public ImportSelectionOptions ImportOptions { get; set; } = new();
+    public bool InteractiveTargetSelection { get; set; }
+    public TargetSelectionOptions TargetOptions { get; set; } = new();
 }
