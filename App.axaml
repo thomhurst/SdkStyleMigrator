@@ -10,7 +10,8 @@
         
         <!-- Custom Styles for Modern Look -->
         <Style Selector="Window">
-            <Setter Property="Background" Value="#FAFAFA"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="TransparencyLevelHint" Value="None"/>
         </Style>
         
         <Style Selector="Button">

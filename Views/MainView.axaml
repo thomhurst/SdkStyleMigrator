@@ -6,12 +6,13 @@
              xmlns:views="using:SdkMigrator.Views"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
              x:Class="SdkMigrator.Views.MainView"
-             x:DataType="vm:MainViewModel">
+             x:DataType="vm:MainViewModel"
+             Background="#F5F5F5">
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,*" Background="#F5F5F5">
         <!-- Navigation Tabs -->
         <Border Grid.Row="0" 
-                Background="{DynamicResource CardBackground}"
+                Background="#FFFFFF"
                 BoxShadow="0 2 4 0 #00000014"
                 Padding="20,0">
             <TabControl SelectedIndex="{Binding SelectedTabIndex}"
@@ -31,9 +32,9 @@
         </Border>
 
         <!-- Content Area -->
-        <ScrollViewer Grid.Row="1" 
-                      Padding="20"
-                      HorizontalScrollBarVisibility="Disabled">
+        <Border Grid.Row="1" Background="#F5F5F5">
+            <ScrollViewer Padding="20"
+                          HorizontalScrollBarVisibility="Disabled">
             <ContentControl Content="{Binding CurrentViewModel}">
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="{x:Type vm:MigrationViewModel}">
@@ -54,5 +55,6 @@
                 </ContentControl.DataTemplates>
             </ContentControl>
         </ScrollViewer>
+        </Border>
     </Grid>
 </UserControl>

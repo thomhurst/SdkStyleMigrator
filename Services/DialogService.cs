@@ -63,14 +63,45 @@ public class DialogService : IDialogService
             Console.WriteLine($"DialogService: Window IsVisible: {window.IsVisible}");
             Console.WriteLine($"DialogService: Window DataContext type: {window.DataContext?.GetType().Name ?? "null"}");
 
+            // Wait for window to be fully loaded if needed
+            if (!window.IsLoaded)
+            {
+                Console.WriteLine("DialogService: Window not loaded, waiting...");
+                var tcs = new TaskCompletionSource<bool>();
+                void OnLoaded(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+                {
+                    window.Loaded -= OnLoaded;
+                    tcs.SetResult(true);
+                }
+                window.Loaded += OnLoaded;
+                
+                // Set a timeout to prevent hanging
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                cts.Token.Register(() => tcs.TrySetCanceled());
+                
+                try
+                {
+                    await tcs.Task;
+                    Console.WriteLine("DialogService: Window loaded successfully");
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine("DialogService: Timeout waiting for window to load");
+                    return null;
+                }
+            }
+
             // Create a simple test to see if the issue is with StorageProvider
             if (window.StorageProvider == null)
             {
                 Console.WriteLine("DialogService: StorageProvider is null!");
+                Console.WriteLine("DialogService: This often happens on Linux/WSL when native dialog dependencies are missing");
+                Console.WriteLine("DialogService: Consider installing: sudo apt-get install libgtk-3-0");
                 return null;
             }
 
             Console.WriteLine("DialogService: StorageProvider is available");
+            Console.WriteLine($"DialogService: StorageProvider type: {window.StorageProvider.GetType().FullName}");
 
             var options = new FolderPickerOpenOptions
             {

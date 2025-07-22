@@ -18,11 +18,14 @@ public partial class App : Application
 
     public override void Initialize()
     {
+        Console.WriteLine("App.Initialize called");
         AvaloniaXamlLoader.Load(this);
     }
 
     public override void OnFrameworkInitializationCompleted()
     {
+        Console.WriteLine("App.OnFrameworkInitializationCompleted called");
+        
         // Line below is needed to remove Avalonia data validation.
         // Without this line you will get duplicate validations from both Avalonia and CT
         BindingPlugins.DataValidators.RemoveAt(0);
@@ -76,7 +79,8 @@ public partial class App : Application
             new Lazy<CleanCpmViewModel>(() => provider.GetRequiredService<CleanCpmViewModel>()));
         
         // UI Services
-        services.AddSingleton<IDialogService, DialogService>();
+        // Use SimpleDialogService for now to avoid crashes
+        services.AddSingleton<IDialogService, SimpleDialogService>();
 
         // Logging
         services.AddLogging(builder =>

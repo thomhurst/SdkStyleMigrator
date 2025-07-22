@@ -231,9 +231,32 @@ public class MigrationViewModel : ViewModelBase
             x => x.ValidationContext.IsValid,
             (dir, running, isValid) => !string.IsNullOrWhiteSpace(dir) && !running && isValid);
 
-        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
-        BrowseOutputDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseOutputDirectoryAsync);
-        BrowseNugetConfigCommand = ReactiveCommand.CreateFromTask(BrowseNugetConfigAsync);
+        // Create commands with exception handling
+        var browseCmd = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
+        browseCmd.ThrownExceptions.Subscribe(ex =>
+        {
+            Console.WriteLine($"BrowseDirectoryCommand exception: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            StatusMessage = $"Error: {ex.Message}";
+        });
+        BrowseDirectoryCommand = browseCmd;
+        
+        var browseOutputCmd = ReactiveCommand.CreateFromTask(BrowseOutputDirectoryAsync);
+        browseOutputCmd.ThrownExceptions.Subscribe(ex =>
+        {
+            Console.WriteLine($"BrowseOutputDirectoryCommand exception: {ex.GetType().Name}: {ex.Message}");
+            StatusMessage = $"Error: {ex.Message}";
+        });
+        BrowseOutputDirectoryCommand = browseOutputCmd;
+        
+        var browseNugetCmd = ReactiveCommand.CreateFromTask(BrowseNugetConfigAsync);
+        browseNugetCmd.ThrownExceptions.Subscribe(ex =>
+        {
+            Console.WriteLine($"BrowseNugetConfigCommand exception: {ex.GetType().Name}: {ex.Message}");
+            StatusMessage = $"Error: {ex.Message}";
+        });
+        BrowseNugetConfigCommand = browseNugetCmd;
+        
         RunMigrationCommand = ReactiveCommand.CreateFromTask(RunMigrationAsync, canRun);
         ClearLogsCommand = ReactiveCommand.Create(() => LogMessages.Clear());
     }
@@ -263,32 +286,57 @@ public class MigrationViewModel : ViewModelBase
             {
                 Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
             }
-            // For now, just set a test path to see if the rest works
-            DirectoryPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            
+            // Log error to user
+            _logger.LogError(ex, "Failed to open folder browser dialog");
+            AddLogMessage($"Error opening folder browser: {ex.Message}");
+            AddLogMessage("This may be due to missing GTK dependencies on Linux/WSL");
+            AddLogMessage("Try: sudo apt-get install libgtk-3-0 zenity");
+            
+            // Show a manual input fallback
+            StatusMessage = "Browser failed - please type the path manually";
         }
     }
 
     private async Task BrowseOutputDirectoryAsync()
     {
-        var result = await _dialogService.OpenFolderDialogAsync("Select Output Directory");
-        if (result != null)
+        try
         {
-            OutputDirectory = result;
+            var result = await _dialogService.OpenFolderDialogAsync("Select Output Directory");
+            if (result != null)
+            {
+                OutputDirectory = result;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open folder browser dialog for output directory");
+            AddLogMessage($"Error opening folder browser: {ex.Message}");
+            StatusMessage = "Browser failed - please type the output path manually";
         }
     }
 
     private async Task BrowseNugetConfigAsync()
     {
-        var fileTypes = new[]
+        try
         {
-            new FilePickerFileType("NuGet Config") { Patterns = new[] { "*.config" } },
-            new FilePickerFileType("All Files") { Patterns = new[] { "*" } }
-        };
-        
-        var result = await _dialogService.OpenFileDialogAsync("Select NuGet Config File", fileTypes);
-        if (result != null)
+            var fileTypes = new[]
+            {
+                new FilePickerFileType("NuGet Config") { Patterns = new[] { "*.config" } },
+                new FilePickerFileType("All Files") { Patterns = new[] { "*" } }
+            };
+            
+            var result = await _dialogService.OpenFileDialogAsync("Select NuGet Config File", fileTypes);
+            if (result != null)
+            {
+                NugetConfig = result;
+            }
+        }
+        catch (Exception ex)
         {
-            NugetConfig = result;
+            _logger.LogError(ex, "Failed to open file browser dialog for NuGet config");
+            AddLogMessage($"Error opening file browser: {ex.Message}");
+            StatusMessage = "Browser failed - please type the NuGet config path manually";
         }
     }
 

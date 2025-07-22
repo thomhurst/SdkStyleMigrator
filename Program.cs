@@ -3,6 +3,7 @@ using System.CommandLine.Invocation;
 using System.Xml;
 using System.Xml.Linq;
 using Avalonia;
+using Avalonia.X11;
 using Microsoft.Build.Locator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -23,8 +24,40 @@ class Program
         // If no arguments provided, launch UI mode
         if (args.Length == 0)
         {
-            return BuildAvaloniaApp()
-                .StartWithClassicDesktopLifetime(args);
+            Console.WriteLine("Starting SdkMigrator in UI mode...");
+            Console.WriteLine($"Process ID: {System.Diagnostics.Process.GetCurrentProcess().Id}");
+            Console.WriteLine($"Current directory: {Environment.CurrentDirectory}");
+            
+            try
+            {
+                // Add global exception handlers for UI mode
+                AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+                {
+                    Console.Error.WriteLine($"Unhandled exception: {e.ExceptionObject}");
+                    if (e.ExceptionObject is Exception ex)
+                    {
+                        Console.Error.WriteLine($"Exception type: {ex.GetType().FullName}");
+                        Console.Error.WriteLine($"Message: {ex.Message}");
+                        Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+                    }
+                };
+
+                TaskScheduler.UnobservedTaskException += (sender, e) =>
+                {
+                    Console.Error.WriteLine($"Unobserved task exception: {e.Exception}");
+                    e.SetObserved();
+                };
+
+                return BuildAvaloniaApp()
+                    .StartWithClassicDesktopLifetime(args);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to start Avalonia app: {ex.Message}");
+                Console.Error.WriteLine($"Exception type: {ex.GetType().FullName}");
+                Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+                return 1;
+            }
         }
 
         var rootCommand = new RootCommand("SDK Migrator - Migrate legacy MSBuild project files to SDK-style format");
@@ -1558,8 +1591,31 @@ Examples:
     }
     
     static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    {
+        // Force software rendering in WSL
+        if (OperatingSystem.IsLinux())
+        {
+            Environment.SetEnvironmentVariable("AVALONIA_FORCE_SOFTWARE_RENDERING", "1");
+            Console.WriteLine("Running on Linux - forcing software rendering for WSL");
+        }
+        
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
+
+        // Add platform-specific configuration for Linux/WSL
+        if (OperatingSystem.IsLinux())
+        {
+            builder = builder.With(new X11PlatformOptions
+            {
+                EnableMultiTouch = false,
+                UseDBusMenu = false,
+                UseEGL = false,
+                UseDeferredRendering = false
+            });
+        }
+
+        return builder;
+    }
 }
