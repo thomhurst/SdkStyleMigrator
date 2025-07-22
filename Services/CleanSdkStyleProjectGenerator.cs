@@ -886,10 +886,11 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 var element = new XElement("ProjectReference",
                     new XAttribute("Include", expandedInclude));
                 
-                // Add metadata
+                // Only preserve essential metadata that affects build behavior
+                // SDK-style projects don't need Name, Project GUID, or most legacy metadata
                 foreach (var (key, value) in metadata)
                 {
-                    if (!string.IsNullOrEmpty(value))
+                    if (!string.IsNullOrEmpty(value) && IsEssentialProjectReferenceMetadata(key))
                     {
                         element.Add(new XElement(key, SafeExpandString(project, value)));
                     }
@@ -2356,6 +2357,51 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
         }
         
+        return false;
+    }
+    
+    private static bool IsEssentialProjectReferenceMetadata(string metadataKey)
+    {
+        // Only preserve metadata that affects build behavior in SDK-style projects
+        // Exclude common legacy metadata that SDK-style projects don't need:
+        // - Project: GUID of the referenced project (not used in SDK-style)
+        // - Name: Display name of the project (MSBuild can determine from file)
+        // - SpecificVersion: Not typically needed in SDK-style projects
+        
+        var legacyMetadataToExclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Project",           // Project GUID - not used in SDK-style projects
+            "Name",              // Project name - MSBuild determines this automatically
+            "SpecificVersion",   // Usually not needed in SDK-style projects
+            "Package"            // Legacy metadata
+        };
+        
+        // Preserve metadata that might affect build behavior
+        var essentialMetadata = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Private",           // Controls whether assembly is copied to output
+            "IncludeAssets",     // Controls which assets are included
+            "ExcludeAssets",     // Controls which assets are excluded
+            "PrivateAssets",     // Controls asset flow to consuming projects
+            "ReferenceOutputAssembly", // Controls if assembly should be referenced
+            "OutputItemType",    // Controls output item type
+            "SetTargetFramework" // Framework targeting for multi-target scenarios
+        };
+        
+        // Don't include legacy metadata that SDK-style projects don't need
+        if (legacyMetadataToExclude.Contains(metadataKey))
+        {
+            return false;
+        }
+        
+        // Include known essential metadata
+        if (essentialMetadata.Contains(metadataKey))
+        {
+            return true;
+        }
+        
+        // By default, exclude unknown metadata to keep ProjectReferences clean
+        // SDK-style projects work well with minimal metadata
         return false;
     }
 }
