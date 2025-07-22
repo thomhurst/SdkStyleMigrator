@@ -79,6 +79,9 @@ public partial class App : Application
         // Use real DialogService for actual file/folder dialogs
         services.AddSingleton<IDialogService, DialogService>();
 
+        // Configuration
+        services.AddSingleton(MigrationOptions.Default);
+
         // Logging
         services.AddLogging(builder =>
         {
