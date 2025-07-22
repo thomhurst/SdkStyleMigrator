@@ -141,7 +141,11 @@ public class ProjectTypeDetector
             (i.EvaluatedInclude.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.EndsWith(".aspx", StringComparison.OrdinalIgnoreCase) ||
              i.EvaluatedInclude.EndsWith(".ascx", StringComparison.OrdinalIgnoreCase) ||
-             i.EvaluatedInclude.Equals("web.config", StringComparison.OrdinalIgnoreCase)));
+             i.EvaluatedInclude.EndsWith(".master", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.EndsWith(".ashx", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.EndsWith(".asmx", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.Equals("web.config", StringComparison.OrdinalIgnoreCase) ||
+             i.EvaluatedInclude.Equals("Global.asax", StringComparison.OrdinalIgnoreCase)));
 
         var hasWebReferences = project.Items.Any(i =>
             i.ItemType == "Reference" &&

@@ -916,6 +916,7 @@ Examples:
         services.AddSingleton<IBuildEventMigrator, BuildEventMigrator>();
         services.AddSingleton<INativeDependencyHandler, NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
+        services.AddSingleton<IWebProjectHandler, WebProjectHandler>();
 
         // New analysis and migration services
         services.AddSingleton<CustomTargetAnalyzer>();
@@ -969,6 +970,7 @@ Examples:
                 importScanner,
                 provider.GetRequiredService<ITargetScanner>(),
                 userInteractionService,
+                provider.GetRequiredService<IWebProjectHandler>(),
                 options,
                 packageCache);
         });

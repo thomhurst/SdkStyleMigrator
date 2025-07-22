@@ -128,6 +128,7 @@ public partial class App : Application
         services.AddSingleton<IBuildEventMigrator, BuildEventMigrator>();
         services.AddSingleton<INativeDependencyHandler, NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
+        services.AddSingleton<IWebProjectHandler, WebProjectHandler>();
 
         // Analysis and migration services
         services.AddSingleton<CustomTargetAnalyzer>();
@@ -162,6 +163,7 @@ public partial class App : Application
             var configurationFileGenerator = provider.GetRequiredService<IConfigurationFileGenerator>();
             var importScanner = provider.GetRequiredService<IImportScanner>();
             var userInteractionService = provider.GetRequiredService<IUserInteractionService>();
+            var webProjectHandler = provider.GetRequiredService<IWebProjectHandler>();
             var options = MigrationOptions.Default;
             var packageCache = provider.GetService<IPackageVersionCache>();
 
@@ -185,6 +187,7 @@ public partial class App : Application
                 importScanner,
                 provider.GetRequiredService<ITargetScanner>(),
                 userInteractionService,
+                webProjectHandler,
                 options,
                 packageCache);
         });

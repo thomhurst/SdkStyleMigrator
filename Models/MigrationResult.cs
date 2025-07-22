@@ -21,5 +21,6 @@ public class MigrationResult
     public ProjectTypeInfo? DetectedProjectType { get; set; }
     public List<NativeDependency> NativeDependencies { get; set; } = new();
     public ServiceReferenceInfo? ServiceReferences { get; set; }
+    public WebMigrationAnalysis? WebProjectAnalysis { get; set; }
     public bool HasCriticalBlockers { get; set; }
 }

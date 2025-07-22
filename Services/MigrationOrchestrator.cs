@@ -27,6 +27,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly IImportScanner _importScanner;
     private readonly ITargetScanner _targetScanner;
     private readonly IUserInteractionService _userInteractionService;
+    private readonly IWebProjectHandler _webProjectHandler;
     private readonly MigrationOptions _options;
     private readonly IPackageVersionCache? _packageCache;
     private ImportScanResult? _importScanResult;
@@ -52,6 +53,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         IImportScanner importScanner,
         ITargetScanner targetScanner,
         IUserInteractionService userInteractionService,
+        IWebProjectHandler webProjectHandler,
         MigrationOptions options,
         IPackageVersionCache? packageCache = null)
     {
@@ -74,6 +76,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _importScanner = importScanner;
         _targetScanner = targetScanner;
         _userInteractionService = userInteractionService;
+        _webProjectHandler = webProjectHandler;
         _options = options;
         _packageCache = packageCache;
     }
@@ -592,6 +595,36 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("{Progress} Processing {ProjectPath}", progress, projectFile);
 
             var projectDir = Path.GetDirectoryName(projectFile)!;
+            
+            // Perform web project analysis
+            WebMigrationAnalysis? webAnalysis = null;
+            try
+            {
+                webAnalysis = await _webProjectHandler.AnalyzeWebProjectAsync(projectFile, cancellationToken);
+                if (webAnalysis.IsWebProject)
+                {
+                    _logger.LogInformation("{Progress} Web project detected: {ProjectType} with {PatternCount} patterns", 
+                        progress, webAnalysis.ProjectType, webAnalysis.DetectedPatterns.Count);
+                    
+                    if (webAnalysis.Complexity.OverallComplexity == MigrationRiskLevel.High)
+                    {
+                        _logger.LogWarning("{Progress} High complexity web project - estimated migration time: {EstimatedTime}", 
+                            progress, webAnalysis.Complexity.EstimatedMigrationTime);
+                    }
+                    
+                    // Log web-specific recommendations
+                    foreach (var recommendation in webAnalysis.Recommendations.Take(3))
+                    {
+                        _logger.LogInformation("{Progress} Web migration note: {Title} - {Description}", 
+                            progress, recommendation.Title, recommendation.Description);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "{Progress} Error during web project analysis: {Error}", progress, ex.Message);
+            }
+            
             var assemblyProps = await _assemblyInfoExtractor.ExtractAssemblyPropertiesAsync(projectDir, cancellationToken);
             var projectProps = await _assemblyInfoExtractor.ExtractFromProjectAsync(project, cancellationToken);
 
@@ -614,6 +647,24 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);
+
+            // Add web analysis to result if available
+            if (webAnalysis != null)
+            {
+                result.WebProjectAnalysis = webAnalysis;
+                
+                // Add web-specific warnings based on complexity
+                if (webAnalysis.IsWebProject && webAnalysis.Complexity.OverallComplexity == MigrationRiskLevel.High)
+                {
+                    result.Warnings.Add($"High complexity web project detected - manual review recommended for {webAnalysis.DetectedPatterns.Count} web patterns");
+                }
+                
+                // Add specific pattern warnings
+                foreach (var pattern in webAnalysis.DetectedPatterns.Where(p => p.Risk == MigrationRiskLevel.High))
+                {
+                    result.Warnings.Add($"High-risk web pattern: {pattern.Description} - {string.Join(", ", pattern.MigrationNotes.Take(2))}");
+                }
+            }
 
             if (parsedProject.LoadedWithDefensiveParsing)
             {
