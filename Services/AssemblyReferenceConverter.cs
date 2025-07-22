@@ -16,6 +16,7 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
     {
         "mscorlib",
         "System",
+        "System.Accessibility",
         "System.Core",
         "System.Data",
         "System.Data.DataSetExtensions",
