@@ -30,16 +30,11 @@
                                Foreground="#DC2626" 
                                FontWeight="SemiBold"
                                FontSize="13"/>
-                    <ItemsControl ItemsSource="{Binding ValidationContext.Errors}"
-                                  Margin="0,4,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" 
-                                           Foreground="#DC2626" 
-                                           FontSize="12"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <TextBlock Text="{Binding ValidationContext.Text[0]}" 
+                               Foreground="#DC2626" 
+                               FontSize="12" 
+                               Margin="0,4,0,0"
+                               IsVisible="{Binding !ValidationContext.IsValid}"/>
                 </StackPanel>
                 
                 <!-- Status and Button -->
@@ -82,17 +77,11 @@
                             <TextBlock Text="Select the root directory of your solution" Classes="HelpText"/>
                             
                             <!-- Validation Errors -->
-                            <ItemsControl ItemsSource="{Binding ValidationContext.Errors}"
-                                          IsVisible="{Binding !ValidationContext.IsValid}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}" 
-                                                   Foreground="#DC2626" 
-                                                   FontSize="12" 
-                                                   Margin="0,4,0,0"/>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            <TextBlock Text="{Binding ValidationContext.Text[0]}" 
+                                       Foreground="#DC2626" 
+                                       FontSize="12" 
+                                       Margin="0,4,0,0"
+                                       IsVisible="{Binding !ValidationContext.IsValid}"/>
                         </StackPanel>
                         
                         <!-- Output Directory -->
