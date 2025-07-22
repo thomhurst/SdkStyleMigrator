@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Models;
-using SdkMigrator.Views;
 
 namespace SdkMigrator.ViewModels;
 
@@ -18,6 +17,7 @@ public class MigrationViewModel : ViewModelBase
 {
     private readonly ILogger<MigrationViewModel> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
     private string? _outputDirectory;
@@ -196,10 +196,11 @@ public class MigrationViewModel : ViewModelBase
     public ICommand RunMigrationCommand { get; }
     public ICommand ClearLogsCommand { get; }
 
-    public MigrationViewModel(ILogger<MigrationViewModel> logger, IServiceProvider serviceProvider)
+    public MigrationViewModel(ILogger<MigrationViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
+        _dialogService = dialogService;
 
         var canRun = this.WhenAnyValue(
             x => x.DirectoryPath,
@@ -215,60 +216,34 @@ public class MigrationViewModel : ViewModelBase
 
     private async Task BrowseDirectoryAsync()
     {
-        var topLevel = App.Services?.GetService<MainWindow>();
-        
-        if (topLevel == null) return;
-
-        var result = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        var result = await _dialogService.OpenFolderDialogAsync("Select Solution Directory");
+        if (result != null)
         {
-            Title = "Select Solution Directory",
-            AllowMultiple = false
-        });
-
-        if (result.Count > 0)
-        {
-            DirectoryPath = result[0].Path.LocalPath;
+            DirectoryPath = result;
         }
     }
 
     private async Task BrowseOutputDirectoryAsync()
     {
-        var topLevel = App.Services?.GetService<MainWindow>();
-        
-        if (topLevel == null) return;
-
-        var result = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        var result = await _dialogService.OpenFolderDialogAsync("Select Output Directory");
+        if (result != null)
         {
-            Title = "Select Output Directory",
-            AllowMultiple = false
-        });
-
-        if (result.Count > 0)
-        {
-            OutputDirectory = result[0].Path.LocalPath;
+            OutputDirectory = result;
         }
     }
 
     private async Task BrowseNugetConfigAsync()
     {
-        var topLevel = App.Services?.GetService<MainWindow>();
+        var fileTypes = new[]
+        {
+            new FilePickerFileType("NuGet Config") { Patterns = new[] { "*.config" } },
+            new FilePickerFileType("All Files") { Patterns = new[] { "*" } }
+        };
         
-        if (topLevel == null) return;
-
-        var result = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var result = await _dialogService.OpenFileDialogAsync("Select NuGet Config File", fileTypes);
+        if (result != null)
         {
-            Title = "Select NuGet Config File",
-            AllowMultiple = false,
-            FileTypeFilter = new List<FilePickerFileType>
-            {
-                new("NuGet Config") { Patterns = new[] { "*.config" } },
-                new("All Files") { Patterns = new[] { "*" } }
-            }
-        });
-
-        if (result.Count > 0)
-        {
-            NugetConfig = result[0].Path.LocalPath;
+            NugetConfig = result;
         }
     }
 

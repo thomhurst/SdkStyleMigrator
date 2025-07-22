@@ -61,6 +61,9 @@ public partial class App : Application
         services.AddTransient<AnalysisViewModel>();
         services.AddTransient<CleanDepsViewModel>();
         services.AddTransient<CleanCpmViewModel>();
+        
+        // UI Services
+        services.AddSingleton<IDialogService, DialogService>();
 
         // Logging
         services.AddLogging(builder =>

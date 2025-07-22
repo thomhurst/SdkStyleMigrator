@@ -9,7 +9,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SdkMigrator.Abstractions;
-using SdkMigrator.Views;
 
 namespace SdkMigrator.ViewModels;
 
@@ -17,6 +16,7 @@ public class CleanDepsViewModel : ViewModelBase
 {
     private readonly ILogger<CleanDepsViewModel> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
     private bool _dryRun;
@@ -61,10 +61,11 @@ public class CleanDepsViewModel : ViewModelBase
     public ICommand RunCleanupCommand { get; }
     public ICommand ClearLogsCommand { get; }
 
-    public CleanDepsViewModel(ILogger<CleanDepsViewModel> logger, IServiceProvider serviceProvider)
+    public CleanDepsViewModel(ILogger<CleanDepsViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
+        _dialogService = dialogService;
 
         var canRun = this.WhenAnyValue(
             x => x.DirectoryPath,
@@ -78,19 +79,10 @@ public class CleanDepsViewModel : ViewModelBase
 
     private async Task BrowseDirectoryAsync()
     {
-        var topLevel = App.Services?.GetService<MainWindow>();
-        
-        if (topLevel == null) return;
-
-        var result = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        var result = await _dialogService.OpenFolderDialogAsync("Select Solution Directory");
+        if (result != null)
         {
-            Title = "Select Solution Directory",
-            AllowMultiple = false
-        });
-
-        if (result.Count > 0)
-        {
-            DirectoryPath = result[0].Path.LocalPath;
+            DirectoryPath = result;
         }
     }
 

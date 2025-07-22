@@ -1,5 +1,8 @@
+using System.Linq;
 using System.Reactive.Linq;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,6 +23,16 @@ public class UiUserInteractionService : IUserInteractionService
         _logger = logger;
     }
 
+    private static Window? GetMainWindow()
+    {
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return desktop.MainWindow;
+        }
+
+        return null;
+    }
+
     public async Task<ImportScanResult> SelectImportsAsync(
         ImportScanResult scanResult, 
         ImportSelectionOptions options,
@@ -33,7 +46,7 @@ public class UiUserInteractionService : IUserInteractionService
         // Create and show dialog on UI thread
         var result = await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            var window = App.Services?.GetService<MainWindow>();
+            var window = GetMainWindow();
             
             if (window == null)
             {
@@ -68,7 +81,7 @@ public class UiUserInteractionService : IUserInteractionService
         // Create and show dialog on UI thread
         var result = await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            var window = App.Services?.GetService<MainWindow>();
+            var window = GetMainWindow();
             
             if (window == null)
             {
@@ -94,7 +107,7 @@ public class UiUserInteractionService : IUserInteractionService
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            var window = App.Services?.GetService<MainWindow>();
+            var window = GetMainWindow();
             
             if (window == null)
             {
@@ -112,7 +125,7 @@ public class UiUserInteractionService : IUserInteractionService
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            var window = App.Services?.GetService<MainWindow>();
+            var window = GetMainWindow();
             
             if (window == null)
             {
