@@ -36,6 +36,7 @@ public partial class App : Application
         {
             var mainWindow = Services.GetRequiredService<MainWindow>();
             desktop.MainWindow = mainWindow;
+            mainWindow.Show(); // Ensure window is shown
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {
