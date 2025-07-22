@@ -97,13 +97,14 @@ public class DialogService : IDialogService
     {
         try
         {
-            // Ensure we're on the UI thread
+            // Ensure the entire operation runs on the UI thread
+            // If not on UI thread, dispatch this method to it once
             if (!Dispatcher.UIThread.CheckAccess())
             {
                 return await Dispatcher.UIThread.InvokeAsync(() => OpenFolderDialogAsync(title));
             }
 
-            // Get the main window
+            // Now guaranteed to be on UI thread - proceed directly
             var window = GetMainWindow();
             if (window == null)
             {
@@ -117,22 +118,19 @@ public class DialogService : IDialogService
             if (window.StorageProvider == null)
             {
                 throw new InvalidOperationException(
-                    "StorageProvider is not available. This may occur on Linux systems missing GTK dependencies. " +
-                    "Try installing: sudo apt-get install libgtk-3-0 libgtk-3-dev");
+                    "StorageProvider is not available. This may occur on systems missing native dialog dependencies.");
             }
 
-            // Open folder picker with thread safety for Linux/WSL
+            // Create folder picker options
             var options = new FolderPickerOpenOptions
             {
                 Title = title,
                 AllowMultiple = false
             };
 
-            // Wrap StorageProvider call in UI thread context to prevent threading issues on Linux/WSL
-            var result = await Dispatcher.UIThread.InvokeAsync(async () => 
-            {
-                return await window.StorageProvider.OpenFolderPickerAsync(options).ConfigureAwait(true);
-            }).ConfigureAwait(true);
+            // Call StorageProvider directly - we're already on UI thread
+            // ConfigureAwait(true) ensures continuation returns to UI thread
+            var result = await window.StorageProvider.OpenFolderPickerAsync(options).ConfigureAwait(true);
             
             return result?.FirstOrDefault()?.Path.LocalPath;
         }
@@ -237,13 +235,14 @@ public class DialogService : IDialogService
     {
         try
         {
-            // Ensure we're on the UI thread
+            // Ensure the entire operation runs on the UI thread
+            // If not on UI thread, dispatch this method to it once
             if (!Dispatcher.UIThread.CheckAccess())
             {
                 return await Dispatcher.UIThread.InvokeAsync(() => OpenFileDialogAsync(title, fileTypes));
             }
 
-            // Get the main window
+            // Now guaranteed to be on UI thread - proceed directly
             var window = GetMainWindow();
             if (window == null)
             {
@@ -257,11 +256,10 @@ public class DialogService : IDialogService
             if (window.StorageProvider == null)
             {
                 throw new InvalidOperationException(
-                    "StorageProvider is not available. This may occur on Linux systems missing GTK dependencies. " +
-                    "Try installing: sudo apt-get install libgtk-3-0 libgtk-3-dev");
+                    "StorageProvider is not available. This may occur on systems missing native dialog dependencies.");
             }
 
-            // Open file picker with thread safety for Linux/WSL
+            // Create file picker options
             var options = new FilePickerOpenOptions
             {
                 Title = title,
@@ -273,11 +271,9 @@ public class DialogService : IDialogService
                 options.FileTypeFilter = fileTypes;
             }
 
-            // Wrap StorageProvider call in UI thread context to prevent threading issues on Linux/WSL
-            var result = await Dispatcher.UIThread.InvokeAsync(async () => 
-            {
-                return await window.StorageProvider.OpenFilePickerAsync(options).ConfigureAwait(true);
-            }).ConfigureAwait(true);
+            // Call StorageProvider directly - we're already on UI thread
+            // ConfigureAwait(true) ensures continuation returns to UI thread
+            var result = await window.StorageProvider.OpenFilePickerAsync(options).ConfigureAwait(true);
             
             return result?.FirstOrDefault()?.Path.LocalPath;
         }
