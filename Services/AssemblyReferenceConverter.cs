@@ -179,8 +179,10 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
             }
 
             // Special handling for Fakes framework
-            if (assemblyIdentity.Name.Equals("Microsoft.QualityTools.Testing.Fakes", StringComparison.OrdinalIgnoreCase))
+            if (assemblyIdentity.Name.Equals("Microsoft.QualityTools.Testing.Fakes", StringComparison.OrdinalIgnoreCase) ||
+                assemblyIdentity.Name.EndsWith(".Fakes", StringComparison.OrdinalIgnoreCase))
             {
+                // For generated Fakes assemblies (e.g., MyProject.Fakes), we need the main Fakes package
                 var fakesVersion = await _nugetResolver.GetLatestStableVersionAsync("Microsoft.QualityTools.Testing.Fakes", cancellationToken) ?? "16.11.230815";
                 detectedPackageReferences.Add(new PackageReference
                 {
@@ -188,7 +190,14 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                     Version = fakesVersion
                 });
                 
-                _logger.LogInformation("Converted Microsoft.QualityTools.Testing.Fakes to NuGet package");
+                _logger.LogInformation("Converted {Assembly} to Microsoft.QualityTools.Testing.Fakes NuGet package", assemblyIdentity.Name);
+                
+                // Generated Fakes assemblies should be preserved as local references
+                if (assemblyIdentity.Name.EndsWith(".Fakes", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
+                        "Generated Fakes assembly - preserved as local reference"));
+                }
                 continue;
             }
 
@@ -313,8 +322,10 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                 }
                 
                 // Special handling for Fakes framework even in .NET Framework targets
-                if (assemblyIdentity.Name.Equals("Microsoft.QualityTools.Testing.Fakes", StringComparison.OrdinalIgnoreCase))
+                if (assemblyIdentity.Name.Equals("Microsoft.QualityTools.Testing.Fakes", StringComparison.OrdinalIgnoreCase) ||
+                    assemblyIdentity.Name.EndsWith(".Fakes", StringComparison.OrdinalIgnoreCase))
                 {
+                    // For generated Fakes assemblies (e.g., MyProject.Fakes), we need the main Fakes package
                     var fakesVersion = await _nugetResolver.GetLatestStableVersionAsync("Microsoft.QualityTools.Testing.Fakes", cancellationToken) ?? "16.11.230815";
                     detectedPackageReferences.Add(new PackageReference
                     {
@@ -322,7 +333,14 @@ public class AssemblyReferenceConverter : IAssemblyReferenceConverter
                         Version = fakesVersion
                     });
                     
-                    _logger.LogInformation("Converted Microsoft.QualityTools.Testing.Fakes to NuGet package");
+                    _logger.LogInformation("Converted {Assembly} to Microsoft.QualityTools.Testing.Fakes NuGet package", assemblyIdentity.Name);
+                    
+                    // Generated Fakes assemblies should be preserved as local references
+                    if (assemblyIdentity.Name.EndsWith(".Fakes", StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.UnconvertedReferences.Add(UnconvertedReference.FromProjectItem(referenceItem,
+                            "Generated Fakes assembly - preserved as local reference"));
+                    }
                     continue;
                 }
                 
