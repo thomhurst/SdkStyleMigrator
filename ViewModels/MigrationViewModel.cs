@@ -5,7 +5,6 @@ using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using ReactiveUI.Validation.Extensions;
@@ -17,7 +16,7 @@ namespace SdkMigrator.ViewModels;
 public class MigrationViewModel : ViewModelBase
 {
     private readonly ILogger<MigrationViewModel> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IMigrationOrchestrator _orchestrator;
     private const int MaxLogMessages = 1000;
     private readonly IDialogService _dialogService;
     
@@ -198,10 +197,10 @@ public class MigrationViewModel : ViewModelBase
     public ICommand RunMigrationCommand { get; }
     public ICommand ClearLogsCommand { get; }
 
-    public MigrationViewModel(ILogger<MigrationViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
+    public MigrationViewModel(ILogger<MigrationViewModel> logger, IMigrationOrchestrator orchestrator, IDialogService dialogService)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _orchestrator = orchestrator;
         _dialogService = dialogService;
 
         // Set up validation rules
@@ -374,11 +373,9 @@ public class MigrationViewModel : ViewModelBase
                 InteractiveTargetSelection = InteractiveTargets
             };
 
-            using var scope = _serviceProvider.CreateScope();
-            var orchestrator = scope.ServiceProvider.GetRequiredService<IMigrationOrchestrator>();
 
             var cts = new CancellationTokenSource();
-            var report = await orchestrator.MigrateProjectsAsync(options.DirectoryPath, cts.Token);
+            var report = await _orchestrator.MigrateProjectsAsync(options.DirectoryPath, cts.Token);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {

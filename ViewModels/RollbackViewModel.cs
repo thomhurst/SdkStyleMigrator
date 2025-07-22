@@ -5,7 +5,6 @@ using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SdkMigrator.Abstractions;
@@ -16,7 +15,7 @@ namespace SdkMigrator.ViewModels;
 public class RollbackViewModel : ViewModelBase
 {
     private readonly ILogger<RollbackViewModel> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IBackupService _backupService;
     private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
@@ -59,10 +58,10 @@ public class RollbackViewModel : ViewModelBase
     public ICommand RefreshSessionsCommand { get; }
     public ICommand RunRollbackCommand { get; }
 
-    public RollbackViewModel(ILogger<RollbackViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
+    public RollbackViewModel(ILogger<RollbackViewModel> logger, IBackupService backupService, IDialogService dialogService)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _backupService = backupService;
         _dialogService = dialogService;
 
         var canRun = this.WhenAnyValue(
@@ -92,10 +91,8 @@ public class RollbackViewModel : ViewModelBase
 
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var backupService = scope.ServiceProvider.GetRequiredService<IBackupService>();
             
-            var sessions = await backupService.ListBackupsAsync(DirectoryPath);
+            var sessions = await _backupService.ListBackupsAsync(DirectoryPath);
             
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -123,11 +120,9 @@ public class RollbackViewModel : ViewModelBase
             IsRunning = true;
             StatusMessage = "Running rollback...";
 
-            using var scope = _serviceProvider.CreateScope();
-            var backupService = scope.ServiceProvider.GetRequiredService<IBackupService>();
             
             var cts = new CancellationTokenSource();
-            await backupService.RollbackAsync(SelectedSession.BackupPath, cts.Token);
+            await _backupService.RollbackAsync(SelectedSession.BackupPath, cts.Token);
 
             StatusMessage = "Rollback completed successfully";
         }

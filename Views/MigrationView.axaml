@@ -21,10 +21,6 @@
                     <StackPanel Spacing="12">
                         <TextBlock Text="Basic Configuration" FontSize="16" FontWeight="SemiBold"/>
                         
-                        <!-- Test Button -->
-                        <Button Content="Test Console Output" 
-                                Click="OnTestClick"
-                                Margin="0,0,0,10"/>
                         
                         <!-- Directory Path -->
                         <StackPanel>
@@ -35,7 +31,7 @@
                                          Watermark="Select the directory containing your solution"/>
                                 <Button Grid.Column="1" 
                                         Content="Browse"
-                                        Click="OnBrowseClick"/>
+                                        Command="{Binding BrowseDirectoryCommand}"/>
                             </Grid>
                             <TextBlock Text="Select the root directory of your solution" Classes="HelpText"/>
                         </StackPanel>

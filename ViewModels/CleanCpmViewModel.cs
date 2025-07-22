@@ -4,7 +4,6 @@ using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SdkMigrator.Abstractions;
@@ -14,7 +13,7 @@ namespace SdkMigrator.ViewModels;
 public class CleanCpmViewModel : ViewModelBase
 {
     private readonly ILogger<CleanCpmViewModel> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly ICentralPackageManagementGenerator _cpmGenerator;
     private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
@@ -52,10 +51,10 @@ public class CleanCpmViewModel : ViewModelBase
     public ICommand BrowseDirectoryCommand { get; }
     public ICommand RunCleanupCommand { get; }
 
-    public CleanCpmViewModel(ILogger<CleanCpmViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
+    public CleanCpmViewModel(ILogger<CleanCpmViewModel> logger, ICentralPackageManagementGenerator cpmGenerator, IDialogService dialogService)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _cpmGenerator = cpmGenerator;
         _dialogService = dialogService;
 
         var canRun = this.WhenAnyValue(
@@ -84,11 +83,9 @@ public class CleanCpmViewModel : ViewModelBase
             StatusMessage = "Scanning for unused packages...";
             RemovedPackages.Clear();
 
-            using var scope = _serviceProvider.CreateScope();
-            var cpmGenerator = scope.ServiceProvider.GetRequiredService<ICentralPackageManagementGenerator>();
             
             var cts = new CancellationTokenSource();
-            var result = await cpmGenerator.CleanUnusedPackagesAsync(DirectoryPath, DryRun, cts.Token);
+            var result = await _cpmGenerator.CleanUnusedPackagesAsync(DirectoryPath, DryRun, cts.Token);
 
             if (result.Success)
             {

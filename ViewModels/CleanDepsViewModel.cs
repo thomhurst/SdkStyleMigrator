@@ -5,7 +5,6 @@ using System.Xml.Linq;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SdkMigrator.Abstractions;
@@ -15,7 +14,8 @@ namespace SdkMigrator.ViewModels;
 public class CleanDepsViewModel : ViewModelBase
 {
     private readonly ILogger<CleanDepsViewModel> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IProjectFileScanner _projectScanner;
+    private readonly ITransitiveDependencyDetector _transitiveDepsDetector;
     private const int MaxLogMessages = 1000;
     private readonly IDialogService _dialogService;
     
@@ -62,10 +62,11 @@ public class CleanDepsViewModel : ViewModelBase
     public ICommand RunCleanupCommand { get; }
     public ICommand ClearLogsCommand { get; }
 
-    public CleanDepsViewModel(ILogger<CleanDepsViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
+    public CleanDepsViewModel(ILogger<CleanDepsViewModel> logger, IProjectFileScanner projectScanner, ITransitiveDependencyDetector transitiveDepsDetector, IDialogService dialogService)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _projectScanner = projectScanner;
+        _transitiveDepsDetector = transitiveDepsDetector;
         _dialogService = dialogService;
 
         var canRun = this.WhenAnyValue(
@@ -96,12 +97,9 @@ public class CleanDepsViewModel : ViewModelBase
             StatusMessage = "Scanning for transitive dependencies...";
             LogMessages.Clear();
 
-            using var scope = _serviceProvider.CreateScope();
-            var projectScanner = scope.ServiceProvider.GetRequiredService<IProjectFileScanner>();
-            var transitiveDepsDetector = scope.ServiceProvider.GetRequiredService<ITransitiveDependencyDetector>();
             
             var cts = new CancellationTokenSource();
-            var projectFiles = await projectScanner.ScanForProjectFilesAsync(DirectoryPath, cts.Token);
+            var projectFiles = await _projectScanner.ScanForProjectFilesAsync(DirectoryPath, cts.Token);
             var sdkStyleProjects = projectFiles.Where(IsSdkStyleProject).ToList();
 
             if (!sdkStyleProjects.Any())
@@ -136,7 +134,7 @@ public class CleanDepsViewModel : ViewModelBase
                     }
 
                     // Detect transitive dependencies
-                    var transitivePackages = await transitiveDepsDetector.DetectTransitiveDependenciesAsync(
+                    var transitivePackages = await _transitiveDepsDetector.DetectTransitiveDependenciesAsync(
                         packageRefs, 
                         cts.Token);
 

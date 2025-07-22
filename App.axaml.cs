@@ -14,17 +14,15 @@ namespace SdkMigrator;
 
 public partial class App : Application
 {
-    public static IServiceProvider? Services { get; private set; }
+    private IServiceProvider? _services;
 
     public override void Initialize()
     {
-        Console.WriteLine("App.Initialize called");
         AvaloniaXamlLoader.Load(this);
     }
 
     public override void OnFrameworkInitializationCompleted()
     {
-        Console.WriteLine("App.OnFrameworkInitializationCompleted called");
         
         // Line below is needed to remove Avalonia data validation.
         // Without this line you will get duplicate validations from both Avalonia and CT
@@ -33,17 +31,19 @@ public partial class App : Application
         // Configure services
         var services = new ServiceCollection();
         ConfigureServices(services);
-        Services = services.BuildServiceProvider();
+        _services = services.BuildServiceProvider();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var mainWindow = Services.GetRequiredService<MainWindow>();
-            desktop.MainWindow = mainWindow;
-            mainWindow.Show(); // Ensure window is shown
+            var mainViewModel = _services.GetRequiredService<MainViewModel>();
+            desktop.MainWindow = new MainWindow
+            {
+                DataContext = mainViewModel
+            };
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {
-            var mainViewModel = Services.GetRequiredService<MainViewModel>();
+            var mainViewModel = _services.GetRequiredService<MainViewModel>();
             singleViewPlatform.MainView = new MainView
             {
                 DataContext = mainViewModel
@@ -55,9 +55,6 @@ public partial class App : Application
 
     private void ConfigureServices(IServiceCollection services)
     {
-        // Views
-        services.AddSingleton<MainWindow>();
-        
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MigrationViewModel>();
@@ -79,8 +76,8 @@ public partial class App : Application
             new Lazy<CleanCpmViewModel>(() => provider.GetRequiredService<CleanCpmViewModel>()));
         
         // UI Services
-        // Use SimpleDialogService for now to avoid crashes
-        services.AddSingleton<IDialogService, SimpleDialogService>();
+        // Use real DialogService for actual file/folder dialogs
+        services.AddSingleton<IDialogService, DialogService>();
 
         // Logging
         services.AddLogging(builder =>

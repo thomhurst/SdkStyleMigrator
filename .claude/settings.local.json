@@ -60,7 +60,9 @@
       "WebFetch(domain:learn.microsoft.com)",
       "WebFetch(domain:www.nuget.org)",
       "mcp__desktop-commander__write_file",
-      "mcp__desktop-commander__create_directory"
+      "mcp__desktop-commander__create_directory",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs"
     ],
     "deny": []
   }

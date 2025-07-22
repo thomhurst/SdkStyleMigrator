@@ -1,8 +1,13 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:converters="using:SdkMigrator.Converters"
+             xmlns:local="using:SdkMigrator"
              x:Class="SdkMigrator.App"
              RequestedThemeVariant="Light">
+    
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
     
     <Application.Styles>
         <FluentTheme />
@@ -28,32 +33,6 @@
             <Setter Property="Background" Value="#E8E8E8"/>
         </Style>
         
-        <Style Selector="Button.Primary">
-            <Setter Property="Background" Value="#0EA5E9"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        
-        <Style Selector="Button.Primary:pointerover">
-            <Setter Property="Background" Value="#0284C7"/>
-        </Style>
-        
-        <Style Selector="Button.Success">
-            <Setter Property="Background" Value="#10B981"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        
-        <Style Selector="Button.Success:pointerover">
-            <Setter Property="Background" Value="#059669"/>
-        </Style>
-        
-        <Style Selector="Button.Warning">
-            <Setter Property="Background" Value="#F59E0B"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        
-        <Style Selector="Button.Warning:pointerover">
-            <Setter Property="Background" Value="#D97706"/>
-        </Style>
         
         <Style Selector="TextBox">
             <Setter Property="Padding" Value="10,8"/>

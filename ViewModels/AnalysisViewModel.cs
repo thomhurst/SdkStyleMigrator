@@ -4,7 +4,6 @@ using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SdkMigrator.Abstractions;
@@ -15,7 +14,7 @@ namespace SdkMigrator.ViewModels;
 public class AnalysisViewModel : ViewModelBase
 {
     private readonly ILogger<AnalysisViewModel> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IMigrationAnalyzer _analyzer;
     private readonly IDialogService _dialogService;
     
     private string _directoryPath = string.Empty;
@@ -53,10 +52,10 @@ public class AnalysisViewModel : ViewModelBase
     public ICommand BrowseDirectoryCommand { get; }
     public ICommand RunAnalysisCommand { get; }
 
-    public AnalysisViewModel(ILogger<AnalysisViewModel> logger, IServiceProvider serviceProvider, IDialogService dialogService)
+    public AnalysisViewModel(ILogger<AnalysisViewModel> logger, IMigrationAnalyzer analyzer, IDialogService dialogService)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _analyzer = analyzer;
         _dialogService = dialogService;
 
         var canRun = this.WhenAnyValue(
@@ -84,11 +83,9 @@ public class AnalysisViewModel : ViewModelBase
             IsRunning = true;
             StatusMessage = "Analyzing projects...";
 
-            using var scope = _serviceProvider.CreateScope();
-            var analyzer = scope.ServiceProvider.GetRequiredService<IMigrationAnalyzer>();
             
             var cts = new CancellationTokenSource();
-            var report = await analyzer.AnalyzeProjectsAsync(DirectoryPath, cts.Token);
+            var report = await _analyzer.AnalyzeProjectsAsync(DirectoryPath, cts.Token);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
