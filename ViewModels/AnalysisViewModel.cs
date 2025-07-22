@@ -63,7 +63,7 @@ public class AnalysisViewModel : ViewModelBase
             x => x.IsRunning,
             (dir, running) => !string.IsNullOrWhiteSpace(dir) && !running);
 
-        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
+        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync, outputScheduler: RxApp.MainThreadScheduler);
         RunAnalysisCommand = ReactiveCommand.CreateFromTask(RunAnalysisAsync, canRun);
     }
 

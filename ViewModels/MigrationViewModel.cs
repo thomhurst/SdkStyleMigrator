@@ -231,8 +231,8 @@ public class MigrationViewModel : ViewModelBase
             x => x.ValidationContext.IsValid,
             (dir, running, isValid) => !string.IsNullOrWhiteSpace(dir) && !running && isValid);
 
-        // Create commands with exception handling
-        var browseCmd = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
+        // Create commands with exception handling - force execution on UI thread
+        var browseCmd = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync, outputScheduler: RxApp.MainThreadScheduler);
         browseCmd.ThrownExceptions.Subscribe(ex =>
         {
             Console.WriteLine($"BrowseDirectoryCommand exception: {ex.GetType().Name}: {ex.Message}");
@@ -241,7 +241,7 @@ public class MigrationViewModel : ViewModelBase
         });
         BrowseDirectoryCommand = browseCmd;
         
-        var browseOutputCmd = ReactiveCommand.CreateFromTask(BrowseOutputDirectoryAsync);
+        var browseOutputCmd = ReactiveCommand.CreateFromTask(BrowseOutputDirectoryAsync, outputScheduler: RxApp.MainThreadScheduler);
         browseOutputCmd.ThrownExceptions.Subscribe(ex =>
         {
             Console.WriteLine($"BrowseOutputDirectoryCommand exception: {ex.GetType().Name}: {ex.Message}");
@@ -249,7 +249,7 @@ public class MigrationViewModel : ViewModelBase
         });
         BrowseOutputDirectoryCommand = browseOutputCmd;
         
-        var browseNugetCmd = ReactiveCommand.CreateFromTask(BrowseNugetConfigAsync);
+        var browseNugetCmd = ReactiveCommand.CreateFromTask(BrowseNugetConfigAsync, outputScheduler: RxApp.MainThreadScheduler);
         browseNugetCmd.ThrownExceptions.Subscribe(ex =>
         {
             Console.WriteLine($"BrowseNugetConfigCommand exception: {ex.GetType().Name}: {ex.Message}");

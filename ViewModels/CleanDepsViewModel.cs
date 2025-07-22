@@ -74,7 +74,7 @@ public class CleanDepsViewModel : ViewModelBase
             x => x.IsRunning,
             (dir, running) => !string.IsNullOrWhiteSpace(dir) && !running);
 
-        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
+        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync, outputScheduler: RxApp.MainThreadScheduler);
         RunCleanupCommand = ReactiveCommand.CreateFromTask(RunCleanupAsync, canRun);
         ClearLogsCommand = ReactiveCommand.Create(() => LogMessages.Clear());
     }

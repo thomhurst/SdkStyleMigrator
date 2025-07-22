@@ -70,7 +70,7 @@ public class RollbackViewModel : ViewModelBase
             x => x.IsRunning,
             (dir, session, running) => !string.IsNullOrWhiteSpace(dir) && session != null && !running);
 
-        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync);
+        BrowseDirectoryCommand = ReactiveCommand.CreateFromTask(BrowseDirectoryAsync, outputScheduler: RxApp.MainThreadScheduler);
         RefreshSessionsCommand = ReactiveCommand.CreateFromTask(LoadBackupSessionsAsync);
         RunRollbackCommand = ReactiveCommand.CreateFromTask(RunRollbackAsync, canRun);
     }
