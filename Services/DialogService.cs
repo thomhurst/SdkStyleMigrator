@@ -413,40 +413,115 @@ public class DialogService : IDialogService
             // Get the main window for parent
             var window = GetMainWindow();
             Console.WriteLine($"Main window: {window != null}");
+            if (window != null)
+            {
+                Console.WriteLine($"Window state: Loaded={window.IsLoaded}, Visible={window.IsVisible}");
+                Console.WriteLine($"Window title: {window.Title}");
+                Console.WriteLine($"Window size: {window.Width}x{window.Height}");
+            }
             
-            Console.WriteLine("Step 3: Creating message box...");
+            Console.WriteLine("Step 3: Pre-MessageBox system validation...");
+            
+            // Test if we can access the MessageBox system at all
+            try
+            {
+                Console.WriteLine("Step 3a: Testing MessageBoxManager access...");
+                var testAccess = typeof(MessageBoxManager);
+                Console.WriteLine($"✅ MessageBoxManager type: {testAccess.FullName}");
+                
+                Console.WriteLine("Step 3b: Testing enum access...");
+                var testButton = ButtonEnum.Ok;
+                var testIcon = Icon.Error;
+                Console.WriteLine($"✅ ButtonEnum.Ok: {testButton}");
+                Console.WriteLine($"✅ Icon.Error: {testIcon}");
+            }
+            catch (Exception preTestEx)
+            {
+                Console.WriteLine($"❌ MessageBox system pre-test failed: {preTestEx}");
+                throw new InvalidOperationException("MessageBox system is not accessible", preTestEx);
+            }
+            
+            Console.WriteLine("Step 4: Creating message box...");
             
             // CRITICAL: Add try-catch around MessageBox creation
             try
             {
-                Console.WriteLine("Creating message box with parameters...");
+                Console.WriteLine("Step 4a: Creating message box with parameters...");
+                Console.WriteLine($"Title length: {title.Length}");
+                Console.WriteLine($"Message length: {message.Length}");
+                
+                // Add process monitoring - capture PID and memory before MessageBox creation
+                var process = System.Diagnostics.Process.GetCurrentProcess();
+                Console.WriteLine($"Process state before MessageBox: PID={process.Id}, Memory={process.WorkingSet64 / 1024 / 1024}MB");
+                
                 var messageBox = MessageBoxManager.GetMessageBoxStandard(
                     title,
                     message,
                     ButtonEnum.Ok,
                     Icon.Error);
-                Console.WriteLine("Message box created successfully");
+                Console.WriteLine("✅ Message box created successfully");
                 
-                Console.WriteLine("Step 4: Showing message box...");
+                Console.WriteLine("Step 4b: Message box type validation...");
+                Console.WriteLine($"MessageBox type: {messageBox.GetType().FullName}");
+                
+                Console.WriteLine("Step 5: Showing message box...");
+                
+                // Pre-show validation
+                Console.WriteLine("Step 5a: Pre-show validation...");
+                Console.WriteLine($"Process still alive: PID={System.Diagnostics.Process.GetCurrentProcess().Id}");
+                Console.WriteLine($"UI thread access: {Dispatcher.UIThread.CheckAccess()}");
                 
                 if (window != null)
                 {
-                    Console.WriteLine("Showing as window dialog...");
-                    await messageBox.ShowWindowDialogAsync(window);
-                    Console.WriteLine("Window dialog completed");
+                    Console.WriteLine("Step 5b: Showing as window dialog...");
+                    Console.WriteLine("About to call ShowWindowDialogAsync...");
+                    
+                    // Monitor the actual ShowWindowDialogAsync call
+                    var showTask = messageBox.ShowWindowDialogAsync(window);
+                    Console.WriteLine("ShowWindowDialogAsync call initiated");
+                    
+                    var result = await showTask;
+                    Console.WriteLine($"✅ Window dialog completed with result: {result}");
                 }
                 else
                 {
-                    Console.WriteLine("Showing as standalone dialog...");
-                    await messageBox.ShowAsync();
-                    Console.WriteLine("Standalone dialog completed");
+                    Console.WriteLine("Step 5b: Showing as standalone dialog...");
+                    Console.WriteLine("About to call ShowAsync...");
+                    
+                    // Monitor the actual ShowAsync call  
+                    var showTask = messageBox.ShowAsync();
+                    Console.WriteLine("ShowAsync call initiated");
+                    
+                    var result = await showTask;
+                    Console.WriteLine($"✅ Standalone dialog completed with result: {result}");
                 }
             }
             catch (Exception showEx)
             {
-                Console.WriteLine($"CRITICAL: Failed to show message box: {showEx}");
+                Console.WriteLine($"❌ CRITICAL: Failed during MessageBox operations");
                 Console.WriteLine($"Exception type: {showEx.GetType().FullName}");
+                Console.WriteLine($"Exception message: {showEx.Message}");
+                Console.WriteLine($"Exception source: {showEx.Source}");
+                Console.WriteLine($"HResult: {showEx.HResult:X8}");
                 Console.WriteLine($"Stack trace: {showEx.StackTrace}");
+                
+                if (showEx.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {showEx.InnerException.GetType().FullName}: {showEx.InnerException.Message}");
+                    Console.WriteLine($"Inner stack: {showEx.InnerException.StackTrace}");
+                }
+                
+                // Try to check if process is still alive after exception
+                try
+                {
+                    var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
+                    Console.WriteLine($"Process still alive after exception: PID={currentProcess.Id}");
+                }
+                catch (Exception procEx)
+                {
+                    Console.WriteLine($"Cannot check process state: {procEx.Message}");
+                }
+                
                 throw;
             }
         }

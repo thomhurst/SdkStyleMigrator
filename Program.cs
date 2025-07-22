@@ -1642,40 +1642,176 @@ Examples:
     
     static AppBuilder BuildAvaloniaApp()
     {
+        Console.WriteLine("=== VERBOSE AVALONIA STARTUP DIAGNOSTICS ===");
+        
         // Enhanced diagnostics: Log environment information
         Console.WriteLine("=== Environment Diagnostics ===");
         Console.WriteLine($"OS: {Environment.OSVersion}");
         Console.WriteLine($"Runtime: {Environment.Version}");
         Console.WriteLine($"Process Architecture: {Environment.ProcessorCount} cores");
+        Console.WriteLine($"Process ID: {System.Diagnostics.Process.GetCurrentProcess().Id}");
+        Console.WriteLine($"Process Name: {System.Diagnostics.Process.GetCurrentProcess().ProcessName}");
+        Console.WriteLine($"Memory Usage: {GC.GetTotalMemory(false) / 1024 / 1024} MB");
         Console.WriteLine($"DISPLAY: {Environment.GetEnvironmentVariable("DISPLAY") ?? "Not set"}");
         Console.WriteLine($"WSL_DISTRO_NAME: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "Not set"}");
         Console.WriteLine($"XDG_CURRENT_DESKTOP: {Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP") ?? "Not set"}");
+        Console.WriteLine($"XDG_SESSION_TYPE: {Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") ?? "Not set"}");
         Console.WriteLine($"WAYLAND_DISPLAY: {Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") ?? "Not set"}");
+        Console.WriteLine($"LIBGL_ALWAYS_SOFTWARE: {Environment.GetEnvironmentVariable("LIBGL_ALWAYS_SOFTWARE") ?? "Not set"}");
         Console.WriteLine($"Working Directory: {Environment.CurrentDirectory}");
+        Console.WriteLine($"User: {Environment.UserName}");
+        Console.WriteLine($"Machine: {Environment.MachineName}");
+        
+        // Test X11 connectivity for WSL
+        var wslDistro = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME");
+        var display = Environment.GetEnvironmentVariable("DISPLAY");
+        if (!string.IsNullOrEmpty(wslDistro))
+        {
+            Console.WriteLine("=== WSL X11 Connectivity Test ===");
+            Console.WriteLine($"WSL Distribution: {wslDistro}");
+            if (string.IsNullOrEmpty(display))
+            {
+                Console.WriteLine("❌ CRITICAL: DISPLAY variable not set");
+                Console.WriteLine("💡 Set DISPLAY variable: export DISPLAY=:0.0");
+                Console.WriteLine("💡 Or install X Server: VcXsrv, X410, or Xming");
+            }
+            else
+            {
+                Console.WriteLine($"✅ DISPLAY set to: {display}");
+                
+                // Try to test X11 connection programmatically
+                try
+                {
+                    using var process = new System.Diagnostics.Process();
+                    process.StartInfo.FileName = "xdpyinfo";
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
+                    process.StartInfo.CreateNoWindow = true;
+                    process.Start();
+                    process.WaitForExit(2000);
+                    
+                    if (process.ExitCode == 0)
+                    {
+                        Console.WriteLine("✅ X11 server connection test PASSED");
+                    }
+                    else
+                    {
+                        Console.WriteLine("❌ X11 server connection test FAILED");
+                        Console.WriteLine($"Error: {process.StandardError.ReadToEnd()}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Could not test X11 connection: {ex.Message}");
+                    Console.WriteLine("(xdpyinfo may not be installed)");
+                }
+            }
+            Console.WriteLine("===============================");
+        }
+        
         Console.WriteLine("================================");
+        
+        Console.WriteLine("Step A: Setting environment variables...");
         
         // Force software rendering in WSL
         if (OperatingSystem.IsLinux())
         {
             Environment.SetEnvironmentVariable("AVALONIA_FORCE_SOFTWARE_RENDERING", "1");
-            Console.WriteLine("Running on Linux - forcing software rendering for WSL");
+            Environment.SetEnvironmentVariable("LIBGL_ALWAYS_SOFTWARE", "1");
+            Console.WriteLine("✅ Set AVALONIA_FORCE_SOFTWARE_RENDERING=1");
+            Console.WriteLine("✅ Set LIBGL_ALWAYS_SOFTWARE=1");
+            Console.WriteLine("Running on Linux - forcing software rendering for WSL compatibility");
         }
         
-        var builder = AppBuilder.Configure<App>()
-            .UsePlatformDetect()
-            .WithInterFont()
-            .LogToTrace(Avalonia.Logging.LogEventLevel.Debug); // Enhanced: Enable debug logging
-
-        // Add platform-specific configuration for Linux/WSL
-        if (OperatingSystem.IsLinux())
+        Console.WriteLine("Step B: Configuring AppBuilder...");
+        
+        try
         {
-            builder = builder.With(new X11PlatformOptions
-            {
-                EnableMultiTouch = false,
-                UseDBusMenu = false
-            });
-        }
+            Console.WriteLine("Step B1: Creating base AppBuilder...");
+            var builder = AppBuilder.Configure<App>();
+            Console.WriteLine("✅ AppBuilder.Configure<App>() successful");
+            
+            Console.WriteLine("Step B2: Adding platform detection...");
+            builder = builder.UsePlatformDetect();
+            Console.WriteLine("✅ UsePlatformDetect() successful");
+            
+            Console.WriteLine("Step B3: Adding InterFont...");
+            builder = builder.WithInterFont();
+            Console.WriteLine("✅ WithInterFont() successful");
+            
+            Console.WriteLine("Step B4: Adding debug logging...");
+            builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Debug);
+            Console.WriteLine("✅ LogToTrace() successful");
 
-        return builder;
+            // Add platform-specific configuration for Linux/WSL
+            if (OperatingSystem.IsLinux())
+            {
+                Console.WriteLine("Step B5: Adding Linux/X11 platform options...");
+                try
+                {
+                    builder = builder.With(new X11PlatformOptions
+                    {
+                        EnableMultiTouch = false,
+                        UseDBusMenu = false,
+                        EnableIme = false,
+                        WmClass = "SdkMigrator"
+                    });
+                    Console.WriteLine("✅ X11PlatformOptions configuration successful");
+                }
+                catch (Exception x11Ex)
+                {
+                    Console.WriteLine($"⚠️ X11PlatformOptions failed: {x11Ex.Message}");
+                    Console.WriteLine("Continuing without X11-specific options...");
+                }
+            }
+
+            Console.WriteLine("Step C: AppBuilder configuration complete");
+            Console.WriteLine("=========================================");
+            return builder;
+        }
+        catch (Exception builderEx)
+        {
+            Console.WriteLine($"=== CRITICAL: AppBuilder Configuration Failed ===");
+            Console.WriteLine($"Exception Type: {builderEx.GetType().FullName}");
+            Console.WriteLine($"Message: {builderEx.Message}");
+            Console.WriteLine($"Source: {builderEx.Source}");
+            Console.WriteLine($"Stack Trace: {builderEx.StackTrace}");
+            if (builderEx.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {builderEx.InnerException.GetType().FullName}: {builderEx.InnerException.Message}");
+            }
+            Console.WriteLine("===============================================");
+            throw;
+        }
+    }
+    
+    private static bool CheckGuiEnvironment()
+    {
+        Console.WriteLine("=== GUI Environment Check ===");
+        
+        var display = Environment.GetEnvironmentVariable("DISPLAY");
+        var waylandDisplay = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
+        var wslDistro = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME");
+        
+        bool hasDisplay = !string.IsNullOrEmpty(display) || !string.IsNullOrEmpty(waylandDisplay);
+        
+        Console.WriteLine($"DISPLAY: {display ?? "Not set"}");
+        Console.WriteLine($"WAYLAND_DISPLAY: {waylandDisplay ?? "Not set"}");
+        Console.WriteLine($"WSL: {wslDistro ?? "Not WSL"}");
+        Console.WriteLine($"Has GUI: {hasDisplay}");
+        
+        if (!hasDisplay)
+        {
+            Console.WriteLine("❌ No graphical environment detected");
+            Console.WriteLine("For WSL, try:");
+            Console.WriteLine("  export DISPLAY=:0.0");
+            Console.WriteLine("  Install VcXsrv or X410");
+            return false;
+        }
+        
+        Console.WriteLine("✅ Graphical environment available");
+        Console.WriteLine("==============================");
+        return true;
     }
 }
