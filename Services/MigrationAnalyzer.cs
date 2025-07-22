@@ -14,7 +14,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
     private readonly CustomTargetAnalyzer _customTargetAnalyzer;
     private readonly ProjectTypeDetector _projectTypeDetector;
     private readonly ServiceReferenceDetector _serviceReferenceDetector;
-    private readonly NativeDependencyHandler _nativeDependencyHandler;
+    private readonly INativeDependencyHandler _nativeDependencyHandler;
 
     public MigrationAnalyzer(
         ILogger<MigrationAnalyzer> logger,
@@ -23,7 +23,7 @@ public class MigrationAnalyzer : IMigrationAnalyzer
         CustomTargetAnalyzer customTargetAnalyzer,
         ProjectTypeDetector projectTypeDetector,
         ServiceReferenceDetector serviceReferenceDetector,
-        NativeDependencyHandler nativeDependencyHandler)
+        INativeDependencyHandler nativeDependencyHandler)
     {
         _logger = logger;
         _projectFileScanner = projectFileScanner;

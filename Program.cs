@@ -837,8 +837,8 @@ Examples:
 
         // Edge case detectors
         services.AddSingleton<ProjectTypeDetector>();
-        services.AddSingleton<BuildEventMigrator>();
-        services.AddSingleton<NativeDependencyHandler>();
+        services.AddSingleton<IBuildEventMigrator, BuildEventMigrator>();
+        services.AddSingleton<INativeDependencyHandler, NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
 
         // New analysis and migration services

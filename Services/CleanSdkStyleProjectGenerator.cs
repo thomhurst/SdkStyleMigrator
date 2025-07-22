@@ -24,6 +24,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IAssemblyReferenceConverter _assemblyReferenceConverter;
     private readonly ITestProjectHandler _testProjectHandler;
     private readonly IDesignerFileHandler _designerFileHandler;
+    private readonly IBuildEventMigrator _buildEventMigrator;
+    private readonly INativeDependencyHandler _nativeDependencyHandler;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -36,7 +38,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         IMSBuildArtifactDetector artifactDetector,
         IAssemblyReferenceConverter assemblyReferenceConverter,
         ITestProjectHandler testProjectHandler,
-        IDesignerFileHandler designerFileHandler)
+        IDesignerFileHandler designerFileHandler,
+        IBuildEventMigrator buildEventMigrator,
+        INativeDependencyHandler nativeDependencyHandler)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -49,6 +53,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _assemblyReferenceConverter = assemblyReferenceConverter;
         _testProjectHandler = testProjectHandler;
         _designerFileHandler = designerFileHandler;
+        _buildEventMigrator = buildEventMigrator;
+        _nativeDependencyHandler = nativeDependencyHandler;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -121,6 +127,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate custom item types
             MigrateCustomItemTypes(legacyProject, projectElement);
 
+            // Detect and migrate native dependencies
+            var nativeDependencies = _nativeDependencyHandler.DetectNativeDependencies(legacyProject);
+            if (nativeDependencies.Any())
+            {
+                _nativeDependencyHandler.MigrateNativeDependencies(nativeDependencies, projectElement, result);
+                _logger.LogInformation("Detected and migrated {Count} native dependencies", nativeDependencies.Count);
+            }
+
             // Migrate InternalsVisibleTo from AssemblyInfo
             await MigrateInternalsVisibleToAsync(legacyProject, projectElement, cancellationToken);
 
@@ -189,12 +203,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 return "Microsoft.NET.Sdk.BlazorWebAssembly";
         }
 
-        // Check for WPF/WinForms by items
-        var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
-        var hasWinFormsItems = project.Items.Any(i =>
-            i.ItemType == "Compile" &&
-            i.HasMetadata("SubType") &&
-            (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+        // Check for WPF/WinForms by items (only from explicit XML)
+        var hasWpfItems = HasExplicitItemsOfType(project, new[] { "ApplicationDefinition", "Page" });
+        var hasWinFormsItems = HasExplicitWinFormsItems(project);
 
         if (hasWpfItems || hasWinFormsItems)
         {
@@ -208,6 +219,58 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         return "Microsoft.NET.Sdk";
+    }
+
+    private bool HasExplicitItemsOfType(Project project, string[] itemTypes)
+    {
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            if (itemGroup.Items.Any(i => itemTypes.Contains(i.ItemType)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private bool HasExplicitWinFormsItems(Project project)
+    {
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items.Where(i => i.ItemType == "Compile"))
+            {
+                var subTypeElement = item.Metadata.FirstOrDefault(m => m.Name == "SubType");
+                if (subTypeElement != null)
+                {
+                    var subType = subTypeElement.Value;
+                    if (subType == "Form" || subType == "UserControl")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<(string Include, Dictionary<string, string> Metadata)> GetExplicitItemsFromXml(Project project, string itemType)
+    {
+        var items = new List<(string Include, Dictionary<string, string> Metadata)>();
+        
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items.Where(i => i.ItemType == itemType))
+            {
+                var metadata = new Dictionary<string, string>();
+                foreach (var meta in item.Metadata)
+                {
+                    metadata[meta.Name] = meta.Value;
+                }
+                items.Add((item.Include, metadata));
+            }
+        }
+        
+        return items;
     }
 
     private void MigrateBasicProperties(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties)
@@ -264,35 +327,60 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             AddPropertyIfNotInherited("TargetFramework", targetFramework);
         }
 
-        // Output type
-        var outputType = project.Properties
-            .FirstOrDefault(p => p.Name == "OutputType")?.EvaluatedValue;
-        AddPropertyIfNotInherited("OutputType", outputType ?? "");
-
-        // Assembly name
-        var assemblyName = project.Properties
-            .FirstOrDefault(p => p.Name == "AssemblyName")?.EvaluatedValue;
-        AddPropertyIfNotInherited("AssemblyName", assemblyName ?? "");
-
-        // Root namespace
-        var rootNamespace = project.Properties
-            .FirstOrDefault(p => p.Name == "RootNamespace")?.EvaluatedValue;
-        if (!string.IsNullOrEmpty(rootNamespace) && rootNamespace != assemblyName)
+        // Get properties that are explicitly defined in the project file (not MSBuild defaults)
+        var explicitProperties = new Dictionary<string, string>();
+        foreach (var propGroup in project.Xml.PropertyGroups)
         {
-            AddPropertyIfNotInherited("RootNamespace", rootNamespace);
+            foreach (var prop in propGroup.Properties)
+            {
+                if (!string.IsNullOrEmpty(prop.Value))
+                {
+                    explicitProperties[prop.Name] = prop.Value;
+                }
+            }
         }
 
-        // Language version
-        var langVersion = project.Properties
-            .FirstOrDefault(p => p.Name == "LangVersion")?.EvaluatedValue;
-        AddPropertyIfNotInherited("LangVersion", langVersion ?? "");
-
-        // Nullable - only add if not inherited and applicable
-        if (targetFramework?.StartsWith("net") == true &&
-            int.TryParse(targetFramework.Substring(3, 1), out var version) && version >= 6 &&
-            !inheritedProperties.ContainsKey("Nullable"))
+        // Output type - only if explicitly defined
+        if (explicitProperties.TryGetValue("OutputType", out var outputType))
         {
-            propertyGroup.Add(new XElement("Nullable", "enable"));
+            AddPropertyIfNotInherited("OutputType", project.ExpandString(outputType));
+        }
+
+        // Assembly name - only if explicitly defined
+        if (explicitProperties.TryGetValue("AssemblyName", out var assemblyName))
+        {
+            AddPropertyIfNotInherited("AssemblyName", project.ExpandString(assemblyName));
+        }
+
+        // Root namespace - only if explicitly defined and different from AssemblyName
+        if (explicitProperties.TryGetValue("RootNamespace", out var rootNamespace))
+        {
+            var expandedRootNamespace = project.ExpandString(rootNamespace);
+            var expandedAssemblyName = explicitProperties.ContainsKey("AssemblyName") 
+                ? project.ExpandString(explicitProperties["AssemblyName"]) 
+                : null;
+                
+            if (expandedRootNamespace != expandedAssemblyName)
+            {
+                AddPropertyIfNotInherited("RootNamespace", expandedRootNamespace);
+            }
+        }
+
+        // Language version - only if explicitly defined
+        if (explicitProperties.TryGetValue("LangVersion", out var langVersion))
+        {
+            _logger.LogDebug("LangVersion explicitly defined in project: {Value}", langVersion);
+            AddPropertyIfNotInherited("LangVersion", project.ExpandString(langVersion));
+        }
+        else
+        {
+            _logger.LogDebug("No explicit LangVersion property found in project file");
+        }
+
+        // Nullable - only if explicitly defined in original project
+        if (explicitProperties.TryGetValue("Nullable", out var nullable))
+        {
+            AddPropertyIfNotInherited("Nullable", project.ExpandString(nullable));
         }
 
         // Strong naming properties
@@ -309,11 +397,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 
             if (needsWpfOrWinForms)
             {
-                var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
-                var hasWinFormsItems = project.Items.Any(i =>
-                    i.ItemType == "Compile" &&
-                    i.HasMetadata("SubType") &&
-                    (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+                var hasWpfItems = HasExplicitItemsOfType(project, new[] { "ApplicationDefinition", "Page" });
+                var hasWinFormsItems = HasExplicitWinFormsItems(project);
 
                 if (hasWpfItems)
                     propertyGroup.Add(new XElement("UseWPF", "true"));
@@ -328,11 +413,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 !targetFramework.Contains(".") &&
                 !targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
             {
-                var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
-                var hasWinFormsItems = project.Items.Any(i =>
-                    i.ItemType == "Compile" &&
-                    i.HasMetadata("SubType") &&
-                    (i.GetMetadataValue("SubType") == "Form" || i.GetMetadataValue("SubType") == "UserControl"));
+                var hasWpfItems = HasExplicitItemsOfType(project, new[] { "ApplicationDefinition", "Page" });
+                var hasWinFormsItems = HasExplicitWinFormsItems(project);
 
                 if (hasWpfItems)
                     propertyGroup.Add(new XElement("UseWPF", "true"));
@@ -346,49 +428,76 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateConditionalProperties(Project project, XElement projectElement, bool isMultiTargeting)
     {
-        // Get all DefineConstants across configurations
-        var defineConstantsByCondition = project.Properties
-            .Where(p => p.Name == "DefineConstants" && !string.IsNullOrEmpty(p.Xml?.Condition))
-            .GroupBy(p => p.Xml?.Condition ?? "")
-            .ToList();
-
-        if (defineConstantsByCondition.Any())
+        // Get all DefineConstants across configurations - only from explicit XML
+        var defineConstantsFromXml = new List<(string Value, string Condition)>();
+        
+        foreach (var propGroup in project.Xml.PropertyGroups)
         {
-            foreach (var group in defineConstantsByCondition)
+            var condition = propGroup.Condition;
+            if (!string.IsNullOrEmpty(condition))
             {
-                var condition = group.Key;
-                var defineConstants = group.First().EvaluatedValue;
-
-                if (string.IsNullOrEmpty(defineConstants))
-                    continue;
-
-                // Convert legacy conditions to modern framework conditions if multi-targeting
-                if (isMultiTargeting)
+                foreach (var prop in propGroup.Properties)
                 {
-                    condition = ConvertConditionToFrameworkSpecific(condition);
+                    if (prop.Name == "DefineConstants" && !string.IsNullOrEmpty(prop.Value))
+                    {
+                        defineConstantsFromXml.Add((prop.Value, condition));
+                    }
                 }
-
-                var propGroup = new XElement("PropertyGroup");
-                if (!string.IsNullOrEmpty(condition))
-                {
-                    propGroup.Add(new XAttribute("Condition", condition));
-                }
-                propGroup.Add(new XElement("DefineConstants", defineConstants));
-                projectElement.Add(propGroup);
-
-                _logger.LogDebug("Migrated conditional DefineConstants: {Constants} with condition: {Condition}", 
-                    defineConstants, condition);
             }
         }
 
-        // Migrate other conditional properties (PlatformTarget, etc.)
-        var otherConditionalProps = project.Properties
-            .Where(p => new[] { "PlatformTarget", "Prefer32Bit", "AllowUnsafeBlocks", "DebugType", "DebugSymbols", "Optimize" }
-                .Contains(p.Name) && !string.IsNullOrEmpty(p.Xml?.Condition))
-            .GroupBy(p => p.Xml?.Condition ?? "")
+        if (defineConstantsFromXml.Any())
+        {
+            foreach (var (value, condition) in defineConstantsFromXml)
+            {
+                var expandedValue = project.ExpandString(value);
+                if (string.IsNullOrEmpty(expandedValue))
+                    continue;
+
+                // Convert legacy conditions to modern framework conditions if multi-targeting
+                var processedCondition = condition;
+                if (isMultiTargeting)
+                {
+                    processedCondition = ConvertConditionToFrameworkSpecific(condition);
+                }
+
+                var propGroup = new XElement("PropertyGroup");
+                if (!string.IsNullOrEmpty(processedCondition))
+                {
+                    propGroup.Add(new XAttribute("Condition", processedCondition));
+                }
+                propGroup.Add(new XElement("DefineConstants", expandedValue));
+                projectElement.Add(propGroup);
+
+                _logger.LogDebug("Migrated conditional DefineConstants: {Constants} with condition: {Condition}", 
+                    expandedValue, processedCondition);
+            }
+        }
+
+        // Migrate other conditional properties (PlatformTarget, etc.) - only from explicit XML
+        var conditionalPropsFromXml = new List<(string PropertyName, string PropertyValue, string Condition)>();
+        var conditionalPropNames = new[] { "PlatformTarget", "Prefer32Bit", "AllowUnsafeBlocks", "DebugType", "DebugSymbols", "Optimize" };
+        
+        foreach (var propGroup in project.Xml.PropertyGroups)
+        {
+            var condition = propGroup.Condition;
+            if (!string.IsNullOrEmpty(condition))
+            {
+                foreach (var prop in propGroup.Properties)
+                {
+                    if (conditionalPropNames.Contains(prop.Name) && !string.IsNullOrEmpty(prop.Value))
+                    {
+                        conditionalPropsFromXml.Add((prop.Name, prop.Value, condition));
+                    }
+                }
+            }
+        }
+
+        var groupedConditionalProps = conditionalPropsFromXml
+            .GroupBy(x => x.Condition)
             .ToList();
 
-        foreach (var group in otherConditionalProps)
+        foreach (var group in groupedConditionalProps)
         {
             var condition = group.Key;
             if (isMultiTargeting)
@@ -402,9 +511,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 propGroup.Add(new XAttribute("Condition", condition));
             }
 
-            foreach (var prop in group)
+            foreach (var (propertyName, propertyValue, _) in group)
             {
-                propGroup.Add(new XElement(prop.Name, prop.EvaluatedValue));
+                propGroup.Add(new XElement(propertyName, project.ExpandString(propertyValue)));
             }
 
             projectElement.Add(propGroup);
@@ -714,19 +823,27 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateProjectReferences(Project project, XElement projectElement)
     {
-        var projectRefs = project.Items
-            .Where(i => i.ItemType == "ProjectReference")
-            .ToList();
+        var projectRefs = GetExplicitItemsFromXml(project, "ProjectReference");
 
         if (projectRefs.Any())
         {
             var itemGroup = new XElement("ItemGroup");
 
-            foreach (var projRef in projectRefs)
+            foreach (var (include, metadata) in projectRefs)
             {
+                var expandedInclude = project.ExpandString(include);
                 var element = new XElement("ProjectReference",
-                    new XAttribute("Include", projRef.EvaluatedInclude));
-
+                    new XAttribute("Include", expandedInclude));
+                
+                // Add metadata
+                foreach (var (key, value) in metadata)
+                {
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        element.Add(new XElement(key, project.ExpandString(value)));
+                    }
+                }
+                
                 itemGroup.Add(element);
             }
 
@@ -736,22 +853,34 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateCompileItems(Project project, XElement projectElement)
     {
-        var compileItems = project.Items
-            .Where(i => i.ItemType == "Compile")
-            .Where(i => !i.EvaluatedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) // Exclude ALL .cs files
-            .Where(i => !IsAssemblyInfoFile(i.EvaluatedInclude)) // Exclude AssemblyInfo files
+        var compileItems = GetExplicitItemsFromXml(project, "Compile")
+            .Where(item => 
+            {
+                var expandedInclude = project.ExpandString(item.Include);
+                return !expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && // Exclude ALL .cs files
+                       !IsAssemblyInfoFile(expandedInclude); // Exclude AssemblyInfo files
+            })
             .ToList();
 
         if (compileItems.Any())
         {
             var itemGroup = new XElement("ItemGroup");
 
-            foreach (var item in compileItems)
+            foreach (var (include, metadata) in compileItems)
             {
+                var expandedInclude = project.ExpandString(include);
                 var element = new XElement("Compile",
-                    new XAttribute("Include", item.EvaluatedInclude));
+                    new XAttribute("Include", expandedInclude));
 
-                PreserveMetadata(item, element);
+                // Add metadata
+                foreach (var (key, value) in metadata)
+                {
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        element.Add(new XElement(key, project.ExpandString(value)));
+                    }
+                }
+                
                 itemGroup.Add(element);
             }
 
@@ -764,34 +893,47 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateCsFilesWithMetadata(Project project, XElement projectElement)
     {
-        // Find .cs files that have metadata that needs to be preserved
-        var csFilesWithMetadata = project.Items
-            .Where(i => i.ItemType == "Compile")
-            .Where(i => i.EvaluatedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
-            .Where(i => !IsAssemblyInfoFile(i.EvaluatedInclude)) // Exclude AssemblyInfo files
-            .Where(i => i.HasMetadata("DependentUpon") || 
-                       i.HasMetadata("SubType") ||
-                       i.HasMetadata("Generator") ||
-                       i.HasMetadata("LastGenOutput") ||
-                       i.HasMetadata("DesignTime") ||
-                       i.HasMetadata("AutoGen") ||
-                       i.HasMetadata("CustomToolNamespace") ||
-                       i.HasMetadata("Link")) // Linked files need explicit inclusion
+        // Find .cs files that have metadata that needs to be preserved (only from explicit XML)
+        var csFilesWithMetadata = GetExplicitItemsFromXml(project, "Compile")
+            .Where(item =>
+            {
+                var expandedInclude = project.ExpandString(item.Include);
+                if (!expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                    IsAssemblyInfoFile(expandedInclude))
+                {
+                    return false;
+                }
+                
+                // Check if it has important metadata
+                var importantMetadata = new[] { "DependentUpon", "SubType", "Generator", "LastGenOutput", "DesignTime", "AutoGen", "CustomToolNamespace", "Link" };
+                return item.Metadata.Any(m => importantMetadata.Contains(m.Key) && !string.IsNullOrEmpty(m.Value));
+            })
             .ToList();
 
         if (csFilesWithMetadata.Any())
         {
             var itemGroup = new XElement("ItemGroup");
 
-            foreach (var item in csFilesWithMetadata)
+            foreach (var (include, metadata) in csFilesWithMetadata)
             {
+                var expandedInclude = project.ExpandString(include);
+                
                 // Linked files need Include (they're outside project directory)
                 // Other files with metadata use Update (they're auto-included by SDK)
-                var attributeName = item.HasMetadata("Link") ? "Include" : "Update";
+                var hasLink = metadata.ContainsKey("Link") && !string.IsNullOrEmpty(metadata["Link"]);
+                var attributeName = hasLink ? "Include" : "Update";
                 var element = new XElement("Compile",
-                    new XAttribute(attributeName, item.EvaluatedInclude));
+                    new XAttribute(attributeName, expandedInclude));
 
-                PreserveMetadata(item, element);
+                // Add metadata
+                foreach (var (key, value) in metadata)
+                {
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        element.Add(new XElement(key, project.ExpandString(value)));
+                    }
+                }
+                
                 itemGroup.Add(element);
             }
 
@@ -1006,42 +1148,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             _logger.LogInformation("Preserved custom target: {TargetName}", target.Name);
         }
 
-        // Migrate pre/post build events (simplified format for common cases)
-        var preBuild = project.Properties
-            .FirstOrDefault(p => p.Name == "PreBuildEvent")?.EvaluatedValue;
-        var postBuild = project.Properties
-            .FirstOrDefault(p => p.Name == "PostBuildEvent")?.EvaluatedValue;
-
-        if (!string.IsNullOrWhiteSpace(preBuild))
-        {
-            var target = new XElement("Target",
-                new XAttribute("Name", "PreBuild"),
-                new XAttribute("BeforeTargets", "PreBuildEvent"),
-                new XElement("Exec", new XAttribute("Command", preBuild)));
-
-            projectElement.Add(target);
-            _logger.LogInformation("Migrated PreBuildEvent to Target");
-        }
-
-        if (!string.IsNullOrWhiteSpace(postBuild))
-        {
-            var runPostBuildEvent = project.Properties
-                .FirstOrDefault(p => p.Name == "RunPostBuildEvent")?.EvaluatedValue;
-
-            var target = new XElement("Target",
-                new XAttribute("Name", "PostBuild"),
-                new XAttribute("AfterTargets", "PostBuildEvent"),
-                new XElement("Exec", new XAttribute("Command", postBuild)));
-
-            // Preserve RunPostBuildEvent condition if specified
-            if (!string.IsNullOrEmpty(runPostBuildEvent) && runPostBuildEvent != "OnBuildSuccess")
-            {
-                target.Add(new XAttribute("Condition", $"'$(RunPostBuildEvent)' == '{runPostBuildEvent}'"));
-            }
-
-            projectElement.Add(target);
-            _logger.LogInformation("Migrated PostBuildEvent to Target");
-        }
+        // Use comprehensive build event migration
+        _buildEventMigrator.MigrateBuildEvents(project, projectElement, result);
 
         // Migrate UsingTask elements
         foreach (var usingTask in project.Xml.UsingTasks)
@@ -1318,11 +1426,19 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         var projectDir = Path.GetDirectoryName(project.FullPath)!;
 
-        // Get all compiled files from the project
-        var compiledFiles = project.Items
-            .Where(i => i.ItemType == "Compile")
-            .Select(i => Path.GetFullPath(Path.Combine(projectDir, i.EvaluatedInclude)))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Get all compiled files from explicit project XML (not MSBuild defaults)
+        var compiledFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var itemGroup in project.Xml.ItemGroups)
+        {
+            foreach (var item in itemGroup.Items.Where(i => i.ItemType == "Compile"))
+            {
+                var expandedInclude = project.ExpandString(item.Include);
+                if (!string.IsNullOrEmpty(expandedInclude))
+                {
+                    compiledFiles.Add(Path.GetFullPath(Path.Combine(projectDir, expandedInclude)));
+                }
+            }
+        }
 
         // Find all .cs files in the project directory
         var allCsFiles = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
