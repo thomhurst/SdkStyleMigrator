@@ -240,10 +240,31 @@ public class MigrationViewModel : ViewModelBase
 
     private async Task BrowseDirectoryAsync()
     {
-        var result = await _dialogService.OpenFolderDialogAsync("Select Solution Directory");
-        if (result != null)
+        try
         {
-            DirectoryPath = result;
+            // Add debug logging
+            Console.WriteLine("BrowseDirectoryAsync called");
+            Console.WriteLine($"Thread ID: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+            Console.WriteLine($"Is UI Thread: {Dispatcher.UIThread.CheckAccess()}");
+            
+            var result = await _dialogService.OpenFolderDialogAsync("Select Solution Directory");
+            Console.WriteLine($"Dialog result: {result ?? "null"}");
+            
+            if (result != null)
+            {
+                DirectoryPath = result;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"BrowseDirectoryAsync error: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+            }
+            // For now, just set a test path to see if the rest works
+            DirectoryPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
     }
 

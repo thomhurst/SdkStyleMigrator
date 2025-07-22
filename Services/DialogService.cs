@@ -15,74 +15,156 @@ namespace SdkMigrator.Services;
 
 public class DialogService : IDialogService
 {
+    public DialogService()
+    {
+    }
+    
     public async Task<string?> OpenFolderDialogAsync(string title)
     {
-        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        try
         {
-            var topLevel = GetTopLevel();
-            if (topLevel == null)
+            Console.WriteLine($"DialogService.OpenFolderDialogAsync called with title: {title}");
+            Console.WriteLine($"Application.Current is null: {Application.Current == null}");
+            
+            // Always run on UI thread
+            if (!Dispatcher.UIThread.CheckAccess())
             {
-                Debug.WriteLine("DialogService: Could not get TopLevel window");
+                Console.WriteLine("DialogService: Not on UI thread, invoking on UI thread");
+                return await Dispatcher.UIThread.InvokeAsync(() => OpenFolderDialogAsync(title));
+            }
+
+            Console.WriteLine("DialogService: Running on UI thread");
+
+            // Get the window
+            Window? window = null;
+            
+            // Method 1: Try to get from application lifetime
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                window = desktop.MainWindow;
+                Console.WriteLine($"DialogService: Got window from ApplicationLifetime: {window != null}");
+            }
+            
+            // Method 2: If that fails, try DI
+            if (window == null)
+            {
+                window = App.Services?.GetService<MainWindow>();
+                Console.WriteLine($"DialogService: Got window from DI: {window != null}");
+            }
+            
+            if (window == null)
+            {
+                Console.WriteLine("DialogService: Could not get window from any source");
                 return null;
             }
 
-            try
-            {
-                var result = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                {
-                    Title = title,
-                    AllowMultiple = false
-                });
+            Console.WriteLine($"DialogService: Got window type: {window.GetType().Name}");
+            Console.WriteLine($"DialogService: Window IsLoaded: {window.IsLoaded}");
+            Console.WriteLine($"DialogService: Window IsVisible: {window.IsVisible}");
+            Console.WriteLine($"DialogService: Window DataContext type: {window.DataContext?.GetType().Name ?? "null"}");
 
-                return result.Count > 0 ? result[0].Path.LocalPath : null;
-            }
-            catch (Exception ex)
+            // Create a simple test to see if the issue is with StorageProvider
+            if (window.StorageProvider == null)
             {
-                Debug.WriteLine($"Error opening folder dialog: {ex}");
+                Console.WriteLine("DialogService: StorageProvider is null!");
                 return null;
             }
-        });
+
+            Console.WriteLine("DialogService: StorageProvider is available");
+
+            var options = new FolderPickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false
+            };
+
+            Console.WriteLine("DialogService: About to open folder picker...");
+            var result = await window.StorageProvider.OpenFolderPickerAsync(options);
+            Console.WriteLine($"DialogService: Folder picker returned {result?.Count ?? 0} results");
+            
+            return result?.FirstOrDefault()?.Path.LocalPath;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DialogService Error: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"DialogService Stack: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"DialogService Inner: {ex.InnerException.Message}");
+            }
+            return null;
+        }
     }
 
     public async Task<string?> OpenFileDialogAsync(string title, FilePickerFileType[]? fileTypes = null)
     {
-        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        try
         {
-            var topLevel = GetTopLevel();
-            if (topLevel == null) return null;
-
-            try
+            // Always run on UI thread
+            if (!Dispatcher.UIThread.CheckAccess())
             {
-                var options = new FilePickerOpenOptions
-                {
-                    Title = title,
-                    AllowMultiple = false
-                };
-
-                if (fileTypes != null)
-                {
-                    options.FileTypeFilter = fileTypes;
-                }
-
-                var result = await topLevel.StorageProvider.OpenFilePickerAsync(options);
-                return result.Count > 0 ? result[0].Path.LocalPath : null;
+                return await Dispatcher.UIThread.InvokeAsync(() => OpenFileDialogAsync(title, fileTypes));
             }
-            catch (Exception ex)
+
+            // Get the window
+            Window? window = null;
+            
+            // Method 1: Try to get from application lifetime
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                Debug.WriteLine($"Error opening file dialog: {ex}");
+                window = desktop.MainWindow;
+            }
+            
+            // Method 2: If that fails, try DI
+            if (window == null)
+            {
+                window = App.Services?.GetService<MainWindow>();
+            }
+            
+            if (window == null)
+            {
+                Console.WriteLine("DialogService: Could not get window from any source");
                 return null;
             }
-        });
+
+            Console.WriteLine($"DialogService: Got window type: {window.GetType().Name}");
+            Console.WriteLine($"DialogService: Window IsLoaded: {window.IsLoaded}");
+            Console.WriteLine($"DialogService: Window IsVisible: {window.IsVisible}");
+
+            // Create a simple test to see if the issue is with StorageProvider
+            if (window.StorageProvider == null)
+            {
+                Console.WriteLine("DialogService: StorageProvider is null!");
+                return null;
+            }
+
+            var options = new FilePickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false
+            };
+
+            if (fileTypes != null)
+            {
+                options.FileTypeFilter = fileTypes;
+            }
+
+            Console.WriteLine("DialogService: About to open file picker...");
+            var result = await window.StorageProvider.OpenFilePickerAsync(options);
+            Console.WriteLine($"DialogService: File picker returned {result?.Count ?? 0} results");
+            
+            return result?.FirstOrDefault()?.Path.LocalPath;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DialogService Error: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"DialogService Stack: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"DialogService Inner: {ex.InnerException.Message}");
+            }
+            return null;
+        }
     }
 
-    private static TopLevel? GetTopLevel()
-    {
-        // Get from application lifetime - this is the standard Avalonia approach
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            return desktop.MainWindow;
-        }
-        
-        return null;
-    }
 }
