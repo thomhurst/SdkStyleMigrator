@@ -389,52 +389,108 @@ public class DialogService : IDialogService
 
     public async Task ShowErrorAlertAsync(string title, string message)
     {
+        Console.WriteLine($"=== ShowErrorAlertAsync ENTRY ===");
+        Console.WriteLine($"Title: {title}");
+        Console.WriteLine($"Message length: {message.Length}");
+        Console.WriteLine($"Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+        Console.WriteLine($"Is UI Thread: {Dispatcher.UIThread.CheckAccess()}");
+        
         try
         {
+            Console.WriteLine("Step 1: Checking UI thread...");
+            
             // Ensure we're on the UI thread
             if (!Dispatcher.UIThread.CheckAccess())
             {
+                Console.WriteLine("Not on UI thread, invoking...");
                 await Dispatcher.UIThread.InvokeAsync(() => ShowErrorAlertAsync(title, message));
+                Console.WriteLine("UI thread invocation completed");
                 return;
             }
 
+            Console.WriteLine("Step 2: Getting main window...");
+            
             // Get the main window for parent
             var window = GetMainWindow();
+            Console.WriteLine($"Main window: {window != null}");
             
-            // Create and show error message box
-            var messageBox = MessageBoxManager.GetMessageBoxStandard(
-                title,
-                message,
-                ButtonEnum.Ok,
-                Icon.Error);
-
-            if (window != null)
+            Console.WriteLine("Step 3: Creating message box...");
+            
+            // CRITICAL: Add try-catch around MessageBox creation
+            try
             {
-                await messageBox.ShowWindowDialogAsync(window);
+                Console.WriteLine("Creating message box with parameters...");
+                var messageBox = MessageBoxManager.GetMessageBoxStandard(
+                    title,
+                    message,
+                    ButtonEnum.Ok,
+                    Icon.Error);
+                Console.WriteLine("Message box created successfully");
+                
+                Console.WriteLine("Step 4: Showing message box...");
+                
+                if (window != null)
+                {
+                    Console.WriteLine("Showing as window dialog...");
+                    await messageBox.ShowWindowDialogAsync(window);
+                    Console.WriteLine("Window dialog completed");
+                }
+                else
+                {
+                    Console.WriteLine("Showing as standalone dialog...");
+                    await messageBox.ShowAsync();
+                    Console.WriteLine("Standalone dialog completed");
+                }
             }
-            else
+            catch (Exception showEx)
             {
-                await messageBox.ShowAsync();
+                Console.WriteLine($"CRITICAL: Failed to show message box: {showEx}");
+                Console.WriteLine($"Exception type: {showEx.GetType().FullName}");
+                Console.WriteLine($"Stack trace: {showEx.StackTrace}");
+                throw;
             }
         }
         catch (Exception ex)
         {
-            // Fallback to console if message box fails
-            Console.WriteLine($"Failed to show error alert: {ex.Message}");
+            Console.WriteLine($"=== CRITICAL ERROR IN ShowErrorAlertAsync ===");
+            Console.WriteLine($"Exception Type: {ex.GetType().FullName}");
+            Console.WriteLine($"Exception Message: {ex.Message}");
+            Console.WriteLine($"Exception Source: {ex.Source}");
+            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+            
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}");
+            }
+            
             Console.WriteLine($"Original error - {title}: {message}");
+            Console.WriteLine("===============================================");
+            
+            // Don't rethrow - this could cause cascade failures
+        }
+        finally
+        {
+            Console.WriteLine("=== ShowErrorAlertAsync COMPLETE ===");
         }
     }
 
     public async Task TestDialogSystemAsync()
     {
+        Console.WriteLine("=== TESTING DIALOG SYSTEM ===");
+        Console.WriteLine($"Thread ID: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+        Console.WriteLine($"Is UI Thread: {Dispatcher.UIThread.CheckAccess()}");
+        
         try
         {
-            Console.WriteLine("=== TESTING DIALOG SYSTEM ===");
+            Console.WriteLine("Test Step 1: About to call first ShowErrorAlertAsync...");
             
             // Test 1: Basic message box functionality
             await ShowErrorAlertAsync("Dialog Test", 
                 "This is a test message to verify the dialog system is working.\n\n" +
                 "If you can see this popup, the message box system is functional.");
+            
+            Console.WriteLine("Test Step 1: First ShowErrorAlertAsync completed");
+            Console.WriteLine("Test Step 2: About to call second ShowErrorAlertAsync...");
             
             // Test 2: Simulate various dialog failure scenarios
             var testOptions = new[]
@@ -451,9 +507,10 @@ public class DialogService : IDialogService
             
             await ShowErrorAlertAsync("Dialog System Test", testMessage);
             
-            // Test 3: Force an error scenario for testing
-            Console.WriteLine("Simulating dialog error scenario...");
+            Console.WriteLine("Test Step 2: Second ShowErrorAlertAsync completed");
+            Console.WriteLine("Test Step 3: Simulating dialog error scenario...");
             
+            // Test 3: Force an error scenario for testing
             var simulatedError = new InvalidOperationException(
                 "Simulated dialog error for testing purposes. " +
                 "This helps verify error handling and alert systems work correctly.");
@@ -465,15 +522,30 @@ public class DialogService : IDialogService
                              $"WSL: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "Not WSL"}\n\n" +
                              $"This is a test - check console for full diagnostics.";
             
+            Console.WriteLine("Test Step 3: About to call third ShowErrorAlertAsync...");
             await ShowErrorAlertAsync(errorTitle, errorMessage);
             
-            Console.WriteLine("Dialog system test completed.");
+            Console.WriteLine("Test Step 3: Third ShowErrorAlertAsync completed");
+            Console.WriteLine("Dialog system test completed successfully.");
             Console.WriteLine("============================");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Dialog test failed: {ex.Message}");
-            Console.WriteLine($"This indicates a serious dialog system issue.");
+            Console.WriteLine($"=== DIALOG TEST CRASHED ===");
+            Console.WriteLine($"Exception Type: {ex.GetType().FullName}");
+            Console.WriteLine($"Exception Message: {ex.Message}");
+            Console.WriteLine($"Exception Source: {ex.Source}");
+            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+            
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}");
+                Console.WriteLine($"Inner Stack: {ex.InnerException.StackTrace}");
+            }
+            Console.WriteLine("============================");
+            
+            // This indicates a serious dialog system issue
+            throw; // Re-throw to trigger global handlers
         }
     }
 
