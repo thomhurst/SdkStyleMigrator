@@ -66,23 +66,30 @@ public class UnconvertedReference
             Reason = reason
         };
 
-        // Extract common metadata
-        if (item.HasMetadata("HintPath"))
-            reference.HintPath = item.GetMetadataValue("HintPath");
+        // Extract common metadata - preserve raw XML values to keep MSBuild variables
+        var hintPathMetadata = item.Metadata.FirstOrDefault(m => m.Name == "HintPath");
+        if (hintPathMetadata != null)
+            reference.HintPath = hintPathMetadata.UnevaluatedValue; // Use raw XML value
 
-        if (item.HasMetadata("Private"))
+        var privateMetadata = item.Metadata.FirstOrDefault(m => m.Name == "Private");
+        if (privateMetadata != null)
         {
-            var privateValue = item.GetMetadataValue("Private");
+            var privateValue = privateMetadata.EvaluatedValue;
             if (bool.TryParse(privateValue, out var isPrivate))
                 reference.Private = isPrivate;
         }
 
-        // Store any additional metadata
+        // Store any additional metadata - use raw values where possible
         foreach (var metadata in item.Metadata)
         {
             if (metadata.Name != "HintPath" && metadata.Name != "Private")
             {
-                reference.Metadata[metadata.Name] = metadata.EvaluatedValue;
+                // For path-related metadata, preserve raw values; for others use evaluated
+                var value = metadata.Name.EndsWith("Path", StringComparison.OrdinalIgnoreCase) || 
+                           metadata.UnevaluatedValue.Contains("$(")
+                    ? metadata.UnevaluatedValue 
+                    : metadata.EvaluatedValue;
+                reference.Metadata[metadata.Name] = value;
             }
         }
 

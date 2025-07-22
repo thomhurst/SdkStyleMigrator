@@ -273,6 +273,40 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return items;
     }
 
+    private string SafeExpandString(Project project, string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        // If the value contains MSBuild property syntax, try to expand it safely
+        if (value.Contains("$("))
+        {
+            try
+            {
+                var expanded = project.ExpandString(value);
+                
+                // If expansion resulted in empty string but original had content,
+                // preserve the original MSBuild variable syntax
+                if (string.IsNullOrEmpty(expanded) && !string.IsNullOrEmpty(value))
+                {
+                    _logger.LogDebug("Preserving MSBuild variable in value: {Value} (expansion was empty)", value);
+                    return value;
+                }
+                
+                // If expansion was successful and different, use it
+                return expanded;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Failed to expand MSBuild property in '{Value}': {Error}. Preserving original.", value, ex.Message);
+                return value;
+            }
+        }
+
+        // No MSBuild properties, return as-is
+        return value;
+    }
+
     private void MigrateBasicProperties(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties)
     {
         // Helper to add property only if not inherited
@@ -343,21 +377,21 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Output type - only if explicitly defined
         if (explicitProperties.TryGetValue("OutputType", out var outputType))
         {
-            AddPropertyIfNotInherited("OutputType", project.ExpandString(outputType));
+            AddPropertyIfNotInherited("OutputType", SafeExpandString(project, outputType));
         }
 
         // Assembly name - only if explicitly defined
         if (explicitProperties.TryGetValue("AssemblyName", out var assemblyName))
         {
-            AddPropertyIfNotInherited("AssemblyName", project.ExpandString(assemblyName));
+            AddPropertyIfNotInherited("AssemblyName", SafeExpandString(project, assemblyName));
         }
 
         // Root namespace - only if explicitly defined and different from AssemblyName
         if (explicitProperties.TryGetValue("RootNamespace", out var rootNamespace))
         {
-            var expandedRootNamespace = project.ExpandString(rootNamespace);
+            var expandedRootNamespace = SafeExpandString(project, rootNamespace);
             var expandedAssemblyName = explicitProperties.ContainsKey("AssemblyName") 
-                ? project.ExpandString(explicitProperties["AssemblyName"]) 
+                ? SafeExpandString(project, explicitProperties["AssemblyName"]) 
                 : null;
                 
             if (expandedRootNamespace != expandedAssemblyName)
@@ -370,7 +404,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (explicitProperties.TryGetValue("LangVersion", out var langVersion))
         {
             _logger.LogDebug("LangVersion explicitly defined in project: {Value}", langVersion);
-            AddPropertyIfNotInherited("LangVersion", project.ExpandString(langVersion));
+            AddPropertyIfNotInherited("LangVersion", SafeExpandString(project, langVersion));
         }
         else
         {
@@ -380,7 +414,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Nullable - only if explicitly defined in original project
         if (explicitProperties.TryGetValue("Nullable", out var nullable))
         {
-            AddPropertyIfNotInherited("Nullable", project.ExpandString(nullable));
+            AddPropertyIfNotInherited("Nullable", SafeExpandString(project, nullable));
         }
 
         // Strong naming properties
@@ -450,7 +484,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             foreach (var (value, condition) in defineConstantsFromXml)
             {
-                var expandedValue = project.ExpandString(value);
+                var expandedValue = SafeExpandString(project, value);
                 if (string.IsNullOrEmpty(expandedValue))
                     continue;
 
@@ -513,7 +547,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             foreach (var (propertyName, propertyValue, _) in group)
             {
-                propGroup.Add(new XElement(propertyName, project.ExpandString(propertyValue)));
+                propGroup.Add(new XElement(propertyName, SafeExpandString(project, propertyValue)));
             }
 
             projectElement.Add(propGroup);
@@ -831,7 +865,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             foreach (var (include, metadata) in projectRefs)
             {
-                var expandedInclude = project.ExpandString(include);
+                var expandedInclude = SafeExpandString(project, include);
                 var element = new XElement("ProjectReference",
                     new XAttribute("Include", expandedInclude));
                 
@@ -840,7 +874,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     if (!string.IsNullOrEmpty(value))
                     {
-                        element.Add(new XElement(key, project.ExpandString(value)));
+                        element.Add(new XElement(key, SafeExpandString(project, value)));
                     }
                 }
                 
@@ -856,7 +890,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var compileItems = GetExplicitItemsFromXml(project, "Compile")
             .Where(item => 
             {
-                var expandedInclude = project.ExpandString(item.Include);
+                var expandedInclude = SafeExpandString(project, item.Include);
                 return !expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && // Exclude ALL .cs files
                        !IsAssemblyInfoFile(expandedInclude); // Exclude AssemblyInfo files
             })
@@ -868,7 +902,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             foreach (var (include, metadata) in compileItems)
             {
-                var expandedInclude = project.ExpandString(include);
+                var expandedInclude = SafeExpandString(project, include);
                 var element = new XElement("Compile",
                     new XAttribute("Include", expandedInclude));
 
@@ -877,7 +911,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     if (!string.IsNullOrEmpty(value))
                     {
-                        element.Add(new XElement(key, project.ExpandString(value)));
+                        element.Add(new XElement(key, SafeExpandString(project, value)));
                     }
                 }
                 
@@ -897,7 +931,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         var csFilesWithMetadata = GetExplicitItemsFromXml(project, "Compile")
             .Where(item =>
             {
-                var expandedInclude = project.ExpandString(item.Include);
+                var expandedInclude = SafeExpandString(project, item.Include);
                 if (!expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
                     IsAssemblyInfoFile(expandedInclude))
                 {
@@ -916,7 +950,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             foreach (var (include, metadata) in csFilesWithMetadata)
             {
-                var expandedInclude = project.ExpandString(include);
+                var expandedInclude = SafeExpandString(project, include);
                 
                 // Linked files need Include (they're outside project directory)
                 // Other files with metadata use Update (they're auto-included by SDK)
@@ -930,7 +964,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     if (!string.IsNullOrEmpty(value))
                     {
-                        element.Add(new XElement(key, project.ExpandString(value)));
+                        element.Add(new XElement(key, SafeExpandString(project, value)));
                     }
                 }
                 
@@ -1432,7 +1466,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             foreach (var item in itemGroup.Items.Where(i => i.ItemType == "Compile"))
             {
-                var expandedInclude = project.ExpandString(item.Include);
+                var expandedInclude = SafeExpandString(project, item.Include);
                 if (!string.IsNullOrEmpty(expandedInclude))
                 {
                     compiledFiles.Add(Path.GetFullPath(Path.Combine(projectDir, expandedInclude)));
