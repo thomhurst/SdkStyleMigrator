@@ -196,6 +196,7 @@ public class MigrationViewModel : ViewModelBase
     public ICommand BrowseNugetConfigCommand { get; }
     public ICommand RunMigrationCommand { get; }
     public ICommand ClearLogsCommand { get; }
+    public ICommand TestDialogCommand { get; }
 
     public MigrationViewModel(ILogger<MigrationViewModel> logger, IMigrationOrchestrator orchestrator, IDialogService dialogService)
     {
@@ -258,6 +259,14 @@ public class MigrationViewModel : ViewModelBase
         
         RunMigrationCommand = ReactiveCommand.CreateFromTask(RunMigrationAsync, canRun);
         ClearLogsCommand = ReactiveCommand.Create(() => LogMessages.Clear());
+        
+        var testDialogCmd = ReactiveCommand.CreateFromTask(TestDialogAsync);
+        testDialogCmd.ThrownExceptions.Subscribe(ex =>
+        {
+            Console.WriteLine($"TestDialogCommand exception: {ex.GetType().Name}: {ex.Message}");
+            StatusMessage = $"Test Dialog Error: {ex.Message}";
+        });
+        TestDialogCommand = testDialogCmd;
     }
 
     private async Task BrowseDirectoryAsync()
@@ -433,5 +442,25 @@ public class MigrationViewModel : ViewModelBase
             framework, 
             @"^(net\d+\.\d+|net\d+|netstandard\d+\.\d+|netcoreapp\d+\.\d+)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private async Task TestDialogAsync()
+    {
+        try
+        {
+            StatusMessage = "Testing dialog system...";
+            AddLogMessage("Starting dialog system test");
+            
+            await _dialogService.TestDialogSystemAsync();
+            
+            StatusMessage = "Dialog test completed successfully";
+            AddLogMessage("Dialog system test completed - check console for detailed output");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Dialog test failed: {ex.Message}";
+            AddLogMessage($"Dialog test failed: {ex.GetType().Name}: {ex.Message}");
+            _logger.LogError(ex, "Dialog test failed");
+        }
     }
 }

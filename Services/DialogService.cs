@@ -10,6 +10,8 @@ using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using SdkMigrator.Abstractions;
 using SdkMigrator.Views;
+using MsBox.Avalonia;
+using MsBox.Avalonia.Enums;
 
 namespace SdkMigrator.Services;
 
@@ -205,6 +207,23 @@ public class DialogService : IDialogService
             }
             Console.WriteLine("========================================");
             
+            // Show visible error alert to user
+            var errorTitle = "Browse Folder Failed";
+            var errorMessage = $"Failed to open folder browser: {ex.GetType().Name}\n\n" +
+                             $"Error: {ex.Message}\n\n" +
+                             $"Environment: {Environment.GetEnvironmentVariable("DISPLAY") ?? "No DISPLAY"} | " +
+                             $"WSL: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "No"}\n\n" +
+                             $"Check console for detailed diagnostics.";
+            
+            try
+            {
+                await ShowErrorAlertAsync(errorTitle, errorMessage);
+            }
+            catch (Exception alertEx)
+            {
+                Console.WriteLine($"Failed to show error alert: {alertEx.Message}");
+            }
+            
             return null;
         }
     }
@@ -329,6 +348,23 @@ public class DialogService : IDialogService
             }
             Console.WriteLine("========================================");
             
+            // Show visible error alert to user
+            var errorTitle = "Browse File Failed";
+            var errorMessage = $"Failed to open file browser: {ex.GetType().Name}\n\n" +
+                             $"Error: {ex.Message}\n\n" +
+                             $"Environment: {Environment.GetEnvironmentVariable("DISPLAY") ?? "No DISPLAY"} | " +
+                             $"WSL: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "No"}\n\n" +
+                             $"Check console for detailed diagnostics.";
+            
+            try
+            {
+                await ShowErrorAlertAsync(errorTitle, errorMessage);
+            }
+            catch (Exception alertEx)
+            {
+                Console.WriteLine($"Failed to show error alert: {alertEx.Message}");
+            }
+            
             return null;
         }
     }
@@ -348,6 +384,96 @@ public class DialogService : IDialogService
         if (!window.IsLoaded)
         {
             await Task.Delay(50);
+        }
+    }
+
+    public async Task ShowErrorAlertAsync(string title, string message)
+    {
+        try
+        {
+            // Ensure we're on the UI thread
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => ShowErrorAlertAsync(title, message));
+                return;
+            }
+
+            // Get the main window for parent
+            var window = GetMainWindow();
+            
+            // Create and show error message box
+            var messageBox = MessageBoxManager.GetMessageBoxStandard(
+                title,
+                message,
+                ButtonEnum.Ok,
+                Icon.Error);
+
+            if (window != null)
+            {
+                await messageBox.ShowWindowDialogAsync(window);
+            }
+            else
+            {
+                await messageBox.ShowAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Fallback to console if message box fails
+            Console.WriteLine($"Failed to show error alert: {ex.Message}");
+            Console.WriteLine($"Original error - {title}: {message}");
+        }
+    }
+
+    public async Task TestDialogSystemAsync()
+    {
+        try
+        {
+            Console.WriteLine("=== TESTING DIALOG SYSTEM ===");
+            
+            // Test 1: Basic message box functionality
+            await ShowErrorAlertAsync("Dialog Test", 
+                "This is a test message to verify the dialog system is working.\n\n" +
+                "If you can see this popup, the message box system is functional.");
+            
+            // Test 2: Simulate various dialog failure scenarios
+            var testOptions = new[]
+            {
+                "Test 1: Normal message (should work)",
+                "Test 2: Simulate folder dialog error", 
+                "Test 3: Simulate file dialog error",
+                "Test 4: Show environment diagnostics"
+            };
+            
+            var testMessage = "Dialog System Test Options:\n\n" + 
+                             string.Join("\n", testOptions) + "\n\n" +
+                             "Console output will show detailed diagnostics.";
+            
+            await ShowErrorAlertAsync("Dialog System Test", testMessage);
+            
+            // Test 3: Force an error scenario for testing
+            Console.WriteLine("Simulating dialog error scenario...");
+            
+            var simulatedError = new InvalidOperationException(
+                "Simulated dialog error for testing purposes. " +
+                "This helps verify error handling and alert systems work correctly.");
+            
+            var errorTitle = "Simulated Dialog Error";
+            var errorMessage = $"Test Error: {simulatedError.GetType().Name}\n\n" +
+                             $"Message: {simulatedError.Message}\n\n" +
+                             $"Environment: DISPLAY={Environment.GetEnvironmentVariable("DISPLAY") ?? "Not set"}\n" +
+                             $"WSL: {Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") ?? "Not WSL"}\n\n" +
+                             $"This is a test - check console for full diagnostics.";
+            
+            await ShowErrorAlertAsync(errorTitle, errorMessage);
+            
+            Console.WriteLine("Dialog system test completed.");
+            Console.WriteLine("============================");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Dialog test failed: {ex.Message}");
+            Console.WriteLine($"This indicates a serious dialog system issue.");
         }
     }
 
