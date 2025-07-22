@@ -23,6 +23,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IMSBuildArtifactDetector _artifactDetector;
     private readonly IAssemblyReferenceConverter _assemblyReferenceConverter;
     private readonly ITestProjectHandler _testProjectHandler;
+    private readonly IDesignerFileHandler _designerFileHandler;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -34,7 +35,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         IDirectoryBuildPropsReader directoryBuildPropsReader,
         IMSBuildArtifactDetector artifactDetector,
         IAssemblyReferenceConverter assemblyReferenceConverter,
-        ITestProjectHandler testProjectHandler)
+        ITestProjectHandler testProjectHandler,
+        IDesignerFileHandler designerFileHandler)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -46,6 +48,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _artifactDetector = artifactDetector;
         _assemblyReferenceConverter = assemblyReferenceConverter;
         _testProjectHandler = testProjectHandler;
+        _designerFileHandler = designerFileHandler;
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -91,7 +94,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             HandleAssemblyInfo(legacyProject, mainPropertyGroup, inheritedProperties);
 
             // Migrate package references
-            await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, result, cancellationToken);
+            var migratedPackages = await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, result, cancellationToken);
 
             // Migrate project references
             MigrateProjectReferences(legacyProject, projectElement);
@@ -110,6 +113,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             // Migrate WPF/WinForms specific items
             MigrateDesignerItems(legacyProject, projectElement);
+
+            // Analyze and fix designer file relationships
+            var designerRelationships = _designerFileHandler.AnalyzeDesignerRelationships(legacyProject);
+            _designerFileHandler.MigrateDesignerRelationships(designerRelationships, projectElement, result);
 
             // Migrate custom item types
             MigrateCustomItemTypes(legacyProject, projectElement);
@@ -135,6 +142,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             doc.Save(outputPath);
 
             result.Success = true;
+            result.MigratedPackages.AddRange(migratedPackages);
             _logger.LogInformation("Successfully generated SDK-style project at: {OutputPath}", outputPath);
 
             // Log the migration
@@ -615,7 +623,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return "netstandard2.0";
     }
 
-    private async Task MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, MigrationResult result, CancellationToken cancellationToken)
+    private async Task<List<PackageReference>> MigratePackageReferencesAsync(Project project, XElement projectElement, HashSet<string> centrallyManagedPackages, MigrationResult result, CancellationToken cancellationToken)
     {
         // Determine the target framework early, as it's needed for assembly-to-package conversion
         var targetFramework = ConvertTargetFramework(project);
@@ -700,6 +708,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             MigrateUnconvertedReferences(conversionResult.UnconvertedReferences, projectElement);
         }
+        
+        return allPackageReferences.ToList();
     }
 
     private void MigrateProjectReferences(Project project, XElement projectElement)
@@ -808,9 +818,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (contentItems.Any())
         {
             var itemGroup = new XElement("ItemGroup");
-            var removeItemGroup = new XElement("ItemGroup");
             var hasItems = false;
-            var hasRemoveItems = false;
 
             foreach (var item in contentItems)
             {
@@ -820,20 +828,23 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     // Check if the item has custom metadata that needs to be preserved
                     if (HasCustomMetadata(item))
                     {
-                        // We need to remove the auto-included version and re-add with metadata
-                        var removeElement = new XElement(item.ItemType,
-                            new XAttribute("Remove", item.EvaluatedInclude));
-                        removeItemGroup.Add(removeElement);
-                        hasRemoveItems = true;
-
-                        // Now add it back with the custom metadata
+                        // For .resx files and other SDK-included files with metadata, use Update
+                        var attributeName = "Update";
+                        
+                        // Exception: Files with Link metadata need Include (they're outside project)
+                        if (item.HasMetadata("Link"))
+                        {
+                            attributeName = "Include";
+                        }
+                        
                         var element = new XElement(item.ItemType,
-                            new XAttribute("Include", item.EvaluatedInclude));
+                            new XAttribute(attributeName, item.EvaluatedInclude));
                         PreserveMetadata(item, element);
                         itemGroup.Add(element);
                         hasItems = true;
 
-                        _logger.LogDebug("Removing and re-adding SDK-default file with custom metadata: {File}", item.EvaluatedInclude);
+                        _logger.LogDebug("Using {Attribute} for SDK-default file with custom metadata: {File}", 
+                            attributeName, item.EvaluatedInclude);
                     }
                     else
                     {
@@ -853,13 +864,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
             }
 
-            // Add Remove items first if any
-            if (hasRemoveItems)
-            {
-                projectElement.Add(removeItemGroup);
-            }
-
-            // Then add Include items
+            // Add items if any
             if (hasItems)
             {
                 projectElement.Add(itemGroup);
@@ -1341,6 +1346,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
     private void MigrateDesignerItems(Project project, XElement projectElement)
     {
+        // Check if UseWPF will be set (affects how we handle WPF items)
+        var hasWpfItems = project.Items.Any(i => i.ItemType == "ApplicationDefinition" || i.ItemType == "Page");
+        
         // WPF items
         var wpfItems = project.Items
             .Where(i => i.ItemType == "ApplicationDefinition" ||
@@ -1363,10 +1371,27 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             foreach (var item in wpfItems)
             {
-                var element = new XElement(item.ItemType,
-                    new XAttribute("Include", item.EvaluatedInclude));
-                PreserveMetadata(item, element);
-                itemGroup.Add(element);
+                // When UseWPF is true, these are auto-included
+                // Use Update if they have custom metadata, otherwise skip
+                if (hasWpfItems && IsWpfItemAutoIncluded(item))
+                {
+                    if (HasCustomMetadata(item))
+                    {
+                        var element = new XElement(item.ItemType,
+                            new XAttribute("Update", item.EvaluatedInclude));
+                        PreserveMetadata(item, element);
+                        itemGroup.Add(element);
+                    }
+                    // Otherwise skip - SDK will handle it
+                }
+                else
+                {
+                    // Not auto-included, use Include
+                    var element = new XElement(item.ItemType,
+                        new XAttribute("Include", item.EvaluatedInclude));
+                    PreserveMetadata(item, element);
+                    itemGroup.Add(element);
+                }
             }
 
             foreach (var item in winFormsItems)
@@ -1644,9 +1669,58 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 {
                     return true;
                 }
+                
+                // TypeScript files
+                if (extension == ".ts" || extension == ".tsx")
+                {
+                    return true;
+                }
+                
+                // Documentation files
+                if (extension == ".md" || extension == ".txt")
+                {
+                    return true;
+                }
             }
         }
 
+        return false;
+    }
+
+    private bool IsWpfItemAutoIncluded(ProjectItem item)
+    {
+        var extension = Path.GetExtension(item.EvaluatedInclude).ToLowerInvariant();
+        var fileName = Path.GetFileName(item.EvaluatedInclude);
+        var fileNameLower = fileName?.ToLowerInvariant();
+        
+        // ApplicationDefinition: App.xaml or Application.xaml
+        if (item.ItemType == "ApplicationDefinition")
+        {
+            if (fileNameLower == "app.xaml" || fileNameLower == "application.xaml")
+            {
+                return true;
+            }
+        }
+        
+        // Page: all .xaml files except App.xaml/Application.xaml
+        if (item.ItemType == "Page" && extension == ".xaml")
+        {
+            if (fileNameLower != "app.xaml" && fileNameLower != "application.xaml")
+            {
+                return true;
+            }
+        }
+        
+        // Resource: image files and other resources
+        if (item.ItemType == "Resource")
+        {
+            var imageExtensions = new[] { ".bmp", ".ico", ".gif", ".jpg", ".jpeg", ".png", ".tiff", ".pdf" };
+            if (imageExtensions.Contains(extension))
+            {
+                return true;
+            }
+        }
+        
         return false;
     }
 

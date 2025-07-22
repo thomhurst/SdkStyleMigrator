@@ -769,6 +769,8 @@ Examples:
         services.AddSingleton<ISdkStyleProjectGenerator, CleanSdkStyleProjectGenerator>();
         services.AddSingleton<IDirectoryBuildPropsReader, DirectoryBuildPropsReader>();
         services.AddSingleton<ITestProjectHandler, TestProjectHandler>();
+        services.AddSingleton<IDesignerFileHandler, DesignerFileHandler>();
+        services.AddSingleton<IPackageVersionConflictResolver, PackageVersionConflictResolver>();
 
         services.AddSingleton<IProjectFileScanner, ProjectFileScanner>();
         services.AddSingleton<ProjectParser>();
@@ -882,6 +884,7 @@ Examples:
                 centralPackageManagementGenerator,
                 postMigrationValidator,
                 migrationAnalyzer,
+                provider.GetRequiredService<IPackageVersionConflictResolver>(),
                 options,
                 packageCache);
         });

@@ -6,11 +6,11 @@ public class CentralPackageManagementResult
     public string? DirectoryPackagesPropsPath { get; set; }
     public int PackageCount { get; set; }
     public int ProjectsUpdated { get; set; }
-    public List<PackageVersionConflict> VersionConflicts { get; set; } = new();
+    public List<CpmPackageVersionConflict> VersionConflicts { get; set; } = new();
     public List<string> Errors { get; set; } = new();
 }
 
-public class PackageVersionConflict
+public class CpmPackageVersionConflict
 {
     public string PackageId { get; set; } = string.Empty;
     public List<string> Versions { get; set; } = new();

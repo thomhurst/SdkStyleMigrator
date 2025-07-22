@@ -56,7 +56,7 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 var versions = packageGroup.Select(p => p.Version).Distinct().ToList();
                 if (versions.Count > 1)
                 {
-                    var conflict = new PackageVersionConflict
+                    var conflict = new CpmPackageVersionConflict
                     {
                         PackageId = packageGroup.Key,
                         Versions = versions,

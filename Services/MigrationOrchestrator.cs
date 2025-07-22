@@ -22,6 +22,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly ICentralPackageManagementGenerator _centralPackageManagementGenerator;
     private readonly IPostMigrationValidator _postMigrationValidator;
     private readonly IMigrationAnalyzer _migrationAnalyzer;
+    private readonly IPackageVersionConflictResolver _packageVersionConflictResolver;
     private readonly MigrationOptions _options;
     private readonly IPackageVersionCache? _packageCache;
 
@@ -40,6 +41,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         ICentralPackageManagementGenerator centralPackageManagementGenerator,
         IPostMigrationValidator postMigrationValidator,
         IMigrationAnalyzer migrationAnalyzer,
+        IPackageVersionConflictResolver packageVersionConflictResolver,
         MigrationOptions options,
         IPackageVersionCache? packageCache = null)
     {
@@ -57,6 +59,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _centralPackageManagementGenerator = centralPackageManagementGenerator;
         _postMigrationValidator = postMigrationValidator;
         _migrationAnalyzer = migrationAnalyzer;
+        _packageVersionConflictResolver = packageVersionConflictResolver;
         _options = options;
         _packageCache = packageCache;
     }
@@ -196,6 +199,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
                     outputDir, projectAssemblyProperties.ToDictionary(kvp => kvp.Key, kvp => kvp.Value), cancellationToken);
+            }
+
+            // Detect and resolve package version conflicts across all projects
+            if (report.Results.Any(r => r.Success))
+            {
+                await ResolvePackageVersionConflictsAsync(report, cancellationToken);
             }
 
             // Generate Central Package Management configuration if enabled
@@ -660,6 +669,135 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 {
                     _logger.LogWarning(ex, "Failed to remove AssemblyInfo file: {File}", file);
                 }
+            }
+        }
+    }
+
+    private async Task ResolvePackageVersionConflictsAsync(MigrationReport report, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Checking for package version conflicts across projects...");
+        
+        // Collect all packages from successful migrations
+        var packagesByProject = new Dictionary<string, List<ProjectPackageReference>>();
+        
+        foreach (var result in report.Results.Where(r => r.Success))
+        {
+            if (!string.IsNullOrEmpty(result.OutputPath))
+            {
+                var projectPackages = new List<ProjectPackageReference>();
+                
+                // Add migrated packages
+                foreach (var package in result.MigratedPackages)
+                {
+                    projectPackages.Add(new ProjectPackageReference
+                    {
+                        ProjectPath = result.OutputPath,
+                        PackageId = package.PackageId,
+                        Version = package.Version,
+                        IsTransitive = package.IsTransitive
+                    });
+                }
+                
+                packagesByProject[result.OutputPath] = projectPackages;
+            }
+        }
+        
+        if (!packagesByProject.Any())
+        {
+            return;
+        }
+        
+        // Detect conflicts
+        var conflicts = _packageVersionConflictResolver.DetectConflicts(packagesByProject);
+        
+        if (!conflicts.Any())
+        {
+            _logger.LogInformation("No package version conflicts detected");
+            return;
+        }
+        
+        _logger.LogWarning("Found {Count} package version conflicts", conflicts.Count);
+        
+        foreach (var conflict in conflicts)
+        {
+            var versions = string.Join(", ", conflict.RequestedVersions.Select(v => v.Version).Distinct());
+            _logger.LogWarning("Package {PackageId} has conflicting versions: {Versions}", 
+                conflict.PackageId, versions);
+        }
+        
+        // Resolve conflicts using configured strategy
+        var strategy = _options.EnableCentralPackageManagement 
+            ? ConflictResolutionStrategy.UseHighest  // For CPM, use highest version
+            : ConflictResolutionStrategy.UseMostCommon; // Otherwise, use most common
+            
+        var resolution = await _packageVersionConflictResolver.ResolveConflictsAsync(
+            conflicts, strategy, cancellationToken);
+        
+        if (resolution.ProjectsNeedingUpdate.Any())
+        {
+            _logger.LogInformation("Resolved {Count} package version conflicts", 
+                resolution.ProjectsNeedingUpdate.Count);
+            
+            // Update the migration results with resolved versions
+            foreach (var update in resolution.ProjectsNeedingUpdate)
+            {
+                var result = report.Results.FirstOrDefault(r => 
+                    r.OutputPath?.Equals(update.ProjectPath, StringComparison.OrdinalIgnoreCase) == true);
+                    
+                if (result != null)
+                {
+                    var package = result.MigratedPackages.FirstOrDefault(p => 
+                        p.PackageId.Equals(update.PackageId, StringComparison.OrdinalIgnoreCase));
+                        
+                    if (package != null)
+                    {
+                        package.Version = update.NewVersion;
+                        result.Warnings.Add($"Updated {update.PackageId} version from {update.OldVersion} to {update.NewVersion} to resolve conflict");
+                    }
+                }
+            }
+            
+            // If not in dry run mode, update the actual project files
+            if (!_options.DryRun)
+            {
+                await UpdateProjectFilesWithResolvedVersionsAsync(resolution, cancellationToken);
+            }
+        }
+    }
+
+    private async Task UpdateProjectFilesWithResolvedVersionsAsync(
+        PackageVersionResolution resolution, 
+        CancellationToken cancellationToken)
+    {
+        foreach (var update in resolution.ProjectsNeedingUpdate)
+        {
+            try
+            {
+                var doc = XDocument.Load(update.ProjectPath);
+                var packageRefs = doc.Descendants("PackageReference")
+                    .Where(e => e.Attribute("Include")?.Value.Equals(update.PackageId, 
+                        StringComparison.OrdinalIgnoreCase) == true);
+                
+                foreach (var packageRef in packageRefs)
+                {
+                    var versionAttr = packageRef.Attribute("Version");
+                    if (versionAttr != null)
+                    {
+                        versionAttr.Value = update.NewVersion;
+                    }
+                    else
+                    {
+                        packageRef.Add(new XAttribute("Version", update.NewVersion));
+                    }
+                }
+                
+                doc.Save(update.ProjectPath);
+                _logger.LogInformation("Updated {PackageId} to {Version} in {Project}",
+                    update.PackageId, update.NewVersion, Path.GetFileName(update.ProjectPath));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update package version in {Project}", update.ProjectPath);
             }
         }
     }
