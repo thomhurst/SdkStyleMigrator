@@ -370,7 +370,17 @@ public class MigrationViewModel : ViewModelBase
                 DisableCache = DisableCache,
                 CacheTTLMinutes = CacheTtl,
                 InteractiveImportSelection = InteractiveImports,
-                InteractiveTargetSelection = InteractiveTargets
+                InteractiveTargetSelection = InteractiveTargets,
+                ImportOptions = new ImportSelectionOptions
+                {
+                    InteractiveMode = InteractiveImports,
+                    DefaultKeepAll = true
+                },
+                TargetOptions = new TargetSelectionOptions
+                {
+                    InteractiveMode = InteractiveTargets,
+                    DefaultKeepAll = true
+                }
             };
 
 

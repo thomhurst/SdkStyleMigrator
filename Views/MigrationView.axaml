@@ -13,6 +13,46 @@
                    Text="Project Migration" 
                    Classes="SectionHeader"/>
         
+        <!-- Action Buttons -->
+        <Border DockPanel.Dock="Bottom" 
+                Background="{DynamicResource CardBackground}"
+                Padding="20"
+                Margin="0,10,0,0"
+                BorderThickness="0,1,0,0"
+                BorderBrush="#E5E7EB">
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" HorizontalAlignment="Stretch">
+                
+                <!-- Validation Status -->
+                <StackPanel Grid.Row="0" Grid.ColumnSpan="2" 
+                            IsVisible="{Binding !ValidationContext.IsValid}"
+                            Margin="0,0,0,12">
+                    <TextBlock Text="⚠️ Please fix the following issues before running migration:" 
+                               Foreground="#DC2626" 
+                               FontWeight="SemiBold"
+                               FontSize="13"/>
+                    <TextBlock Text="{Binding ValidationContext.Text}" 
+                               Foreground="#DC2626" 
+                               FontSize="12" 
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+                
+                <!-- Status and Button -->
+                <TextBlock Grid.Row="1" Grid.Column="0" 
+                           Text="{Binding StatusMessage}"
+                           VerticalAlignment="Center"
+                           Foreground="#6B7280"/>
+                
+                <Button Grid.Row="1" Grid.Column="1"
+                        Content="Run Migration"
+                        Command="{Binding RunMigrationCommand}"
+                        Classes="Primary"
+                        Padding="20,10"
+                        FontSize="14"
+                        Margin="10,0,0,0"
+                        HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+        
         <!-- Content -->
         <ScrollViewer>
             <StackPanel Spacing="16">
@@ -252,45 +292,5 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
-        
-        <!-- Action Buttons -->
-        <Border DockPanel.Dock="Bottom" 
-                Background="{DynamicResource CardBackground}"
-                Padding="20"
-                Margin="0,10,0,0"
-                BorderThickness="0,1,0,0"
-                BorderBrush="#E5E7EB">
-            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" HorizontalAlignment="Stretch">
-                
-                <!-- Validation Status -->
-                <StackPanel Grid.Row="0" Grid.ColumnSpan="2" 
-                            IsVisible="{Binding !ValidationContext.IsValid}"
-                            Margin="0,0,0,12">
-                    <TextBlock Text="⚠️ Please fix the following issues before running migration:" 
-                               Foreground="#DC2626" 
-                               FontWeight="SemiBold"
-                               FontSize="13"/>
-                    <TextBlock Text="{Binding ValidationContext.Text}" 
-                               Foreground="#DC2626" 
-                               FontSize="12" 
-                               Margin="0,4,0,0"/>
-                </StackPanel>
-                
-                <!-- Status and Button -->
-                <TextBlock Grid.Row="1" Grid.Column="0" 
-                           Text="{Binding StatusMessage}"
-                           VerticalAlignment="Center"
-                           Foreground="#6B7280"/>
-                
-                <Button Grid.Row="1" Grid.Column="1"
-                        Content="Run Migration"
-                        Command="{Binding RunMigrationCommand}"
-                        Classes="Primary"
-                        Padding="20,10"
-                        FontSize="14"
-                        Margin="10,0,0,0"
-                        HorizontalAlignment="Right"/>
-            </Grid>
-        </Border>
     </DockPanel>
 </UserControl>
