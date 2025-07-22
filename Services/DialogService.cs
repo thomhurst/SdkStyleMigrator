@@ -121,14 +121,19 @@ public class DialogService : IDialogService
                     "Try installing: sudo apt-get install libgtk-3-0 libgtk-3-dev");
             }
 
-            // Open folder picker
+            // Open folder picker with thread safety for Linux/WSL
             var options = new FolderPickerOpenOptions
             {
                 Title = title,
                 AllowMultiple = false
             };
 
-            var result = await window.StorageProvider.OpenFolderPickerAsync(options);
+            // Wrap StorageProvider call in UI thread context to prevent threading issues on Linux/WSL
+            var result = await Dispatcher.UIThread.InvokeAsync(async () => 
+            {
+                return await window.StorageProvider.OpenFolderPickerAsync(options).ConfigureAwait(true);
+            }).ConfigureAwait(true);
+            
             return result?.FirstOrDefault()?.Path.LocalPath;
         }
         catch (Exception ex)
@@ -256,7 +261,7 @@ public class DialogService : IDialogService
                     "Try installing: sudo apt-get install libgtk-3-0 libgtk-3-dev");
             }
 
-            // Open file picker
+            // Open file picker with thread safety for Linux/WSL
             var options = new FilePickerOpenOptions
             {
                 Title = title,
@@ -268,7 +273,12 @@ public class DialogService : IDialogService
                 options.FileTypeFilter = fileTypes;
             }
 
-            var result = await window.StorageProvider.OpenFilePickerAsync(options);
+            // Wrap StorageProvider call in UI thread context to prevent threading issues on Linux/WSL
+            var result = await Dispatcher.UIThread.InvokeAsync(async () => 
+            {
+                return await window.StorageProvider.OpenFilePickerAsync(options).ConfigureAwait(true);
+            }).ConfigureAwait(true);
+            
             return result?.FirstOrDefault()?.Path.LocalPath;
         }
         catch (Exception ex)
