@@ -25,20 +25,13 @@
                         <!-- Directory Path -->
                         <StackPanel>
                             <TextBlock Text="Solution Directory" Classes="Label"/>
-                            <Grid ColumnDefinitions="*,Auto,Auto">
+                            <Grid ColumnDefinitions="*,Auto">
                                 <TextBox Grid.Column="0" 
                                          Text="{Binding DirectoryPath}"
                                          Watermark="Select the directory containing your solution"/>
                                 <Button Grid.Column="1" 
                                         Content="Browse"
-                                        Command="{Binding BrowseDirectoryCommand}"
-                                        Margin="0,0,8,0"/>
-                                <Button Grid.Column="2" 
-                                        Content="Test Dialog"
-                                        Command="{Binding TestDialogCommand}"
-                                        Background="Orange"
-                                        Foreground="White"
-                                        ToolTip.Tip="Test the dialog system to diagnose browse button issues"/>
+                                        Command="{Binding BrowseDirectoryCommand}"/>
                             </Grid>
                             <TextBlock Text="Select the root directory of your solution" Classes="HelpText"/>
                         </StackPanel>
