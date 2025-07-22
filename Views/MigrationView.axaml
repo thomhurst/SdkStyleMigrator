@@ -34,6 +34,19 @@
                                         Command="{Binding BrowseDirectoryCommand}"/>
                             </Grid>
                             <TextBlock Text="Select the root directory of your solution" Classes="HelpText"/>
+                            
+                            <!-- Validation Errors -->
+                            <ItemsControl ItemsSource="{Binding ValidationContext.Text}"
+                                          IsVisible="{Binding !ValidationContext.IsValid}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" 
+                                                   Foreground="#DC2626" 
+                                                   FontSize="12" 
+                                                   Margin="0,4,0,0"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                         
                         <!-- Output Directory -->
@@ -245,13 +258,29 @@
                 Background="{DynamicResource CardBackground}"
                 Padding="20"
                 Margin="-20,0,-20,-20">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" 
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+                
+                <!-- Validation Status -->
+                <StackPanel Grid.Row="0" Grid.ColumnSpan="2" 
+                            IsVisible="{Binding !ValidationContext.IsValid}"
+                            Margin="0,0,0,12">
+                    <TextBlock Text="⚠️ Please fix the following issues before running migration:" 
+                               Foreground="#DC2626" 
+                               FontWeight="SemiBold"
+                               FontSize="13"/>
+                    <TextBlock Text="{Binding ValidationContext.Text}" 
+                               Foreground="#DC2626" 
+                               FontSize="12" 
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+                
+                <!-- Status and Button -->
+                <TextBlock Grid.Row="1" Grid.Column="0" 
                            Text="{Binding StatusMessage}"
                            VerticalAlignment="Center"
                            Foreground="#6B7280"/>
                 
-                <Button Grid.Column="1"
+                <Button Grid.Row="1" Grid.Column="1"
                         Content="Run Migration"
                         Command="{Binding RunMigrationCommand}"
                         Classes="Primary"

@@ -209,6 +209,12 @@
             <Setter Property="RenderTransform" Value="scale(0.98)"/>
         </Style>
         
+        <Style Selector="Button.Primary:disabled">
+            <Setter Property="Background" Value="#9CA3AF"/>
+            <Setter Property="Foreground" Value="#D1D5DB"/>
+            <Setter Property="Opacity" Value="0.6"/>
+        </Style>
+        
         <Style Selector="Button.SecondaryButton">
             <Setter Property="Background" Value="#F3F4F6"/>
             <Setter Property="Foreground" Value="#374151"/>
