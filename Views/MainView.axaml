@@ -79,9 +79,7 @@
 
         <!-- Content Area -->
         <Border Grid.Row="1" Background="Transparent">
-            <ScrollViewer Padding="24"
-                          HorizontalScrollBarVisibility="Disabled">
-            <ContentControl Content="{Binding CurrentViewModel}">
+            <ContentControl Content="{Binding CurrentViewModel}" Margin="24">
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="{x:Type vm:MigrationViewModel}">
                         <views:MigrationView />
@@ -100,7 +98,6 @@
                     </DataTemplate>
                 </ContentControl.DataTemplates>
             </ContentControl>
-        </ScrollViewer>
         </Border>
     </Grid>
     </Panel>
