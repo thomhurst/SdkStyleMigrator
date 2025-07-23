@@ -888,6 +888,38 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             }
         }
 
+        // Filter out packages that are implicit in SystemWeb SDK
+        if (sdkType == "MSBuild.SDK.SystemWeb")
+        {
+            var systemWebImplicitPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Microsoft.AspNet.Mvc",
+                "Microsoft.AspNet.WebApi",
+                "Microsoft.AspNet.WebApi.Core",
+                "Microsoft.AspNet.WebApi.WebHost",
+                "Microsoft.AspNet.WebPages",
+                "Microsoft.AspNet.Razor",
+                "Microsoft.Web.Infrastructure",
+                "System.Web.Helpers",
+                "System.Web.Mvc",
+                "System.Web.Optimization",
+                "System.Web.Razor",
+                "System.Web.WebPages",
+                "System.Web.WebPages.Deployment",
+                "System.Web.WebPages.Razor"
+            };
+
+            var beforeCount = allPackageReferences.Count;
+            allPackageReferences = allPackageReferences
+                .Where(p => !systemWebImplicitPackages.Contains(p.PackageId))
+                .ToHashSet(new PackageReferenceComparer());
+            
+            if (beforeCount > allPackageReferences.Count)
+            {
+                _logger.LogInformation("Removed {Count} implicit SystemWeb SDK packages", beforeCount - allPackageReferences.Count);
+            }
+        }
+
         if (allPackageReferences.Any())
         {
             var itemGroup = new XElement("ItemGroup");
@@ -1746,6 +1778,42 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         if (!unconvertedReferences.Any())
             return;
 
+        // Check if we're using SystemWeb SDK
+        var sdkAttribute = projectElement.Attribute("Sdk")?.Value;
+        var isSystemWebSdk = sdkAttribute?.StartsWith("MSBuild.SDK.SystemWeb", StringComparison.OrdinalIgnoreCase) ?? false;
+
+        // Filter out System.Web related references if using SystemWeb SDK
+        if (isSystemWebSdk)
+        {
+            var systemWebImplicitReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "System.Web",
+                "System.Web.Abstractions",
+                "System.Web.ApplicationServices",
+                "System.Web.DataVisualization",
+                "System.Web.DynamicData",
+                "System.Web.Entity",
+                "System.Web.Extensions",
+                "System.Web.Mobile",
+                "System.Web.RegularExpressions",
+                "System.Web.Routing",
+                "System.Web.Services"
+            };
+
+            var beforeCount = unconvertedReferences.Count;
+            unconvertedReferences = unconvertedReferences
+                .Where(r => !systemWebImplicitReferences.Contains(r.Identity.Name))
+                .ToList();
+
+            if (beforeCount > unconvertedReferences.Count)
+            {
+                _logger.LogInformation("Removed {Count} implicit SystemWeb SDK references", beforeCount - unconvertedReferences.Count);
+            }
+        }
+
+        if (!unconvertedReferences.Any())
+            return;
+
         var itemGroup = new XElement("ItemGroup");
 
         foreach (var reference in unconvertedReferences)
@@ -2322,35 +2390,78 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // SDK automatically includes certain files as Content
         if (item.ItemType == "Content")
         {
-            // Check if this is likely a web project (will use Web SDK)
+            // Check if this is likely a web project (will use Web SDK or SystemWeb SDK)
             if (project != null)
             {
                 var projectTypeGuids = project.Properties
                     .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
                 var isWebProject = projectTypeGuids?.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase) ?? false;
+                var isWebSiteProject = projectTypeGuids?.Contains("{E24C65DC-7377-472B-9ABA-BC803B73C61A}", StringComparison.OrdinalIgnoreCase) ?? false;
 
-                if (isWebProject)
+                if (isWebProject || isWebSiteProject)
                 {
-                    // Web SDK auto-includes these patterns
-                    var webSdkPatterns = new[]
+                    // Check if this will be a SystemWeb SDK project
+                    var targetFramework = ConvertTargetFramework(project);
+                    var isSystemWebSdk = targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase);
+                    
+                    if (isSystemWebSdk)
                     {
-                        "wwwroot/**/*",
-                        "Areas/**/*.cshtml",
-                        "Areas/**/*.razor",
-                        "Views/**/*.cshtml",
-                        "Views/**/*.razor",
-                        "Pages/**/*.cshtml",
-                        "Pages/**/*.razor",
-                        "appsettings.json",
-                        "appsettings.*.json",
-                        "web.config"
-                    };
-
-                    foreach (var pattern in webSdkPatterns)
-                    {
-                        if (IsMatchingPattern(item.Include, pattern))
+                        // MSBuild.SDK.SystemWeb auto-includes these patterns
+                        var systemWebPatterns = new[]
                         {
-                            return true;
+                            "wwwroot/**/*",
+                            "Areas/**/*",
+                            "Views/**/*",
+                            "Content/**/*",
+                            "Scripts/**/*",
+                            "fonts/**/*",
+                            "*.cshtml",
+                            "*.aspx",
+                            "*.ascx",
+                            "*.asax",
+                            "*.ashx",
+                            "*.asmx",
+                            "*.htm",
+                            "*.html",
+                            "*.css",
+                            "*.js",
+                            "*.json",
+                            "*.map",
+                            "web.config",
+                            "*.config"
+                        };
+
+                        foreach (var pattern in systemWebPatterns)
+                        {
+                            if (IsMatchingPattern(item.Include, pattern))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Microsoft.NET.Sdk.Web auto-includes these patterns
+                        var webSdkPatterns = new[]
+                        {
+                            "wwwroot/**/*",
+                            "Areas/**/*.cshtml",
+                            "Areas/**/*.razor",
+                            "Views/**/*.cshtml",
+                            "Views/**/*.razor",
+                            "Pages/**/*.cshtml",
+                            "Pages/**/*.razor",
+                            "appsettings.json",
+                            "appsettings.*.json",
+                            "web.config"
+                        };
+
+                        foreach (var pattern in webSdkPatterns)
+                        {
+                            if (IsMatchingPattern(item.Include, pattern))
+                            {
+                                return true;
+                            }
                         }
                     }
                 }
