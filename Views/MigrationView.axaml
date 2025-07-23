@@ -227,7 +227,8 @@
                         <TextBlock Text="{Binding StatusMessage}"/>
                         <ProgressBar Value="{Binding Progress}" 
                                      Maximum="100"
-                                     ShowProgressText="True"/>
+                                     ShowProgressText="True"
+                                     Height="24"/>
                     </StackPanel>
                 </Border>
                 
