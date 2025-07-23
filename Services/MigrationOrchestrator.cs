@@ -83,6 +83,14 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
     {
+        return await MigrateProjectsAsync(directoryPath, _options, cancellationToken);
+    }
+    
+    public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, MigrationOptions options, CancellationToken cancellationToken = default)
+    {
+        // Use the provided options instead of instance _options
+        _options = options;
+        
         var report = new MigrationReport
         {
             StartTime = DateTime.UtcNow

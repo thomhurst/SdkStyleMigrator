@@ -385,7 +385,7 @@ public class MigrationViewModel : ViewModelBase
 
 
             var cts = new CancellationTokenSource();
-            var report = await _orchestrator.MigrateProjectsAsync(options.DirectoryPath, cts.Token);
+            var report = await _orchestrator.MigrateProjectsAsync(options.DirectoryPath, options, cts.Token);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
