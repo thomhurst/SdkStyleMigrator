@@ -938,6 +938,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         {
             var itemGroup = new XElement("ItemGroup");
 
+            _logger.LogInformation("CPM Debug: Processing {Count} package references. CPM enabled: {CpmEnabled}", 
+                allPackageReferences.Count, _centralPackageManagementEnabled);
+
             foreach (var package in allPackageReferences)
             {
                 var packageRef = new XElement("PackageReference",
@@ -946,11 +949,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 // Only add version if not centrally managed
                 if (!_centralPackageManagementEnabled && !centrallyManagedPackages.Contains(package.PackageId))
                 {
+                    _logger.LogInformation("CPM Debug: Adding version {Version} to package {PackageId} (CPM enabled: {CpmEnabled})", 
+                        package.Version ?? "*", package.PackageId, _centralPackageManagementEnabled);
                     packageRef.Add(new XAttribute("Version", package.Version ?? "*"));
                 }
                 else
                 {
-                    _logger.LogDebug("Package {PackageId} is centrally managed (CPM enabled: {CpmEnabled}, existing: {InExisting}), omitting version", 
+                    _logger.LogInformation("CPM Debug: Package {PackageId} is centrally managed (CPM enabled: {CpmEnabled}, existing: {InExisting}), omitting version", 
                         package.PackageId, _centralPackageManagementEnabled, centrallyManagedPackages.Contains(package.PackageId));
                 }
 
