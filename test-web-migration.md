@@ -24,7 +24,7 @@
 ## After (Fixed):
 ```xml
 <!-- .NET Framework web project is now correctly generated as: -->
-<Project Sdk="MSBuild.SDK.SystemWeb">
+<Project Sdk="MSBuild.SDK.SystemWeb/4.0.104">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
   </PropertyGroup>

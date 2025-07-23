@@ -101,7 +101,10 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             // Determine and set SDK
             var sdkType = DetermineSdkType(legacyProject);
-            projectElement.Add(new XAttribute("Sdk", sdkType));
+            var sdkAttribute = sdkType == "MSBuild.SDK.SystemWeb" 
+                ? "MSBuild.SDK.SystemWeb/4.0.104" 
+                : sdkType;
+            projectElement.Add(new XAttribute("Sdk", sdkAttribute));
 
             // Create main property group
             var mainPropertyGroup = new XElement("PropertyGroup");
