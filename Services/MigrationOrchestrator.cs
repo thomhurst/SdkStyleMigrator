@@ -28,7 +28,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     private readonly ITargetScanner _targetScanner;
     private readonly IUserInteractionService _userInteractionService;
     private readonly IWebProjectHandler _webProjectHandler;
-    private readonly MigrationOptions _options;
     private readonly IPackageVersionCache? _packageCache;
     private ImportScanResult? _importScanResult;
     private TargetScanResult? _targetScanResult;
@@ -54,7 +53,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         ITargetScanner targetScanner,
         IUserInteractionService userInteractionService,
         IWebProjectHandler webProjectHandler,
-        MigrationOptions options,
         IPackageVersionCache? packageCache = null)
     {
         _logger = logger;
@@ -77,17 +75,13 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         _targetScanner = targetScanner;
         _userInteractionService = userInteractionService;
         _webProjectHandler = webProjectHandler;
-        _options = options;
         _packageCache = packageCache;
     }
 
-    public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, CancellationToken cancellationToken = default)
-    {
-        return await MigrateProjectsAsync(directoryPath, _options, cancellationToken);
-    }
     
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, MigrationOptions options, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("CPM Debug: MigrateProjectsAsync called with EnableCentralPackageManagement = {EnableCpm}", options.EnableCentralPackageManagement);
         
         var report = new MigrationReport
         {
@@ -249,7 +243,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         }
 
                         var progress = $"[{currentIndex}/{totalProjects}]";
-                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, cancellationToken);
+                        await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, options, cancellationToken);
                     }
                     finally
                     {
@@ -272,7 +266,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     projectIndex++;
                     var progress = $"[{projectIndex}/{projectFilesList.Count}]";
 
-                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, cancellationToken);
+                    await ProcessProjectAsync(projectFile, progress, projectAssemblyProperties, projectMappings, report, backupSession, projectCleanupInfo, options, cancellationToken);
                 }
             }
 
@@ -289,7 +283,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             // Detect and resolve package version conflicts across all projects
             if (report.Results.Any(r => r.Success))
             {
-                await ResolvePackageVersionConflictsAsync(report, cancellationToken);
+                await ResolvePackageVersionConflictsAsync(report, options, cancellationToken);
             }
 
             // Generate Central Package Management configuration if enabled
@@ -473,7 +467,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
 
                 // Clean solution-level GlobalAssemblyInfo files
-                await CleanSolutionLevelAssemblyInfoFilesAsync(directoryPath, backupSession, cancellationToken);
+                await CleanSolutionLevelAssemblyInfoFilesAsync(directoryPath, backupSession, options, cancellationToken);
             }
 
             if (projectMappings.Any())
@@ -586,6 +580,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         MigrationReport report,
         BackupSession? backupSession,
         System.Collections.Concurrent.ConcurrentBag<(string ProjectDir, List<PackageReference> Packages, List<string> HintPaths)> projectCleanupInfo,
+        MigrationOptions options,
         CancellationToken cancellationToken)
     {
         try
@@ -662,12 +657,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             projectAssemblyProperties[projectFile] = assemblyProps;
 
-            var outputPath = await GenerateOutputPathAsync(projectFile, cancellationToken);
+            var outputPath = await GenerateOutputPathAsync(projectFile, options, cancellationToken);
 
             // Set import and target scan results if available
             _sdkStyleProjectGenerator.SetImportScanResult(_importScanResult);
             _sdkStyleProjectGenerator.SetTargetScanResult(_targetScanResult);
-            _sdkStyleProjectGenerator.SetCentralPackageManagementEnabled(_options.EnableCentralPackageManagement);
+            _sdkStyleProjectGenerator.SetCentralPackageManagementEnabled(options.EnableCentralPackageManagement);
             
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);
@@ -700,11 +695,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
             }
 
-            if (result.Success && !_options.DryRun)
+            if (result.Success && !options.DryRun)
             {
-                await RemoveAssemblyInfoFilesAsync(projectDir, backupSession, cancellationToken);
-                await HandleAppConfigFileAsync(projectDir, result, cancellationToken);
-                await HandleNuSpecFileAsync(projectDir, result, backupSession, cancellationToken);
+                await RemoveAssemblyInfoFilesAsync(projectDir, backupSession, options, cancellationToken);
+                await HandleAppConfigFileAsync(projectDir, result, options, cancellationToken);
+                await HandleNuSpecFileAsync(projectDir, result, backupSession, options, cancellationToken);
 
                 // Audit the file modification
                 var fileInfo = new FileInfo(outputPath);
@@ -764,7 +759,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private async Task RemoveAssemblyInfoFilesAsync(string projectDirectory, BackupSession? backupSession, CancellationToken cancellationToken)
+    private async Task RemoveAssemblyInfoFilesAsync(string projectDirectory, BackupSession? backupSession, MigrationOptions options, CancellationToken cancellationToken)
     {
         foreach (var pattern in LegacyProjectElements.AssemblyInfoFilePatterns)
         {
@@ -776,12 +771,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                 try
                 {
-                    if (!_options.DryRun)
+                    if (!options.DryRun)
                     {
                         var beforeHash = await FileHashCalculator.CalculateHashAsync(file, cancellationToken);
                         var fileSize = new FileInfo(file).Length;
 
-                        if (_options.CreateBackup && backupSession != null)
+                        if (options.CreateBackup && backupSession != null)
                         {
                             await _backupService.BackupFileAsync(backupSession, file, cancellationToken);
                         }
@@ -799,7 +794,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
                         _logger.LogInformation("Removed AssemblyInfo file: {File}{BackupInfo}",
                             file,
-                            _options.CreateBackup ? $" (backup: {file}.legacy)" : "");
+                            options.CreateBackup ? $" (backup: {file}.legacy)" : "");
                     }
                     else
                     {
@@ -814,7 +809,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private async Task ResolvePackageVersionConflictsAsync(MigrationReport report, CancellationToken cancellationToken)
+    private async Task ResolvePackageVersionConflictsAsync(MigrationReport report, MigrationOptions options, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Checking for package version conflicts across projects...");
         
@@ -867,7 +862,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
         
         // Resolve conflicts using configured strategy
-        var strategy = _options.EnableCentralPackageManagement 
+        var strategy = options.EnableCentralPackageManagement 
             ? ConflictResolutionStrategy.UseHighest  // For CPM, use highest version
             : ConflictResolutionStrategy.UseMostCommon; // Otherwise, use most common
             
@@ -899,7 +894,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
             
             // If not in dry run mode, update the actual project files
-            if (!_options.DryRun)
+            if (!options.DryRun)
             {
                 await UpdateProjectFilesWithResolvedVersionsAsync(resolution, cancellationToken);
             }
@@ -943,7 +938,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private async Task CleanSolutionLevelAssemblyInfoFilesAsync(string solutionDirectory, BackupSession? backupSession, CancellationToken cancellationToken)
+    private async Task CleanSolutionLevelAssemblyInfoFilesAsync(string solutionDirectory, BackupSession? backupSession, MigrationOptions options, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Cleaning solution-level AssemblyInfo files...");
 
@@ -993,12 +988,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                                 continue;
                             }
 
-                            if (!_options.DryRun)
+                            if (!options.DryRun)
                             {
                                 var beforeHash = await FileHashCalculator.CalculateHashAsync(file, cancellationToken);
                                 var fileSize = new FileInfo(file).Length;
 
-                                if (_options.CreateBackup && backupSession != null)
+                                if (options.CreateBackup && backupSession != null)
                                 {
                                     await _backupService.BackupFileAsync(backupSession, file, cancellationToken);
                                 }
@@ -1063,7 +1058,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         return false;
     }
 
-    private async Task HandleAppConfigFileAsync(string projectDirectory, MigrationResult result, CancellationToken cancellationToken)
+    private async Task HandleAppConfigFileAsync(string projectDirectory, MigrationResult result, MigrationOptions options, CancellationToken cancellationToken)
     {
         var appConfigPath = Path.Combine(projectDirectory, "app.config");
         if (!File.Exists(appConfigPath))
@@ -1139,7 +1134,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             if (!hasOtherContent)
             {
                 // App.config only contained binding redirects, so we can remove it
-                if (_options.CreateBackup)
+                if (options.CreateBackup)
                 {
                     var backupPath = $"{appConfigPath}.legacy";
                     File.Copy(appConfigPath, backupPath, overwrite: true);
@@ -1239,14 +1234,14 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private async Task<string> GenerateOutputPathAsync(string projectFile, CancellationToken cancellationToken)
+    private async Task<string> GenerateOutputPathAsync(string projectFile, MigrationOptions options, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrEmpty(_options.OutputDirectory))
+        if (!string.IsNullOrEmpty(options.OutputDirectory))
         {
-            var relativePath = Path.GetRelativePath(_options.DirectoryPath, projectFile);
-            var outputPath = Path.Combine(_options.OutputDirectory, relativePath);
+            var relativePath = Path.GetRelativePath(options.DirectoryPath, projectFile);
+            var outputPath = Path.Combine(options.OutputDirectory, relativePath);
 
-            if (!_options.DryRun)
+            if (!options.DryRun)
             {
                 var outputDir = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
@@ -1258,7 +1253,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             return outputPath;
         }
 
-        if (_options.CreateBackup && !_options.DryRun)
+        if (options.CreateBackup && !options.DryRun)
         {
             if (File.Exists(projectFile))
             {
@@ -1274,7 +1269,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         return projectFile;
     }
 
-    private async Task HandleNuSpecFileAsync(string projectDirectory, MigrationResult result, BackupSession? backupSession, CancellationToken cancellationToken)
+    private async Task HandleNuSpecFileAsync(string projectDirectory, MigrationResult result, BackupSession? backupSession, MigrationOptions options, CancellationToken cancellationToken)
     {
         // Check if the result indicates a nuspec was migrated
         var nuspecEntry = result.RemovedElements.FirstOrDefault(e => e.StartsWith("NuSpec file:"));
@@ -1303,7 +1298,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                         var beforeHash = await FileHashCalculator.CalculateHashAsync(searchPath, cancellationToken);
                         var fileSize = new FileInfo(searchPath).Length;
 
-                        if (_options.CreateBackup && backupSession != null)
+                        if (options.CreateBackup && backupSession != null)
                         {
                             await _backupService.BackupFileAsync(backupSession, searchPath, cancellationToken);
                         }
@@ -1367,11 +1362,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("Total legacy elements removed: {Count}", totalRemovedElements);
         }
 
-        if (!_options.DryRun)
+        if (!options.DryRun)
         {
             var reportPath = Path.Combine(Path.GetDirectoryName(report.Results.FirstOrDefault()?.ProjectPath ?? ".") ?? ".",
                 $"migration-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");
-            WriteDetailedReport(report, reportPath);
+            WriteDetailedReport(report, reportPath, options);
             _logger.LogInformation("");
             _logger.LogInformation("Detailed migration report written to: {Path}", reportPath);
         }
@@ -1383,7 +1378,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         return await _migrationAnalyzer.AnalyzeProjectsAsync(directoryPath, cancellationToken);
     }
 
-    private void WriteDetailedReport(MigrationReport report, string reportPath)
+    private void WriteDetailedReport(MigrationReport report, string reportPath, MigrationOptions options)
     {
         using var writer = new StreamWriter(reportPath);
 
@@ -1451,7 +1446,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         // Write configuration migration guidance if any
         foreach (var result in report.Results.Where(r => r.Success))
         {
-            var targetFramework = _options.TargetFramework ?? "net8.0";
+            var targetFramework = options.TargetFramework ?? "net8.0";
             var configGuidance = configAnalyzer.AnalyzeConfiguration(result.OutputPath ?? result.ProjectPath, targetFramework);
 
             if (configGuidance.Issues.Any())

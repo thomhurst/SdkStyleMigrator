@@ -820,7 +820,7 @@ Examples:
                 logger.LogWarning("Cancellation requested...");
             };
 
-            var report = await orchestrator.MigrateProjectsAsync(options.DirectoryPath, cancellationTokenSource.Token);
+            var report = await orchestrator.MigrateProjectsAsync(options.DirectoryPath, options, cancellationTokenSource.Token);
 
             Console.WriteLine();
             Console.WriteLine("Migration Summary:");
@@ -997,7 +997,6 @@ Examples:
             var configurationFileGenerator = provider.GetRequiredService<IConfigurationFileGenerator>();
             var importScanner = provider.GetRequiredService<IImportScanner>();
             var userInteractionService = provider.GetRequiredService<IUserInteractionService>();
-            var options = provider.GetRequiredService<MigrationOptions>();
             var packageCache = provider.GetService<IPackageVersionCache>();
 
             return new MigrationOrchestrator(
@@ -1021,7 +1020,6 @@ Examples:
                 provider.GetRequiredService<ITargetScanner>(),
                 userInteractionService,
                 provider.GetRequiredService<IWebProjectHandler>(),
-                options,
                 packageCache);
         });
     }
