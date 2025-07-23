@@ -30,6 +30,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly INativeDependencyHandler _nativeDependencyHandler;
     private ImportScanResult? _importScanResult;
     private TargetScanResult? _targetScanResult;
+    private bool _centralPackageManagementEnabled;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -69,6 +70,12 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     public void SetTargetScanResult(TargetScanResult? targetScanResult)
     {
         _targetScanResult = targetScanResult;
+    }
+
+    public void SetCentralPackageManagementEnabled(bool enabled)
+    {
+        _centralPackageManagementEnabled = enabled;
+        _logger.LogInformation("CPM Debug: SetCentralPackageManagementEnabled called with value: {Enabled}", enabled);
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -937,13 +944,14 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     new XAttribute("Include", package.PackageId));
 
                 // Only add version if not centrally managed
-                if (!centrallyManagedPackages.Contains(package.PackageId))
+                if (!_centralPackageManagementEnabled && !centrallyManagedPackages.Contains(package.PackageId))
                 {
                     packageRef.Add(new XAttribute("Version", package.Version ?? "*"));
                 }
                 else
                 {
-                    _logger.LogDebug("Package {PackageId} is centrally managed, omitting version", package.PackageId);
+                    _logger.LogDebug("Package {PackageId} is centrally managed (CPM enabled: {CpmEnabled}, existing: {InExisting}), omitting version", 
+                        package.PackageId, _centralPackageManagementEnabled, centrallyManagedPackages.Contains(package.PackageId));
                 }
 
                 itemGroup.Add(packageRef);

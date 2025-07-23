@@ -667,6 +667,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             // Set import and target scan results if available
             _sdkStyleProjectGenerator.SetImportScanResult(_importScanResult);
             _sdkStyleProjectGenerator.SetTargetScanResult(_targetScanResult);
+            _sdkStyleProjectGenerator.SetCentralPackageManagementEnabled(_options.EnableCentralPackageManagement);
             
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);

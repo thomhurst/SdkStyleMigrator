@@ -16,4 +16,9 @@ public interface ISdkStyleProjectGenerator
     /// Sets the target scan result to be used during project generation
     /// </summary>
     void SetTargetScanResult(TargetScanResult? targetScanResult);
+    
+    /// <summary>
+    /// Sets whether Central Package Management is enabled for this migration
+    /// </summary>
+    void SetCentralPackageManagementEnabled(bool enabled);
 }
