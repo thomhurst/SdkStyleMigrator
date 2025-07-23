@@ -668,12 +668,34 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
                 }
                 else
                 {
-                    // Package exists in both - log potential version conflict
+                    // Package exists in both - resolve version conflict by choosing higher version
                     var newVersions = mergedPackages[existingPackage.PackageId].Select(p => p.Version).Distinct().ToList();
                     if (!newVersions.Contains(existingPackage.Version))
                     {
-                        _logger.LogInformation("Package {PackageId} exists in both migration ({NewVersions}) and existing CPM ({ExistingVersion}). Migration version will be used.", 
-                            existingPackage.PackageId, string.Join(", ", newVersions), existingPackage.Version);
+                        // Compare versions and use the higher one
+                        var allVersions = newVersions.Concat(new[] { existingPackage.Version }).ToList();
+                        var versionComparer = new VersionComparer();
+                        var highestVersion = allVersions.OrderByDescending(v => v, versionComparer).First();
+                        
+                        if (highestVersion == existingPackage.Version)
+                        {
+                            // Existing version is higher, replace migration packages with existing
+                            var syntheticPackage = new PackageReference
+                            {
+                                PackageId = existingPackage.PackageId,
+                                Version = existingPackage.Version,
+                                IsExisting = true
+                            };
+                            mergedPackages[existingPackage.PackageId] = new List<PackageReference> { syntheticPackage };
+                            
+                            _logger.LogInformation("Package {PackageId} version conflict resolved: existing version {ExistingVersion} is higher than migration versions ({NewVersions}). Using existing version.", 
+                                existingPackage.PackageId, existingPackage.Version, string.Join(", ", newVersions));
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Package {PackageId} version conflict resolved: migration version {HighestVersion} is higher than existing version {ExistingVersion}. Using migration version.", 
+                                existingPackage.PackageId, highestVersion, existingPackage.Version);
+                        }
                     }
                 }
             }
