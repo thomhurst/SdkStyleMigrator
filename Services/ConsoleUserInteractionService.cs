@@ -11,6 +11,7 @@ public class ConsoleUserInteractionService : IUserInteractionService
     public ConsoleUserInteractionService(ILogger<ConsoleUserInteractionService> logger)
     {
         _logger = logger;
+        _logger.LogInformation("ConsoleUserInteractionService created - THIS SHOULD NOT BE USED IN UI MODE");
     }
 
     public async Task<ImportScanResult> SelectImportsAsync(

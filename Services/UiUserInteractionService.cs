@@ -21,6 +21,7 @@ public class UiUserInteractionService : IUserInteractionService
     public UiUserInteractionService(ILogger<UiUserInteractionService> logger)
     {
         _logger = logger;
+        _logger.LogInformation("UiUserInteractionService created");
     }
 
     private static Window? GetMainWindow()
