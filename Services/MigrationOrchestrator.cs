@@ -540,7 +540,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         finally
         {
             report.EndTime = DateTime.UtcNow;
-            LogReport(report);
+            LogReport(report, options);
 
             // Log migration end
             await _auditService.LogMigrationEndAsync(report, cancellationToken);
@@ -1321,7 +1321,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         }
     }
 
-    private void LogReport(MigrationReport report)
+    private void LogReport(MigrationReport report, MigrationOptions options)
     {
         _logger.LogInformation("Migration Report:");
         _logger.LogInformation("  Duration: {Duration}", report.Duration);
