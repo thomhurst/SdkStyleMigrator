@@ -293,6 +293,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Generate Central Package Management configuration if enabled
+            _logger.LogInformation("CPM Debug: EnableCentralPackageManagement = {EnableCPM}, SuccessfulResults = {SuccessCount}", 
+                options.EnableCentralPackageManagement, report.Results.Count(r => r.Success));
+            
             if (options.EnableCentralPackageManagement && report.Results.Any(r => r.Success))
             {
                 _logger.LogInformation("Generating Central Package Management configuration...");

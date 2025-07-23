@@ -7,4 +7,5 @@ public class PackageReference
     public bool IsTransitive { get; set; }
     public string? TargetFramework { get; set; }
     public Dictionary<string, string> Metadata { get; set; } = new();
+    public bool IsExisting { get; set; }
 }

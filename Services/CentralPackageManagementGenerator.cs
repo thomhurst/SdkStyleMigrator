@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Xml;
 using System.Linq;
 using System.Xml.Linq;
@@ -53,12 +54,15 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             }
 
             // Collect all package references from migration results
-            var allPackages = migrationResults
+            var newPackages = migrationResults
                 .Where(r => r.Success)
                 .SelectMany(r => r.MigratedPackages)
                 .Where(p => !p.IsTransitive)
                 .GroupBy(p => p.PackageId, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // Merge with existing packages
+            var allPackages = MergeWithExistingPackages(newPackages, existingCpm);
 
             if (!allPackages.Any())
             {
@@ -628,5 +632,70 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
             result.Error = ex.Message;
             return result;
         }
+    }
+
+    private List<IGrouping<string, PackageReference>> MergeWithExistingPackages(
+        List<IGrouping<string, PackageReference>> newPackages, 
+        ExistingCpmInfo existingCpm)
+    {
+        var mergedPackages = new Dictionary<string, List<PackageReference>>(StringComparer.OrdinalIgnoreCase);
+
+        // Add all new packages first
+        foreach (var packageGroup in newPackages)
+        {
+            mergedPackages[packageGroup.Key] = packageGroup.ToList();
+        }
+
+        // Process existing packages
+        if (existingCpm.HasExistingCpm)
+        {
+            foreach (var existingPackage in existingCpm.ExistingPackages)
+            {
+                if (!mergedPackages.ContainsKey(existingPackage.PackageId))
+                {
+                    // Create a synthetic PackageReference for existing packages not in migration
+                    var syntheticPackage = new PackageReference
+                    {
+                        PackageId = existingPackage.PackageId,
+                        Version = existingPackage.Version,
+                        IsExisting = true // Flag to identify existing packages
+                    };
+
+                    mergedPackages[existingPackage.PackageId] = new List<PackageReference> { syntheticPackage };
+                    
+                    _logger.LogInformation("Preserving existing CPM package: {PackageId} v{Version}", 
+                        existingPackage.PackageId, existingPackage.Version);
+                }
+                else
+                {
+                    // Package exists in both - log potential version conflict
+                    var newVersions = mergedPackages[existingPackage.PackageId].Select(p => p.Version).Distinct().ToList();
+                    if (!newVersions.Contains(existingPackage.Version))
+                    {
+                        _logger.LogInformation("Package {PackageId} exists in both migration ({NewVersions}) and existing CPM ({ExistingVersion}). Migration version will be used.", 
+                            existingPackage.PackageId, string.Join(", ", newVersions), existingPackage.Version);
+                    }
+                }
+            }
+        }
+
+        // Convert back to IGrouping format
+        return mergedPackages.Select(kvp => 
+            new PackageGrouping(kvp.Key, kvp.Value)).Cast<IGrouping<string, PackageReference>>().ToList();
+    }
+
+    private class PackageGrouping : IGrouping<string, PackageReference>
+    {
+        public string Key { get; }
+        private readonly List<PackageReference> _packages;
+
+        public PackageGrouping(string key, List<PackageReference> packages)
+        {
+            Key = key;
+            _packages = packages;
+        }
+
+        public IEnumerator<PackageReference> GetEnumerator() => _packages.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

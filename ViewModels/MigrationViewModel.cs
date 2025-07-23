@@ -348,6 +348,8 @@ public class MigrationViewModel : ViewModelBase
             StatusMessage = "Starting migration...";
             LogMessages.Clear();
 
+            AddLogMessage($"CPM Debug: EnableCpm checkbox value: {EnableCpm}");
+            
             var options = new MigrationOptions
             {
                 DirectoryPath = DirectoryPath,
