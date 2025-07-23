@@ -151,15 +151,22 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
 
             // Scan imports if interactive mode is enabled
+            _logger.LogInformation("Checking interactive import selection - Enabled: {InteractiveImportSelection}, ProjectCount: {ProjectCount}", 
+                _options.InteractiveImportSelection, projectFilesList.Count);
+            
             if (_options.InteractiveImportSelection && projectFilesList.Count > 0)
             {
                 _logger.LogInformation("Scanning project imports for interactive selection...");
                 
-                // Scan imports by reading project XML directly (to avoid missing imports due to validation errors)
+                // Scan imports by reading project XML directly (to avoid missing imports due to validation errors)  
                 _importScanResult = await _importScanner.ScanProjectFileImportsAsync(projectFilesList, cancellationToken);
+                
+                _logger.LogInformation("Import scan result - HasCustomImports: {HasCustomImports}, TotalImports: {TotalImports}", 
+                    _importScanResult.HasCustomImports, _importScanResult.TotalImports);
                 
                 if (_importScanResult.HasCustomImports)
                 {
+                    _logger.LogInformation("About to call SelectImportsAsync");
                     _importScanResult = await _userInteractionService.SelectImportsAsync(
                         _importScanResult, 
                         _options.ImportOptions, 
@@ -175,6 +182,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Scan targets if interactive mode is enabled
+            _logger.LogInformation("Checking interactive target selection - Enabled: {InteractiveTargetSelection}, ProjectCount: {ProjectCount}", 
+                _options.InteractiveTargetSelection, projectFilesList.Count);
+            
             if (_options.InteractiveTargetSelection && projectFilesList.Count > 0)
             {
                 _logger.LogInformation("Scanning project targets for interactive selection...");
@@ -182,8 +192,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 // Scan targets by reading project XML directly (to avoid missing targets due to validation errors)
                 _targetScanResult = await _targetScanner.ScanProjectFileTargetsAsync(projectFilesList, cancellationToken);
                 
+                _logger.LogInformation("Target scan result - HasCustomTargets: {HasCustomTargets}, TotalTargets: {TotalTargets}", 
+                    _targetScanResult.HasCustomTargets, _targetScanResult.TotalTargets);
+                
                 if (_targetScanResult.HasCustomTargets)
                 {
+                    _logger.LogInformation("About to call SelectTargetsAsync");
                     _targetScanResult = await _userInteractionService.SelectTargetsAsync(
                         _targetScanResult, 
                         _options.TargetOptions, 
