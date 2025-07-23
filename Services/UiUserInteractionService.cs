@@ -38,12 +38,18 @@ public class UiUserInteractionService : IUserInteractionService
         ImportSelectionOptions options,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("SelectImportsAsync called - InteractiveMode: {InteractiveMode}, HasCustomImports: {HasCustomImports}, TotalImports: {TotalImports}", 
+            options.InteractiveMode, scanResult.HasCustomImports, scanResult.TotalImports);
+            
         if (!options.InteractiveMode || !scanResult.HasCustomImports)
         {
+            _logger.LogInformation("Skipping import selection - InteractiveMode: {InteractiveMode}, HasCustomImports: {HasCustomImports}", 
+                options.InteractiveMode, scanResult.HasCustomImports);
             return scanResult;
         }
 
         // Create and show dialog on UI thread
+        _logger.LogInformation("About to show import selection dialog");
         var result = await Dispatcher.UIThread.InvokeAsync(async () =>
         {
             var window = GetMainWindow();
@@ -54,11 +60,13 @@ public class UiUserInteractionService : IUserInteractionService
                 return scanResult;
             }
 
+            _logger.LogInformation("Creating import selection dialog");
             var dialog = new ImportSelectionDialog
             {
                 DataContext = new ImportSelectionViewModel(scanResult)
             };
 
+            _logger.LogInformation("Showing import selection dialog");
             await dialog.ShowDialog(window);
             
             var vm = dialog.DataContext as ImportSelectionViewModel;
@@ -73,12 +81,18 @@ public class UiUserInteractionService : IUserInteractionService
         TargetSelectionOptions options,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("SelectTargetsAsync called - InteractiveMode: {InteractiveMode}, HasCustomTargets: {HasCustomTargets}, TotalTargets: {TotalTargets}", 
+            options.InteractiveMode, scanResult.HasCustomTargets, scanResult.TotalTargets);
+            
         if (!options.InteractiveMode || !scanResult.HasCustomTargets)
         {
+            _logger.LogInformation("Skipping target selection - InteractiveMode: {InteractiveMode}, HasCustomTargets: {HasCustomTargets}", 
+                options.InteractiveMode, scanResult.HasCustomTargets);
             return scanResult;
         }
 
         // Create and show dialog on UI thread
+        _logger.LogInformation("About to show target selection dialog");
         var result = await Dispatcher.UIThread.InvokeAsync(async () =>
         {
             var window = GetMainWindow();
@@ -89,11 +103,13 @@ public class UiUserInteractionService : IUserInteractionService
                 return scanResult;
             }
 
+            _logger.LogInformation("Creating target selection dialog");
             var dialog = new TargetSelectionDialog
             {
                 DataContext = new TargetSelectionViewModel(scanResult)
             };
 
+            _logger.LogInformation("Showing target selection dialog");
             await dialog.ShowDialog(window);
             
             var vm = dialog.DataContext as TargetSelectionViewModel;
