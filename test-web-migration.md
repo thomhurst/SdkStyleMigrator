@@ -27,6 +27,7 @@
 <Project Sdk="MSBuild.SDK.SystemWeb/4.0.104">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
+    <GeneratedBindingRedirectsAction>Overwrite</GeneratedBindingRedirectsAction>
   </PropertyGroup>
   <!-- Inherits web-specific functionality from SystemWeb SDK -->
 </Project>
@@ -39,6 +40,7 @@
 ✅ **Minimal Changes**: Only project file format changes, no code refactoring required  
 ✅ **Modern Features**: Gets SDK-style benefits while staying on .NET Framework  
 ✅ **Auto-Included Content**: wwwroot, Views, Areas, web.config handled by SystemWeb SDK  
+✅ **Binding Redirects**: GeneratedBindingRedirectsAction=Overwrite ensures proper assembly binding  
 ✅ **Build Guidance**: Clear warnings about msbuild requirements  
 
 ## Project Types Supported:

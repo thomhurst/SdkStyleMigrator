@@ -111,7 +111,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             projectElement.Add(mainPropertyGroup);
 
             // Migrate basic properties (skip those already in Directory.Build.props)
-            MigrateBasicProperties(legacyProject, mainPropertyGroup, inheritedProperties);
+            MigrateBasicProperties(legacyProject, mainPropertyGroup, inheritedProperties, sdkType);
 
             // Handle AssemblyInfo to prevent conflicts
             HandleAssemblyInfo(legacyProject, mainPropertyGroup, inheritedProperties);
@@ -369,7 +369,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         return value;
     }
 
-    private void MigrateBasicProperties(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties)
+    private void MigrateBasicProperties(Project project, XElement propertyGroup, Dictionary<string, string> inheritedProperties, string sdkType)
     {
         // Helper to add property only if not inherited
         void AddPropertyIfNotInherited(string name, string value)
@@ -521,6 +521,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 if (hasWinFormsItems)
                     propertyGroup.Add(new XElement("UseWindowsForms", "true"));
             }
+        }
+
+        // Add SystemWeb-specific properties
+        if (sdkType == "MSBuild.SDK.SystemWeb")
+        {
+            AddPropertyIfNotInherited("GeneratedBindingRedirectsAction", "Overwrite");
+            _logger.LogInformation("Added GeneratedBindingRedirectsAction=Overwrite for SystemWeb SDK project");
         }
 
         // Migrate conditional compilation symbols will be done later with the projectElement
