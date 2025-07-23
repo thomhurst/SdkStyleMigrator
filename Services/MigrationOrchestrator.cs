@@ -88,8 +88,6 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, MigrationOptions options, CancellationToken cancellationToken = default)
     {
-        // Use provided options for interactive selection, but keep _options for everything else
-        var effectiveOptions = options;
         
         var report = new MigrationReport
         {
@@ -112,10 +110,10 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             lockAcquired = true;
 
             // Log migration start
-            await _auditService.LogMigrationStartAsync(_options, cancellationToken);
+            await _auditService.LogMigrationStartAsync(options, cancellationToken);
 
             // Initialize backup if enabled
-            if (_options.CreateBackup && !_options.DryRun)
+            if (options.CreateBackup && !options.DryRun)
             {
                 backupSession = await _backupService.InitializeBackupAsync(directoryPath, cancellationToken);
                 _logger.LogInformation("Backup initialized with session ID: {SessionId}", backupSession.SessionId);
@@ -124,7 +122,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _logger.LogInformation("Starting migration process for directory: {DirectoryPath}", directoryPath);
 
             // Run pre-migration analysis if not in force mode
-            if (!_options.Force && !_options.DryRun)
+            if (!options.Force && !options.DryRun)
             {
                 _logger.LogInformation("Running pre-migration analysis...");
                 var analysis = await _migrationAnalyzer.AnalyzeProjectsAsync(directoryPath, cancellationToken);
@@ -160,9 +158,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             // Scan imports if interactive mode is enabled
             _logger.LogInformation("Checking interactive import selection - Enabled: {InteractiveImportSelection}, ProjectCount: {ProjectCount}", 
-                effectiveOptions.InteractiveImportSelection, projectFilesList.Count);
+                options.InteractiveImportSelection, projectFilesList.Count);
             
-            if (effectiveOptions.InteractiveImportSelection && projectFilesList.Count > 0)
+            if (options.InteractiveImportSelection && projectFilesList.Count > 0)
             {
                 _logger.LogInformation("Scanning project imports for interactive selection...");
                 
@@ -177,7 +175,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     _logger.LogInformation("About to call SelectImportsAsync");
                     _importScanResult = await _userInteractionService.SelectImportsAsync(
                         _importScanResult, 
-                        effectiveOptions.ImportOptions, 
+                        options.ImportOptions, 
                         cancellationToken);
                     
                     _logger.LogInformation("Import selection complete. {SelectedCount}/{TotalCount} imports will be kept",
@@ -191,9 +189,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             // Scan targets if interactive mode is enabled
             _logger.LogInformation("Checking interactive target selection - Enabled: {InteractiveTargetSelection}, ProjectCount: {ProjectCount}", 
-                effectiveOptions.InteractiveTargetSelection, projectFilesList.Count);
+                options.InteractiveTargetSelection, projectFilesList.Count);
             
-            if (effectiveOptions.InteractiveTargetSelection && projectFilesList.Count > 0)
+            if (options.InteractiveTargetSelection && projectFilesList.Count > 0)
             {
                 _logger.LogInformation("Scanning project targets for interactive selection...");
                 
@@ -208,7 +206,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     _logger.LogInformation("About to call SelectTargetsAsync");
                     _targetScanResult = await _userInteractionService.SelectTargetsAsync(
                         _targetScanResult, 
-                        effectiveOptions.TargetOptions, 
+                        options.TargetOptions, 
                         cancellationToken);
                     
                     _logger.LogInformation("Target selection complete. {SelectedCount}/{TotalCount} targets will be kept",
@@ -225,11 +223,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             var projectIndex = 0;
             var totalProjects = projectFilesList.Count;
 
-            if (_options.MaxDegreeOfParallelism > 1)
+            if (options.MaxDegreeOfParallelism > 1)
             {
-                _logger.LogInformation("Processing projects in parallel with max degree of parallelism: {MaxDegree}", _options.MaxDegreeOfParallelism);
+                _logger.LogInformation("Processing projects in parallel with max degree of parallelism: {MaxDegree}", options.MaxDegreeOfParallelism);
 
-                var semaphore = new SemaphoreSlim(_options.MaxDegreeOfParallelism);
+                var semaphore = new SemaphoreSlim(options.MaxDegreeOfParallelism);
                 var processedCount = 0;
                 var lockObj = new object();
 
@@ -280,8 +278,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             if (projectAssemblyProperties.Any())
             {
-                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory)
-                    ? _options.OutputDirectory
+                var outputDir = !string.IsNullOrEmpty(options.OutputDirectory)
+                    ? options.OutputDirectory
                     : directoryPath;
 
                 await _directoryBuildPropsGenerator.GenerateDirectoryBuildPropsAsync(
@@ -295,12 +293,12 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Generate Central Package Management configuration if enabled
-            if (_options.EnableCentralPackageManagement && report.Results.Any(r => r.Success))
+            if (options.EnableCentralPackageManagement && report.Results.Any(r => r.Success))
             {
                 _logger.LogInformation("Generating Central Package Management configuration...");
 
-                var outputDir = !string.IsNullOrEmpty(_options.OutputDirectory)
-                    ? _options.OutputDirectory
+                var outputDir = !string.IsNullOrEmpty(options.OutputDirectory)
+                    ? options.OutputDirectory
                     : directoryPath;
 
                 var cpmResult = await _centralPackageManagementGenerator.GenerateDirectoryPackagesPropsAsync(
@@ -318,7 +316,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     }
 
                     // Remove versions from project files
-                    if (!_options.DryRun)
+                    if (!options.DryRun)
                     {
                         var migratedProjectFiles = report.Results
                             .Where(r => r.Success)
@@ -342,7 +340,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Clean up local package files after all projects are migrated (to avoid file lock issues)
-            if (!_options.DryRun && projectCleanupInfo.Any())
+            if (!options.DryRun && projectCleanupInfo.Any())
             {
                 _logger.LogInformation("Starting cleanup of local package files for all migrated projects...");
 
@@ -462,7 +460,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Clean packages folder if all projects have been migrated
-            if (report.TotalProjectsMigrated > 0 && report.TotalProjectsFailed == 0 && !_options.DryRun)
+            if (report.TotalProjectsMigrated > 0 && report.TotalProjectsFailed == 0 && !options.DryRun)
             {
                 _logger.LogInformation("All projects migrated successfully. Checking if packages folder can be cleaned...");
                 var packagesCleanResult = await _localPackageFilesCleaner.CleanPackagesFolderAsync(directoryPath, cancellationToken);
@@ -498,7 +496,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Run post-migration validation
-            if (report.Results.Any(r => r.Success) && !_options.DryRun)
+            if (report.Results.Any(r => r.Success) && !options.DryRun)
             {
                 _logger.LogInformation("Running post-migration validation...");
 
@@ -563,7 +561,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             }
 
             // Log cache statistics if available
-            if (_packageCache != null && !_options.DisableCache)
+            if (_packageCache != null && !options.DisableCache)
             {
                 var stats = _packageCache.GetStatistics();
                 _logger.LogInformation(
