@@ -36,8 +36,8 @@ public class MigrationViewModel : ViewModelBase
     private string? _nugetConfig;
     private bool _disableCache;
     private int? _cacheTtl;
-    private bool _interactiveImports;
-    private bool _interactiveTargets;
+    private bool _interactiveImports = true;
+    private bool _interactiveTargets = true;
     private bool _isRunning;
     private double _progress;
     private string _statusMessage = "Ready to migrate";
