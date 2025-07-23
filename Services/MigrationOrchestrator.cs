@@ -88,8 +88,8 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     
     public async Task<MigrationReport> MigrateProjectsAsync(string directoryPath, MigrationOptions options, CancellationToken cancellationToken = default)
     {
-        // Use the provided options instead of instance _options
-        _options = options;
+        // Use provided options for interactive selection, but keep _options for everything else
+        var effectiveOptions = options;
         
         var report = new MigrationReport
         {
@@ -160,9 +160,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             // Scan imports if interactive mode is enabled
             _logger.LogInformation("Checking interactive import selection - Enabled: {InteractiveImportSelection}, ProjectCount: {ProjectCount}", 
-                _options.InteractiveImportSelection, projectFilesList.Count);
+                effectiveOptions.InteractiveImportSelection, projectFilesList.Count);
             
-            if (_options.InteractiveImportSelection && projectFilesList.Count > 0)
+            if (effectiveOptions.InteractiveImportSelection && projectFilesList.Count > 0)
             {
                 _logger.LogInformation("Scanning project imports for interactive selection...");
                 
@@ -177,7 +177,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     _logger.LogInformation("About to call SelectImportsAsync");
                     _importScanResult = await _userInteractionService.SelectImportsAsync(
                         _importScanResult, 
-                        _options.ImportOptions, 
+                        effectiveOptions.ImportOptions, 
                         cancellationToken);
                     
                     _logger.LogInformation("Import selection complete. {SelectedCount}/{TotalCount} imports will be kept",
@@ -191,9 +191,9 @@ public class MigrationOrchestrator : IMigrationOrchestrator
 
             // Scan targets if interactive mode is enabled
             _logger.LogInformation("Checking interactive target selection - Enabled: {InteractiveTargetSelection}, ProjectCount: {ProjectCount}", 
-                _options.InteractiveTargetSelection, projectFilesList.Count);
+                effectiveOptions.InteractiveTargetSelection, projectFilesList.Count);
             
-            if (_options.InteractiveTargetSelection && projectFilesList.Count > 0)
+            if (effectiveOptions.InteractiveTargetSelection && projectFilesList.Count > 0)
             {
                 _logger.LogInformation("Scanning project targets for interactive selection...");
                 
@@ -208,7 +208,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     _logger.LogInformation("About to call SelectTargetsAsync");
                     _targetScanResult = await _userInteractionService.SelectTargetsAsync(
                         _targetScanResult, 
-                        _options.TargetOptions, 
+                        effectiveOptions.TargetOptions, 
                         cancellationToken);
                     
                     _logger.LogInformation("Target selection complete. {SelectedCount}/{TotalCount} targets will be kept",
