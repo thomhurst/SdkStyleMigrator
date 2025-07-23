@@ -63,7 +63,7 @@ public class TargetScanResult
     public List<TargetGroup> TargetGroups { get; set; } = new();
     public int TotalTargets => TargetGroups.Sum(g => g.TotalCount);
     public int SelectedTargets => TargetGroups.Sum(g => g.SelectedCount);
-    public bool HasCustomTargets => TargetGroups.Any(g => g.Category != "System");
+    public bool HasCustomTargets => TargetGroups.Any(g => g.Targets.Any(t => !t.IsSystemTarget));
 }
 
 /// <summary>

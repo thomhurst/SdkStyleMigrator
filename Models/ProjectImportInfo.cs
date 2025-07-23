@@ -43,7 +43,7 @@ public class ImportScanResult
     public List<ImportGroup> ImportGroups { get; set; } = new();
     public int TotalImports => ImportGroups.Sum(g => g.TotalCount);
     public int SelectedImports => ImportGroups.Sum(g => g.SelectedCount);
-    public bool HasCustomImports => ImportGroups.Any(g => g.Category != "System");
+    public bool HasCustomImports => ImportGroups.Any(g => g.Imports.Any(i => !i.IsSystemImport));
 }
 
 /// <summary>
