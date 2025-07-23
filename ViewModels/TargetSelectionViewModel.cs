@@ -24,6 +24,8 @@ public class TargetSelectionViewModel : ViewModelBase
 
     public ICommand OkCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand SelectAllCommand { get; }
+    public ICommand DeselectAllCommand { get; }
 
     public TargetSelectionViewModel(TargetScanResult scanResult)
     {
@@ -39,6 +41,8 @@ public class TargetSelectionViewModel : ViewModelBase
         
         OkCommand = ReactiveCommand.Create(OnOk);
         CancelCommand = ReactiveCommand.Create(OnCancel);
+        SelectAllCommand = ReactiveCommand.Create(OnSelectAll);
+        DeselectAllCommand = ReactiveCommand.Create(OnDeselectAll);
     }
 
     private void UpdateSelectedCount()
@@ -62,6 +66,30 @@ public class TargetSelectionViewModel : ViewModelBase
             }
         }
         // The dialog will be closed by the view
+    }
+
+    private void OnSelectAll()
+    {
+        foreach (var group in _scanResult.TargetGroups)
+        {
+            foreach (var target in group.Targets)
+            {
+                target.UserDecision = true;
+            }
+        }
+        UpdateSelectedCount();
+    }
+
+    private void OnDeselectAll()
+    {
+        foreach (var group in _scanResult.TargetGroups)
+        {
+            foreach (var target in group.Targets)
+            {
+                target.UserDecision = false;
+            }
+        }
+        UpdateSelectedCount();
     }
 }
 

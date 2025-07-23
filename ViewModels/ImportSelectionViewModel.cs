@@ -25,6 +25,8 @@ public class ImportSelectionViewModel : ViewModelBase
 
     public ICommand OkCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand SelectAllCommand { get; }
+    public ICommand DeselectAllCommand { get; }
 
     public ImportSelectionViewModel(ImportScanResult scanResult)
     {
@@ -40,6 +42,8 @@ public class ImportSelectionViewModel : ViewModelBase
         
         OkCommand = ReactiveCommand.Create(OnOk);
         CancelCommand = ReactiveCommand.Create(OnCancel);
+        SelectAllCommand = ReactiveCommand.Create(OnSelectAll);
+        DeselectAllCommand = ReactiveCommand.Create(OnDeselectAll);
     }
 
     private void UpdateSelectedCount()
@@ -63,6 +67,30 @@ public class ImportSelectionViewModel : ViewModelBase
             }
         }
         // The dialog will be closed by the view
+    }
+
+    private void OnSelectAll()
+    {
+        foreach (var group in _scanResult.ImportGroups)
+        {
+            foreach (var import in group.Imports)
+            {
+                import.UserDecision = true;
+            }
+        }
+        UpdateSelectedCount();
+    }
+
+    private void OnDeselectAll()
+    {
+        foreach (var group in _scanResult.ImportGroups)
+        {
+            foreach (var import in group.Imports)
+            {
+                import.UserDecision = false;
+            }
+        }
+        UpdateSelectedCount();
     }
 }
 

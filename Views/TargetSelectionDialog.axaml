@@ -85,18 +85,28 @@
         </ScrollViewer>
         
         <!-- Actions -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,20,0,0">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,20,0,0">
             <TextBlock Grid.Column="0" 
                        Text="{Binding SelectedCount, StringFormat='{}{0} targets selected'}"
                        VerticalAlignment="Center"
                        Foreground="#64748B"/>
             <Button Grid.Column="1" 
                     Classes="SecondaryButton"
+                    Content="Select All"
+                    Command="{Binding SelectAllCommand}"
+                    Margin="0,0,10,0"/>
+            <Button Grid.Column="2" 
+                    Classes="SecondaryButton"
+                    Content="Deselect All"
+                    Command="{Binding DeselectAllCommand}"
+                    Margin="0,0,10,0"/>
+            <Button Grid.Column="3" 
+                    Classes="SecondaryButton"
                     Content="Cancel"
                     Command="{Binding CancelCommand}"
                     Click="OnCancelClick"
                     Margin="0,0,10,0"/>
-            <Button Grid.Column="2" 
+            <Button Grid.Column="4" 
                     Classes="PrimaryButton"
                     Content="OK"
                     Command="{Binding OkCommand}"
