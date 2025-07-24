@@ -133,13 +133,13 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             MigrateCOMReferences(legacyProject, projectElement);
 
             // Migrate compile items (if needed)
-            MigrateCompileItems(legacyProject, projectElement);
+            MigrateCompileItems(legacyProject, projectElement, sdkType);
 
             // Add excluded compile items
             AddExcludedCompileItems(legacyProject, projectElement);
 
             // Migrate content and resources
-            MigrateContentAndResources(legacyProject, projectElement);
+            MigrateContentAndResources(legacyProject, projectElement, sdkType);
 
             // Migrate WPF/WinForms specific items
             MigrateDesignerItems(legacyProject, projectElement);
@@ -1005,14 +1005,29 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
     }
 
-    private void MigrateCompileItems(Project project, XElement projectElement)
+    private void MigrateCompileItems(Project project, XElement projectElement, string sdkType)
     {
+        // For SystemWeb SDK, exclude all .cs and .resx files
         var compileItems = GetExplicitItemsFromXml(project, "Compile")
             .Where(item => 
             {
                 var expandedInclude = SafeExpandString(project, item.Include);
-                return !expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && // Exclude ALL .cs files
-                       !IsAssemblyInfoFile(expandedInclude); // Exclude AssemblyInfo files
+                
+                // For SystemWeb SDK, exclude all .cs and .resx files
+                if (sdkType == "MSBuild.SDK.SystemWeb")
+                {
+                    if (expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                        expandedInclude.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogDebug("Excluding {ItemType} item '{Include}' from SystemWeb SDK project", "Compile", expandedInclude);
+                        return false;
+                    }
+                    return !IsAssemblyInfoFile(expandedInclude);
+                }
+                
+                // For other SDKs, just exclude .cs files and AssemblyInfo
+                return !expandedInclude.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) &&
+                       !IsAssemblyInfoFile(expandedInclude);
             })
             .ToList();
 
@@ -1041,8 +1056,11 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             projectElement.Add(itemGroup);
         }
         
-        // Handle .cs files with metadata using Update items
-        MigrateCsFilesWithMetadata(project, projectElement);
+        // Handle .cs files with metadata using Update items (not for SystemWeb SDK)
+        if (sdkType != "MSBuild.SDK.SystemWeb")
+        {
+            MigrateCsFilesWithMetadata(project, projectElement);
+        }
     }
 
     private void MigrateCsFilesWithMetadata(Project project, XElement projectElement)
@@ -1102,7 +1120,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             .Any(pattern => fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void MigrateContentAndResources(Project project, XElement projectElement)
+    private void MigrateContentAndResources(Project project, XElement projectElement, string sdkType)
     {
         // Get content items from explicit XML only - ignore implicit MSBuild items
         var contentItems = new List<ProjectItemElement>();
@@ -1115,6 +1133,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                      item.ItemType == "EmbeddedResource") &&
                     !_artifactDetector.IsItemArtifact(item.ItemType, item.Include))
                 {
+                    // For SystemWeb SDK, skip .resx files
+                    if (sdkType == "MSBuild.SDK.SystemWeb" && 
+                        item.ItemType == "EmbeddedResource" &&
+                        item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogDebug("Excluding EmbeddedResource .resx file '{Include}' from SystemWeb SDK project", item.Include);
+                        continue;
+                    }
+                    
                     contentItems.Add(item);
                 }
             }
