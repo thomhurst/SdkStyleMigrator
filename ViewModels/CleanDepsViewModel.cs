@@ -21,6 +21,7 @@ public class CleanDepsViewModel : ViewModelBase
     
     private string _directoryPath = string.Empty;
     private bool _dryRun;
+    private bool _conservativeMode = true;
     private bool _isRunning;
     private string _statusMessage = "Ready to clean dependencies";
     private ObservableCollection<string> _logMessages = new();
@@ -36,6 +37,12 @@ public class CleanDepsViewModel : ViewModelBase
     {
         get => _dryRun;
         set => this.RaiseAndSetIfChanged(ref _dryRun, value);
+    }
+
+    public bool ConservativeMode
+    {
+        get => _conservativeMode;
+        set => this.RaiseAndSetIfChanged(ref _conservativeMode, value);
     }
 
     public bool IsRunning
@@ -118,6 +125,7 @@ public class CleanDepsViewModel : ViewModelBase
                     
                     // Read project file and extract package references
                     var projectDoc = XDocument.Load(projectFile);
+                    var root = projectDoc.Root;
                     var packageRefs = projectDoc.Descendants("PackageReference")
                         .Select(pr => new Models.PackageReference
                         {
@@ -133,18 +141,101 @@ public class CleanDepsViewModel : ViewModelBase
                         continue;
                     }
 
+                    // Get project references to check their package dependencies
+                    var projectRefs = root.Descendants("ProjectReference")
+                        .Select(pr => pr.Attribute("Include")?.Value)
+                        .Where(path => !string.IsNullOrEmpty(path))
+                        .Select(path => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFile)!, path!)))
+                        .Where(fullPath => File.Exists(fullPath))
+                        .ToList();
+
+                    // Collect packages from referenced projects with their versions
+                    var referencedProjectPackages = new Dictionary<string, (string ProjectPath, string Version)>();
+
+                    foreach (var projRef in projectRefs)
+                    {
+                        try
+                        {
+                            var projDoc = XDocument.Load(projRef);
+                            var depPackages = projDoc.Descendants("PackageReference")
+                                .Select(pr => new
+                                {
+                                    PackageId = pr.Attribute("Include")?.Value,
+                                    Version = pr.Attribute("Version")?.Value ?? pr.Element("Version")?.Value
+                                })
+                                .Where(p => !string.IsNullOrEmpty(p.PackageId) && !string.IsNullOrEmpty(p.Version))
+                                .ToList();
+
+                            foreach (var pkg in depPackages)
+                            {
+                                if (!referencedProjectPackages.ContainsKey(pkg.PackageId!) || 
+                                    ConservativeMode) // In conservative mode, don't overwrite if already found
+                                {
+                                    referencedProjectPackages[pkg.PackageId!] = (projRef, pkg.Version!);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            AddLogMessage($"  Warning: Failed to analyze project reference: {Path.GetFileName(projRef)}");
+                        }
+                    }
+
                     // Detect transitive dependencies
+                    var projectDirectory = Path.GetDirectoryName(projectFile);
                     var transitivePackages = await _transitiveDepsDetector.DetectTransitiveDependenciesAsync(
                         packageRefs, 
+                        projectDirectory,
                         cts.Token);
 
+                    // Filter packages based on project references
+                    var packagesToRemove = new List<Models.PackageReference>();
+                    
+                    foreach (var package in packageRefs.Where(p => p.IsTransitive))
+                    {
+                        var shouldRemove = true;
+                        var reason = "transitive dependency";
+
+                        // Check if this package is provided by a project reference
+                        if (referencedProjectPackages.TryGetValue(package.PackageId, out var refInfo))
+                        {
+                            if (ConservativeMode)
+                            {
+                                // In conservative mode, only remove if versions match exactly
+                                if (string.Equals(package.Version, refInfo.Version, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    shouldRemove = true;
+                                    reason = $"provided by referenced project '{Path.GetFileName(refInfo.ProjectPath)}' with same version ({refInfo.Version})";
+                                }
+                                else
+                                {
+                                    shouldRemove = false;
+                                    AddLogMessage($"  - Keeping {package.PackageId} ({package.Version}) - referenced project has different version ({refInfo.Version})");
+                                }
+                            }
+                            else
+                            {
+                                // In aggressive mode, remove regardless of version
+                                shouldRemove = true;
+                                reason = $"provided by referenced project '{Path.GetFileName(refInfo.ProjectPath)}'";
+                            }
+                        }
+
+                        if (shouldRemove)
+                        {
+                            packagesToRemove.Add(package);
+                            package.IsTransitive = true;
+                            package.TransitiveReason = reason;
+                        }
+                    }
+
                     var removedCount = 0;
-                    if (transitivePackages.Any())
+                    if (packagesToRemove.Any())
                     {
                         if (!DryRun)
                         {
                             // Remove transitive packages from project file
-                            foreach (var transitivePkg in transitivePackages)
+                            foreach (var transitivePkg in packagesToRemove)
                             {
                                 var elements = projectDoc.Descendants("PackageReference")
                                     .Where(pr => pr.Attribute("Include")?.Value == transitivePkg.PackageId)
@@ -155,7 +246,7 @@ public class CleanDepsViewModel : ViewModelBase
                                     element.Remove();
                                     removedCount++;
                                     TotalRemoved++;
-                                    AddLogMessage($"  - Removed: {transitivePkg.PackageId}");
+                                    AddLogMessage($"  - Removed: {transitivePkg.PackageId} ({transitivePkg.TransitiveReason})");
                                 }
                             }
 
@@ -166,11 +257,11 @@ public class CleanDepsViewModel : ViewModelBase
                         }
                         else
                         {
-                            foreach (var transitivePkg in transitivePackages)
+                            foreach (var transitivePkg in packagesToRemove)
                             {
                                 removedCount++;
                                 TotalRemoved++;
-                                AddLogMessage($"  - Would remove: {transitivePkg.PackageId}");
+                                AddLogMessage($"  - Would remove: {transitivePkg.PackageId} ({transitivePkg.TransitiveReason})");
                             }
                         }
                     }

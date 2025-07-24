@@ -52,6 +52,15 @@
                                            Foreground="#64748B"/>
                             </StackPanel>
                         </CheckBox>
+                        
+                        <CheckBox IsChecked="{Binding ConservativeMode}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Conservative Mode" FontWeight="Medium"/>
+                                <TextBlock Text="Only remove packages when versions match exactly (safer)"
+                                           FontSize="12"
+                                           Foreground="#64748B"/>
+                            </StackPanel>
+                        </CheckBox>
                     </StackPanel>
                 </Border>
                 
