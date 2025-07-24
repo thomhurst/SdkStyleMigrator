@@ -135,8 +135,11 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate compile items (if needed)
             MigrateCompileItems(legacyProject, projectElement, sdkType);
 
-            // Add excluded compile items
-            AddExcludedCompileItems(legacyProject, projectElement);
+            // Add excluded compile items (skip for SystemWeb SDK)
+            if (sdkType != "MSBuild.SDK.SystemWeb")
+            {
+                AddExcludedCompileItems(legacyProject, projectElement);
+            }
 
             // Migrate content and resources
             MigrateContentAndResources(legacyProject, projectElement, sdkType);
@@ -1143,13 +1146,18 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                      item.ItemType == "EmbeddedResource") &&
                     !_artifactDetector.IsItemArtifact(item.ItemType, item.Include))
                 {
-                    // For SystemWeb SDK, skip .resx files
-                    if (sdkType == "MSBuild.SDK.SystemWeb" && 
-                        item.ItemType == "EmbeddedResource" &&
-                        item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
+                    // For SystemWeb SDK, skip .resx and designer.cs files regardless of item type
+                    if (sdkType == "MSBuild.SDK.SystemWeb")
                     {
-                        _logger.LogDebug("Excluding EmbeddedResource .resx file '{Include}' from SystemWeb SDK project", item.Include);
-                        continue;
+                        var fileName = Path.GetFileName(item.Include);
+                        if (item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase) ||
+                            item.Include.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase) ||
+                            item.Include.EndsWith(".designer.cs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogDebug("Excluding {ItemType} file '{Include}' from SystemWeb SDK project", 
+                                item.ItemType, item.Include);
+                            continue;
+                        }
                     }
                     
                     contentItems.Add(item);
@@ -1170,13 +1178,17 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     // Check if the item has custom metadata that needs to be preserved
                     if (HasCustomMetadata(item))
                     {
-                        // For SystemWeb SDK, skip .resx files entirely even with metadata
-                        if (sdkType == "MSBuild.SDK.SystemWeb" && 
-                            item.ItemType == "EmbeddedResource" &&
-                            item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
+                        // For SystemWeb SDK, skip .resx and designer.cs files entirely even with metadata
+                        if (sdkType == "MSBuild.SDK.SystemWeb")
                         {
-                            _logger.LogDebug("Skipping .resx file with metadata for SystemWeb SDK: {File}", item.Include);
-                            continue;
+                            if (item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase) ||
+                                item.Include.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase) ||
+                                item.Include.EndsWith(".designer.cs", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _logger.LogDebug("Skipping {ItemType} file with metadata for SystemWeb SDK: {File}", 
+                                    item.ItemType, item.Include);
+                                continue;
+                            }
                         }
                         
                         // For .resx files and other SDK-included files with metadata, use Update
@@ -1206,6 +1218,19 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 }
                 else
                 {
+                    // For SystemWeb SDK, skip .resx and designer.cs files even if not auto-included
+                    if (sdkType == "MSBuild.SDK.SystemWeb")
+                    {
+                        if (item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase) ||
+                            item.Include.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase) ||
+                            item.Include.EndsWith(".designer.cs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogDebug("Skipping non-auto-included {ItemType} file for SystemWeb SDK: {File}", 
+                                item.ItemType, item.Include);
+                            continue;
+                        }
+                    }
+                    
                     // Not auto-included, so we need to explicitly include it
                     var element = new XElement(item.ItemType,
                         new XAttribute("Include", item.Include));
