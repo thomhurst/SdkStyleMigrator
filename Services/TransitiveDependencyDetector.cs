@@ -31,13 +31,22 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "Microsoft.SourceLink.AzureRepos.Git",
         "Microsoft.SourceLink.GitLab",
         "Microsoft.SourceLink.Bitbucket.Git",
+        "GitInfo",
+        "Nerdbank.GitVersioning",
         
-        // Analyzer packages
+        // Analyzer packages (these provide build-time assets)
         "StyleCop.Analyzers",
         "SonarAnalyzer.CSharp",
         "Microsoft.CodeAnalysis.NetAnalyzers",
         "Microsoft.CodeAnalysis.FxCopAnalyzers",
         "Roslynator.Analyzers",
+        "Microsoft.CodeAnalysis.PublicApiAnalyzers",
+        "Microsoft.VisualStudio.Threading.Analyzers",
+        
+        // Source generators
+        "System.Text.Json", // Has source generators
+        "Microsoft.Extensions.Logging.Abstractions", // Has source generators
+        "Microsoft.Extensions.Options", // Has source generators
         
         // Framework packages
         "Microsoft.AspNetCore.App",

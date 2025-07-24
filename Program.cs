@@ -280,9 +280,15 @@ class Program
             aliases: new[] { "--dry-run", "-d" },
             description: "Preview changes without modifying files");
 
+        var cleanDepsConservativeOption = new Option<bool>(
+            aliases: new[] { "--conservative", "-c" },
+            getDefaultValue: () => true,
+            description: "Conservative mode - only remove if versions match exactly (safer)");
+        
         cleanDepsCommand.AddArgument(cleanDepsDirectoryArgument);
         cleanDepsCommand.AddOption(cleanDepsBackupOption);
         cleanDepsCommand.AddOption(cleanDepsDryRunOption);
+        cleanDepsCommand.AddOption(cleanDepsConservativeOption);
         cleanDepsCommand.AddOption(logLevelOption);
         cleanDepsCommand.AddOption(parallelOption);
         cleanDepsCommand.AddOption(offlineOption);
@@ -293,6 +299,7 @@ class Program
             var directory = context.ParseResult.GetValueForArgument(cleanDepsDirectoryArgument);
             var backup = context.ParseResult.GetValueForOption(cleanDepsBackupOption);
             var dryRun = context.ParseResult.GetValueForOption(cleanDepsDryRunOption);
+            var conservative = context.ParseResult.GetValueForOption(cleanDepsConservativeOption);
             var logLevel = context.ParseResult.GetValueForOption(logLevelOption) ?? "Information";
             var parallel = context.ParseResult.GetValueForOption(parallelOption) ?? 1;
             var offline = context.ParseResult.GetValueForOption(offlineOption);
@@ -309,7 +316,7 @@ class Program
                 NuGetConfigPath = nugetConfig
             };
 
-            var exitCode = await RunCleanDeps(options);
+            var exitCode = await RunCleanDeps(options, conservative);
             context.ExitCode = exitCode;
         });
 
@@ -1024,7 +1031,7 @@ Examples:
         });
     }
 
-    static async Task<int> RunCleanDeps(MigrationOptions options)
+    static async Task<int> RunCleanDeps(MigrationOptions options, bool conservative = true)
     {
         var services = new ServiceCollection();
         ConfigureServices(services, options);
@@ -1079,7 +1086,8 @@ Examples:
                             transitiveDepsService,
                             backupService,
                             options,
-                            logger);
+                            logger,
+                            conservative);
 
                         lock (lockObj)
                         {
@@ -1126,7 +1134,8 @@ Examples:
                             transitiveDepsService,
                             backupService,
                             options,
-                            logger);
+                            logger,
+                            conservative);
 
                         if (result.Success)
                         {
@@ -1366,7 +1375,8 @@ Examples:
         ITransitiveDependencyDetector transitiveDepsService,
         IBackupService backupService,
         MigrationOptions options,
-        ILogger logger)
+        ILogger logger,
+        bool conservative = true)
     {
         try
         {
@@ -1392,13 +1402,53 @@ Examples:
                 IsTransitive = false
             }).ToList();
 
+            // Get project references to check their package dependencies
+            var projectRefs = root.Descendants("ProjectReference")
+                .Select(pr => pr.Attribute("Include")?.Value)
+                .Where(path => !string.IsNullOrEmpty(path))
+                .Select(path => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectPath)!, path!)))
+                .Where(fullPath => File.Exists(fullPath))
+                .ToList();
+
+            // Collect packages from referenced projects with their versions
+            var referencedProjectPackages = new Dictionary<string, (string ProjectPath, string Version)>();
+
+            foreach (var projRef in projectRefs)
+            {
+                try
+                {
+                    var projDoc = XDocument.Load(projRef);
+                    var depPackages = projDoc.Descendants("PackageReference")
+                        .Select(pr => new
+                        {
+                            PackageId = pr.Attribute("Include")?.Value,
+                            Version = pr.Attribute("Version")?.Value ?? pr.Element("Version")?.Value
+                        })
+                        .Where(p => !string.IsNullOrEmpty(p.PackageId) && !string.IsNullOrEmpty(p.Version))
+                        .ToList();
+
+                    foreach (var pkg in depPackages)
+                    {
+                        if (!referencedProjectPackages.ContainsKey(pkg.PackageId!) || 
+                            conservative) // In conservative mode, don't overwrite if already found
+                        {
+                            referencedProjectPackages[pkg.PackageId!] = (projRef, pkg.Version!);
+                            logger.LogDebug("Package '{Package}' v{Version} found in project reference: {Project}", 
+                                pkg.PackageId, pkg.Version, Path.GetFileName(projRef));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to analyze project reference: {Project}", projRef);
+                }
+            }
+
             // Detect transitive dependencies within the current project
             var projectDirectory = Path.GetDirectoryName(projectPath);
             var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, projectDirectory, CancellationToken.None);
 
-            // Find packages that can be removed:
-            // ONLY remove packages that are transitive within the current project itself
-            // Do NOT remove packages just because they're also used by referenced projects
+            // Find packages that can be removed
             var removablePackages = new List<Models.PackageReference>();
 
             foreach (var package in analyzedPackages)
@@ -1406,11 +1456,35 @@ Examples:
                 bool shouldRemove = false;
                 string reason = "";
 
-                // Only check if it's transitive within current project
+                // Check if it's transitive within current project
                 if (package.IsTransitive)
                 {
                     shouldRemove = true;
                     reason = "transitive dependency within current project";
+                }
+                // Check if it's provided by referenced projects
+                else if (referencedProjectPackages.TryGetValue(package.PackageId, out var refInfo))
+                {
+                    if (conservative)
+                    {
+                        // In conservative mode, only remove if versions match exactly
+                        if (string.Equals(package.Version, refInfo.Version, StringComparison.OrdinalIgnoreCase))
+                        {
+                            shouldRemove = true;
+                            reason = $"provided by referenced project '{Path.GetFileName(refInfo.ProjectPath)}' with same version ({refInfo.Version})";
+                        }
+                        else
+                        {
+                            logger.LogInformation("Package '{Package}' v{CurrentVersion} NOT removed - referenced project has different version v{RefVersion}",
+                                package.PackageId, package.Version, refInfo.Version);
+                        }
+                    }
+                    else
+                    {
+                        // In aggressive mode, remove regardless of version
+                        shouldRemove = true;
+                        reason = $"provided by referenced project '{Path.GetFileName(refInfo.ProjectPath)}'";
+                    }
                 }
 
                 if (shouldRemove)
@@ -1438,13 +1512,22 @@ Examples:
                         "Microsoft.SourceLink.AzureRepos.Git",
                         "Microsoft.SourceLink.GitLab",
                         "Microsoft.SourceLink.Bitbucket.Git",
+                        "GitInfo",
+                        "Nerdbank.GitVersioning",
                         
-                        // Analyzer packages
+                        // Analyzer packages (these provide build-time assets)
                         "StyleCop.Analyzers",
                         "SonarAnalyzer.CSharp",
                         "Microsoft.CodeAnalysis.NetAnalyzers",
                         "Microsoft.CodeAnalysis.FxCopAnalyzers",
                         "Roslynator.Analyzers",
+                        "Microsoft.CodeAnalysis.PublicApiAnalyzers",
+                        "Microsoft.VisualStudio.Threading.Analyzers",
+                        
+                        // Source generators
+                        "System.Text.Json", // Has source generators
+                        "Microsoft.Extensions.Logging.Abstractions", // Has source generators
+                        "Microsoft.Extensions.Options", // Has source generators
                         
                         // Framework packages
                         "Microsoft.AspNetCore.App",
