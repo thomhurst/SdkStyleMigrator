@@ -147,12 +147,19 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             // Migrate WPF/WinForms specific items
             MigrateDesignerItems(legacyProject, projectElement, sdkType);
 
-            // Analyze and fix designer file relationships
-            var designerRelationships = _designerFileHandler.AnalyzeDesignerRelationships(legacyProject);
-            _designerFileHandler.MigrateDesignerRelationships(designerRelationships, projectElement, result, sdkType);
+            // Analyze and fix designer file relationships (skip for SystemWeb SDK)
+            if (sdkType != "MSBuild.SDK.SystemWeb")
+            {
+                var designerRelationships = _designerFileHandler.AnalyzeDesignerRelationships(legacyProject);
+                _designerFileHandler.MigrateDesignerRelationships(designerRelationships, projectElement, result, sdkType);
+            }
+            else
+            {
+                _logger.LogDebug("Skipping designer file relationship migration for SystemWeb SDK project");
+            }
 
             // Migrate custom item types
-            MigrateCustomItemTypes(legacyProject, projectElement);
+            MigrateCustomItemTypes(legacyProject, projectElement, sdkType);
 
             // Detect and migrate native dependencies
             var nativeDependencies = _nativeDependencyHandler.DetectNativeDependencies(legacyProject);
@@ -2062,7 +2069,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
     }
 
-    private void MigrateCustomItemTypes(Project project, XElement projectElement)
+    private void MigrateCustomItemTypes(Project project, XElement projectElement, string sdkType)
     {
         var standardTypes = new HashSet<string>
         {
@@ -2098,6 +2105,22 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             .Where(i => !LegacyProjectElements.MSBuildEvaluationArtifacts.Contains(i.ItemType))
             .Where(i => !LegacyProjectElements.ItemsToRemove.Contains(i.ItemType))
             .Where(i => !_artifactDetector.IsItemArtifact(i.ItemType, i.Include))
+            .Where(i => 
+            {
+                // For SystemWeb SDK, skip .resx and designer.cs files
+                if (sdkType == "MSBuild.SDK.SystemWeb")
+                {
+                    if (i.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase) ||
+                        i.Include.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase) ||
+                        i.Include.EndsWith(".designer.cs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogDebug("Skipping custom item {ItemType} file for SystemWeb SDK: {File}", 
+                            i.ItemType, i.Include);
+                        return false;
+                    }
+                }
+                return true;
+            })
             .GroupBy(i => i.ItemType);
 
         foreach (var group in customItems)
