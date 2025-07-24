@@ -1170,6 +1170,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     // Check if the item has custom metadata that needs to be preserved
                     if (HasCustomMetadata(item))
                     {
+                        // For SystemWeb SDK, skip .resx files entirely even with metadata
+                        if (sdkType == "MSBuild.SDK.SystemWeb" && 
+                            item.ItemType == "EmbeddedResource" &&
+                            item.Include.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogDebug("Skipping .resx file with metadata for SystemWeb SDK: {File}", item.Include);
+                            continue;
+                        }
+                        
                         // For .resx files and other SDK-included files with metadata, use Update
                         var attributeName = "Update";
                         
