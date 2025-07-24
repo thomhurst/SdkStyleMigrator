@@ -18,5 +18,6 @@ public interface IDesignerFileHandler
     void MigrateDesignerRelationships(
         DesignerFileRelationships relationships, 
         XElement projectElement,
-        MigrationResult result);
+        MigrationResult result,
+        string sdkType);
 }

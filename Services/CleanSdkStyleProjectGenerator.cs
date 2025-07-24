@@ -146,7 +146,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             // Analyze and fix designer file relationships
             var designerRelationships = _designerFileHandler.AnalyzeDesignerRelationships(legacyProject);
-            _designerFileHandler.MigrateDesignerRelationships(designerRelationships, projectElement, result);
+            _designerFileHandler.MigrateDesignerRelationships(designerRelationships, projectElement, result, sdkType);
 
             // Migrate custom item types
             MigrateCustomItemTypes(legacyProject, projectElement);

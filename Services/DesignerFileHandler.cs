@@ -289,7 +289,8 @@ public class DesignerFileHandler : IDesignerFileHandler
     public void MigrateDesignerRelationships(
         DesignerFileRelationships relationships, 
         XElement projectElement,
-        MigrationResult result)
+        MigrationResult result,
+        string sdkType)
     {
         // Fix orphaned designer files
         if (relationships.OrphanedDesignerFiles.Any())
@@ -298,6 +299,15 @@ public class DesignerFileHandler : IDesignerFileHandler
             
             foreach (var orphaned in relationships.OrphanedDesignerFiles)
             {
+                // For SystemWeb SDK, skip resource designer files (.resx related)
+                if (sdkType == "MSBuild.SDK.SystemWeb" && 
+                    orphaned.PotentialParent.EndsWith(".resx", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogDebug("Skipping resource designer file {DesignerFile} for SystemWeb SDK project", 
+                        orphaned.DesignerFile);
+                    continue;
+                }
+                
                 // Add Update element to fix the relationship
                 var updateElement = new XElement("Compile",
                     new XAttribute("Update", orphaned.DesignerFile));
