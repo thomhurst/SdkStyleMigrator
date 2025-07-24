@@ -63,6 +63,39 @@ public class CentralPackageManagementGenerator : ICentralPackageManagementGenera
 
             // Merge with existing packages
             var allPackages = MergeWithExistingPackages(newPackages, existingCpm);
+            
+            // Check if any projects use SystemWeb SDK and add required packages
+            var hasSystemWebProjects = migrationResults.Any(r => r.Success && r.SdkType == "MSBuild.SDK.SystemWeb");
+            if (hasSystemWebProjects)
+            {
+                _logger.LogInformation("Detected SystemWeb SDK projects. Adding required compiler packages to CPM.");
+                
+                // Add Microsoft.Net.Compilers.Toolset if not already present
+                if (!allPackages.Any(g => g.Key.Equals("Microsoft.Net.Compilers.Toolset", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var compilerPackage = new PackageReference
+                    {
+                        PackageId = "Microsoft.Net.Compilers.Toolset",
+                        Version = "4.8.0", // Latest stable version for .NET Framework
+                        IsTransitive = false
+                    };
+                    allPackages.Add(new[] { compilerPackage }.GroupBy(p => p.PackageId, StringComparer.OrdinalIgnoreCase).First());
+                    _logger.LogDebug("Added Microsoft.Net.Compilers.Toolset to CPM");
+                }
+                
+                // Add Microsoft.CodeDom.Providers.DotNetCompilerPlatform if not already present
+                if (!allPackages.Any(g => g.Key.Equals("Microsoft.CodeDom.Providers.DotNetCompilerPlatform", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var codeDomPackage = new PackageReference
+                    {
+                        PackageId = "Microsoft.CodeDom.Providers.DotNetCompilerPlatform",
+                        Version = "4.1.0", // Latest stable version
+                        IsTransitive = false
+                    };
+                    allPackages.Add(new[] { codeDomPackage }.GroupBy(p => p.PackageId, StringComparer.OrdinalIgnoreCase).First());
+                    _logger.LogDebug("Added Microsoft.CodeDom.Providers.DotNetCompilerPlatform to CPM");
+                }
+            }
 
             if (!allPackages.Any())
             {

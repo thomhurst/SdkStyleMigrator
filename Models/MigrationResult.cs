@@ -16,6 +16,7 @@ public class MigrationResult
     public List<RemovedMSBuildElement> RemovedMSBuildElements { get; set; } = new();
     public List<string> GeneratedFiles { get; set; } = new();
     public List<string>? TargetFrameworks { get; set; }
+    public string? SdkType { get; set; }
 
     // Edge case tracking
     public ProjectTypeInfo? DetectedProjectType { get; set; }

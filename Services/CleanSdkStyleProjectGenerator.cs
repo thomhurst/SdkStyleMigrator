@@ -181,6 +181,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             result.Success = true;
             result.MigratedPackages.AddRange(migratedPackages);
+            result.SdkType = sdkType;
 
             // Add build validation warnings for MSBuild.SDK.SystemWeb projects
             if (sdkType == "MSBuild.SDK.SystemWeb")
