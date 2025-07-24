@@ -1900,7 +1900,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 "System.Web.DataVisualization",
                 "System.Web.DynamicData",
                 "System.Web.Entity",
-                "System.Web.Extensions",
+                // System.Web.Extensions is NOT implicitly included and must be kept as explicit reference
                 "System.Web.Mobile",
                 "System.Web.RegularExpressions",
                 "System.Web.Routing",
