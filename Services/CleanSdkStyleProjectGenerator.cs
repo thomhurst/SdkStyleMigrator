@@ -142,7 +142,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             MigrateContentAndResources(legacyProject, projectElement, sdkType);
 
             // Migrate WPF/WinForms specific items
-            MigrateDesignerItems(legacyProject, projectElement);
+            MigrateDesignerItems(legacyProject, projectElement, sdkType);
 
             // Analyze and fix designer file relationships
             var designerRelationships = _designerFileHandler.AnalyzeDesignerRelationships(legacyProject);
@@ -1077,6 +1077,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                     return false;
                 }
                 
+                // Check if it's a designer file
+                var fileName = Path.GetFileName(expandedInclude);
+                if (fileName.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase) ||
+                    fileName.EndsWith(".designer.cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogDebug("Skipping designer file with metadata: {File}", expandedInclude);
+                    return false;
+                }
+                
                 // Check if it has important metadata
                 var importantMetadata = new[] { "DependentUpon", "SubType", "Generator", "LastGenOutput", "DesignTime", "AutoGen", "CustomToolNamespace", "Link" };
                 return item.Metadata.Any(m => importantMetadata.Contains(m.Key) && !string.IsNullOrEmpty(m.Value));
@@ -1934,8 +1943,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
     }
 
-    private void MigrateDesignerItems(Project project, XElement projectElement)
+    private void MigrateDesignerItems(Project project, XElement projectElement, string sdkType)
     {
+        // For SystemWeb SDK, skip this entirely as all designer files are auto-included
+        if (sdkType == "MSBuild.SDK.SystemWeb")
+        {
+            _logger.LogDebug("Skipping designer items migration for SystemWeb SDK project");
+            return;
+        }
+        
         // Get items from explicit XML only - ignore implicit MSBuild items
         var wpfItems = new List<ProjectItemElement>();
         var winFormsItems = new List<ProjectItemElement>();
