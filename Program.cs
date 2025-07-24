@@ -1392,99 +1392,13 @@ Examples:
                 IsTransitive = false
             }).ToList();
 
-            // Get project references to check their package dependencies
-            var projectRefs = root.Descendants("ProjectReference")
-                .Select(pr => pr.Attribute("Include")?.Value)
-                .Where(path => !string.IsNullOrEmpty(path))
-                .Select(path => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectPath)!, path!)))
-                .Where(fullPath => File.Exists(fullPath))
-                .ToList();
-
-            // Collect all packages (direct and transitive) from referenced projects
-            var projectDepPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var referencedProjectPackages = new Dictionary<string, List<Models.PackageReference>>();
-
-            foreach (var projRef in projectRefs)
-            {
-                try
-                {
-                    var projDoc = XDocument.Load(projRef);
-                    var depPackages = projDoc.Descendants("PackageReference")
-                        .Select(pr => new Models.PackageReference
-                        {
-                            PackageId = pr.Attribute("Include")!.Value,
-                            Version = pr.Attribute("Version")?.Value ?? pr.Element("Version")?.Value ?? "*",
-                            IsTransitive = false
-                        })
-                        .Where(p => !string.IsNullOrEmpty(p.PackageId))
-                        .ToList();
-
-                    referencedProjectPackages[projRef] = depPackages;
-
-                    foreach (var pkg in depPackages)
-                    {
-                        projectDepPackages.Add(pkg.PackageId);
-                        logger.LogDebug("Package '{Package}' is directly used by project reference: {Project}", pkg.PackageId, Path.GetFileName(projRef));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to analyze project reference: {Project}", projRef);
-                }
-            }
-
             // Detect transitive dependencies within the current project
             var projectDirectory = Path.GetDirectoryName(projectPath);
             var analyzedPackages = await transitiveDepsService.DetectTransitiveDependenciesAsync(packages, projectDirectory, CancellationToken.None);
 
-            // Now analyze transitive dependencies from referenced projects
-            var allTransitiveFromRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in referencedProjectPackages)
-            {
-                var refProjPath = kvp.Key;
-                var refProjPackages = kvp.Value;
-
-                if (refProjPackages.Any())
-                {
-                    logger.LogDebug("Analyzing transitive dependencies from referenced project: {Project}", Path.GetFileName(refProjPath));
-                    var refProjDirectory = Path.GetDirectoryName(refProjPath);
-                    var refAnalyzed = await transitiveDepsService.DetectTransitiveDependenciesAsync(refProjPackages, refProjDirectory, CancellationToken.None);
-
-                    // Get all dependencies (direct and transitive) from this project
-                    foreach (var refPkg in refAnalyzed)
-                    {
-                        allTransitiveFromRefs.Add(refPkg.PackageId);
-
-                        // Also try to get transitive dependencies of each package
-                        if (transitiveDepsService is NuGetTransitiveDependencyDetector nugetDetector)
-                        {
-                            try
-                            {
-                                var deps = await nugetDetector.GetPackageDependenciesAsync(
-                                    refPkg.PackageId,
-                                    refPkg.Version ?? "*",
-                                    NuGet.Frameworks.NuGetFramework.AnyFramework,
-                                    CancellationToken.None);
-
-                                foreach (var dep in deps)
-                                {
-                                    allTransitiveFromRefs.Add(dep.Id);
-                                    logger.LogDebug("Package '{Package}' is transitively provided by '{Parent}' in project '{Project}'",
-                                        dep.Id, refPkg.PackageId, Path.GetFileName(refProjPath));
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogDebug(ex, "Failed to get dependencies for package {Package}", refPkg.PackageId);
-                            }
-                        }
-                    }
-                }
-            }
-
             // Find packages that can be removed:
-            // 1. Packages marked as transitive within the current project
-            // 2. Packages that are provided (directly or transitively) by referenced projects
+            // ONLY remove packages that are transitive within the current project itself
+            // Do NOT remove packages just because they're also used by referenced projects
             var removablePackages = new List<Models.PackageReference>();
 
             foreach (var package in analyzedPackages)
@@ -1492,17 +1406,11 @@ Examples:
                 bool shouldRemove = false;
                 string reason = "";
 
-                // Check if it's transitive within current project
+                // Only check if it's transitive within current project
                 if (package.IsTransitive)
                 {
                     shouldRemove = true;
                     reason = "transitive dependency within current project";
-                }
-                // Check if it's provided by referenced projects
-                else if (allTransitiveFromRefs.Contains(package.PackageId))
-                {
-                    shouldRemove = true;
-                    reason = "provided by referenced project";
                 }
 
                 if (shouldRemove)
@@ -1510,11 +1418,60 @@ Examples:
                     // Don't remove if it's essential
                     var essentialPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     {
+                        // Test framework packages
                         "Microsoft.NET.Test.Sdk",
                         "xunit.runner.visualstudio",
                         "NUnit3TestAdapter",
                         "MSTest.TestAdapter",
-                        "coverlet.collector"
+                        "coverlet.collector",
+                        "xunit",
+                        "NUnit",
+                        "MSTest.TestFramework",
+                        "FluentAssertions",
+                        "Moq",
+                        "NSubstitute",
+                        "FakeItEasy",
+                        "Shouldly",
+                        
+                        // Build/Development packages
+                        "Microsoft.SourceLink.GitHub",
+                        "Microsoft.SourceLink.AzureRepos.Git",
+                        "Microsoft.SourceLink.GitLab",
+                        "Microsoft.SourceLink.Bitbucket.Git",
+                        
+                        // Analyzer packages
+                        "StyleCop.Analyzers",
+                        "SonarAnalyzer.CSharp",
+                        "Microsoft.CodeAnalysis.NetAnalyzers",
+                        "Microsoft.CodeAnalysis.FxCopAnalyzers",
+                        "Roslynator.Analyzers",
+                        
+                        // Framework packages
+                        "Microsoft.AspNetCore.App",
+                        "Microsoft.NETCore.App",
+                        "NETStandard.Library",
+                        
+                        // Commonly directly used packages
+                        "Newtonsoft.Json",
+                        "System.Text.Json",
+                        "Microsoft.Extensions.DependencyInjection",
+                        "Microsoft.Extensions.Logging",
+                        "Microsoft.Extensions.Configuration",
+                        "Microsoft.Extensions.Options",
+                        "Microsoft.Extensions.Http",
+                        "Microsoft.Extensions.Hosting",
+                        "Microsoft.EntityFrameworkCore",
+                        "Microsoft.EntityFrameworkCore.SqlServer",
+                        "Microsoft.EntityFrameworkCore.Sqlite",
+                        "Microsoft.EntityFrameworkCore.InMemory",
+                        "Dapper",
+                        "AutoMapper",
+                        "MediatR",
+                        "FluentValidation",
+                        "Polly",
+                        "Serilog",
+                        "NLog",
+                        "log4net"
                     };
 
                     if (essentialPackages.Contains(package.PackageId))

@@ -17,6 +17,14 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "NUnit3TestAdapter",
         "MSTest.TestAdapter",
         "coverlet.collector",
+        "xunit",
+        "NUnit",
+        "MSTest.TestFramework",
+        "FluentAssertions",
+        "Moq",
+        "NSubstitute",
+        "FakeItEasy",
+        "Shouldly",
         
         // Build/Development packages
         "Microsoft.SourceLink.GitHub",
@@ -31,14 +39,37 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "Microsoft.CodeAnalysis.FxCopAnalyzers",
         "Roslynator.Analyzers",
         
-        // Other essential packages
+        // Framework packages
         "Microsoft.AspNetCore.App",
         "Microsoft.NETCore.App",
-        "NETStandard.Library"
+        "NETStandard.Library",
+        
+        // Commonly directly used packages
+        "Newtonsoft.Json",
+        "System.Text.Json",
+        "Microsoft.Extensions.DependencyInjection",
+        "Microsoft.Extensions.Logging",
+        "Microsoft.Extensions.Configuration",
+        "Microsoft.Extensions.Options",
+        "Microsoft.Extensions.Http",
+        "Microsoft.Extensions.Hosting",
+        "Microsoft.EntityFrameworkCore",
+        "Microsoft.EntityFrameworkCore.SqlServer",
+        "Microsoft.EntityFrameworkCore.Sqlite",
+        "Microsoft.EntityFrameworkCore.InMemory",
+        "Dapper",
+        "AutoMapper",
+        "MediatR",
+        "FluentValidation",
+        "Polly",
+        "Serilog",
+        "NLog",
+        "log4net"
     };
 
     private readonly HashSet<string> _commonTransitiveDependencies = new(StringComparer.OrdinalIgnoreCase)
     {
+        // Only include truly low-level runtime packages that are almost always transitive
         "System.Runtime",
         "System.Collections",
         "System.Linq",
@@ -51,17 +82,15 @@ public class TransitiveDependencyDetector : ITransitiveDependencyDetector
         "System.Diagnostics.Debug",
         "System.Globalization",
         "System.Resources.ResourceManager",
-        "Microsoft.Extensions.DependencyInjection.Abstractions",
-        "Microsoft.Extensions.Logging.Abstractions",
-        "Microsoft.Extensions.Options",
-        "Microsoft.Extensions.Primitives",
-        "Newtonsoft.Json",
         "System.Memory",
         "System.Buffers",
         "System.Numerics.Vectors",
         "System.Runtime.CompilerServices.Unsafe",
         "System.Threading.Tasks.Extensions",
         "System.ValueTuple"
+        // Removed packages that are often directly used:
+        // - Microsoft.Extensions.* packages (often directly used for DI, logging, configuration)
+        // - Newtonsoft.Json (very commonly directly used)
     };
 
     private readonly Dictionary<string, HashSet<string>> _knownDependencies = new(StringComparer.OrdinalIgnoreCase)

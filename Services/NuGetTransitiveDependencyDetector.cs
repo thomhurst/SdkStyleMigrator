@@ -34,6 +34,14 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         "NUnit3TestAdapter",
         "MSTest.TestAdapter",
         "coverlet.collector",
+        "xunit",
+        "NUnit",
+        "MSTest.TestFramework",
+        "FluentAssertions",
+        "Moq",
+        "NSubstitute",
+        "FakeItEasy",
+        "Shouldly",
         
         // Build/Development packages
         "Microsoft.SourceLink.GitHub",
@@ -48,10 +56,32 @@ public class NuGetTransitiveDependencyDetector : ITransitiveDependencyDetector
         "Microsoft.CodeAnalysis.FxCopAnalyzers",
         "Roslynator.Analyzers",
         
-        // Other essential packages
+        // Framework packages
         "Microsoft.AspNetCore.App",
         "Microsoft.NETCore.App",
-        "NETStandard.Library"
+        "NETStandard.Library",
+        
+        // Commonly directly used packages
+        "Newtonsoft.Json",
+        "System.Text.Json",
+        "Microsoft.Extensions.DependencyInjection",
+        "Microsoft.Extensions.Logging",
+        "Microsoft.Extensions.Configuration",
+        "Microsoft.Extensions.Options",
+        "Microsoft.Extensions.Http",
+        "Microsoft.Extensions.Hosting",
+        "Microsoft.EntityFrameworkCore",
+        "Microsoft.EntityFrameworkCore.SqlServer",
+        "Microsoft.EntityFrameworkCore.Sqlite",
+        "Microsoft.EntityFrameworkCore.InMemory",
+        "Dapper",
+        "AutoMapper",
+        "MediatR",
+        "FluentValidation",
+        "Polly",
+        "Serilog",
+        "NLog",
+        "log4net"
     };
 
     public NuGetTransitiveDependencyDetector(ILogger<NuGetTransitiveDependencyDetector> logger)
