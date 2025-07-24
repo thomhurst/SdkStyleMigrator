@@ -53,6 +53,8 @@ public class ProjectFileScanner : IProjectFileScanner
                            !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase) && // Skip obj directories (Linux)
                            !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) && // Skip bin directories
                            !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase) && // Skip bin directories (Linux)
+                           !f.Contains("\\publish\\", StringComparison.OrdinalIgnoreCase) && // Skip publish directories
+                           !f.Contains("/publish/", StringComparison.OrdinalIgnoreCase) && // Skip publish directories (Linux)
                            !_excludedExtensions.Contains(Path.GetExtension(f))) // Skip non-standard project types
                 .ToArray();
 
@@ -69,7 +71,9 @@ public class ProjectFileScanner : IProjectFileScanner
             .Where(f => !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) &&
                        !f.Contains("/obj/", StringComparison.OrdinalIgnoreCase) &&
                        !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) &&
-                       !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase));
+                       !f.Contains("/bin/", StringComparison.OrdinalIgnoreCase) &&
+                       !f.Contains("\\publish\\", StringComparison.OrdinalIgnoreCase) &&
+                       !f.Contains("/publish/", StringComparison.OrdinalIgnoreCase));
 
         var skippedProjects = allProjectFiles
             .Where(f => _excludedExtensions.Contains(Path.GetExtension(f)))

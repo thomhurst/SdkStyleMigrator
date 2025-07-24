@@ -405,6 +405,15 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             propertyGroup.Add(new XElement(name, value));
         }
 
+        // For SystemWeb SDK, add DefaultItemExcludes to ensure publish directory is excluded
+        if (sdkType == "MSBuild.SDK.SystemWeb")
+        {
+            // Add standard exclusions plus publish directory
+            // The MSBuild.SDK.SystemWeb may not have all the standard SDK exclusions
+            AddPropertyIfNotInherited("DefaultItemExcludes", "$(DefaultItemExcludes);publish\\**");
+            _logger.LogDebug("Added DefaultItemExcludes for SystemWeb SDK to exclude publish directory");
+        }
+
         // Check if project needs multi-targeting
         var targetFrameworkVersions = project.Properties
             .Where(p => p.Name == "TargetFrameworkVersion")
@@ -1967,7 +1976,8 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // Find all .cs files in the project directory
         var allCsFiles = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
-                       !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
+                       !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}") &&
+                       !f.Contains($"{Path.DirectorySeparatorChar}publish{Path.DirectorySeparatorChar}"));
 
         var excludedFiles = allCsFiles.Where(f => !compiledFiles.Contains(f)).ToList();
 
