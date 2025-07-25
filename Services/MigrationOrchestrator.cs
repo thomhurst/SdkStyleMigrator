@@ -1579,16 +1579,19 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         
         if (fileExtension == ".sqlproj")
         {
+            _logger.LogWarning("Database project detected: {ProjectFile} - These require special handling", projectFile);
             return ProjectType.Database;
         }
         
         if (fileExtension == ".dcproj")
         {
+            _logger.LogWarning("Docker orchestration project detected: {ProjectFile} - These are not standard MSBuild projects", projectFile);
             return ProjectType.Docker;
         }
         
         if (fileExtension == ".shproj")
         {
+            _logger.LogWarning("Shared project detected: {ProjectFile} - These have no output assembly and require special handling", projectFile);
             return ProjectType.Shared;
         }
         

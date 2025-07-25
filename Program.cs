@@ -974,6 +974,18 @@ Examples:
         services.AddSingleton<INativeDependencyHandler, NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
         services.AddSingleton<IWebProjectHandler, WebProjectHandler>();
+        
+        // Special project type handlers
+        services.AddSingleton<IAzureFunctionsHandler, AzureFunctionsHandler>();
+        services.AddSingleton<IMauiProjectHandler, MauiProjectHandler>();
+        services.AddSingleton<IBlazorProjectHandler, BlazorProjectHandler>();
+        services.AddSingleton<IWorkerServiceHandler, WorkerServiceHandler>();
+        services.AddSingleton<IGrpcServiceHandler, GrpcServiceHandler>();
+        services.AddSingleton<IUwpProjectHandler, UwpProjectHandler>();
+        services.AddSingleton<IDatabaseProjectHandler, DatabaseProjectHandler>();
+        services.AddSingleton<IDockerProjectHandler, DockerProjectHandler>();
+        services.AddSingleton<ISharedProjectHandler, SharedProjectHandler>();
+        services.AddSingleton<IOfficeProjectHandler, OfficeProjectHandler>();
 
         // New analysis and migration services
         services.AddSingleton<CustomTargetAnalyzer>();

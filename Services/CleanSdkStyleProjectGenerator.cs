@@ -28,6 +28,18 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private readonly IDesignerFileHandler _designerFileHandler;
     private readonly IBuildEventMigrator _buildEventMigrator;
     private readonly INativeDependencyHandler _nativeDependencyHandler;
+    
+    // Special project type handlers
+    private readonly IAzureFunctionsHandler _azureFunctionsHandler;
+    private readonly IMauiProjectHandler _mauiProjectHandler;
+    private readonly IBlazorProjectHandler _blazorProjectHandler;
+    private readonly IWorkerServiceHandler _workerServiceHandler;
+    private readonly IGrpcServiceHandler _grpcServiceHandler;
+    private readonly IUwpProjectHandler _uwpProjectHandler;
+    private readonly IDatabaseProjectHandler _databaseProjectHandler;
+    private readonly IDockerProjectHandler _dockerProjectHandler;
+    private readonly ISharedProjectHandler _sharedProjectHandler;
+    private readonly IOfficeProjectHandler _officeProjectHandler;
     private ImportScanResult? _importScanResult;
     private TargetScanResult? _targetScanResult;
     private bool _centralPackageManagementEnabled;
@@ -45,7 +57,17 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         ITestProjectHandler testProjectHandler,
         IDesignerFileHandler designerFileHandler,
         IBuildEventMigrator buildEventMigrator,
-        INativeDependencyHandler nativeDependencyHandler)
+        INativeDependencyHandler nativeDependencyHandler,
+        IAzureFunctionsHandler azureFunctionsHandler,
+        IMauiProjectHandler mauiProjectHandler,
+        IBlazorProjectHandler blazorProjectHandler,
+        IWorkerServiceHandler workerServiceHandler,
+        IGrpcServiceHandler grpcServiceHandler,
+        IUwpProjectHandler uwpProjectHandler,
+        IDatabaseProjectHandler databaseProjectHandler,
+        IDockerProjectHandler dockerProjectHandler,
+        ISharedProjectHandler sharedProjectHandler,
+        IOfficeProjectHandler officeProjectHandler)
     {
         _logger = logger;
         _projectParser = projectParser;
@@ -60,6 +82,18 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         _designerFileHandler = designerFileHandler;
         _buildEventMigrator = buildEventMigrator;
         _nativeDependencyHandler = nativeDependencyHandler;
+        
+        // Assign special project type handlers
+        _azureFunctionsHandler = azureFunctionsHandler;
+        _mauiProjectHandler = mauiProjectHandler;
+        _blazorProjectHandler = blazorProjectHandler;
+        _workerServiceHandler = workerServiceHandler;
+        _grpcServiceHandler = grpcServiceHandler;
+        _uwpProjectHandler = uwpProjectHandler;
+        _databaseProjectHandler = databaseProjectHandler;
+        _dockerProjectHandler = dockerProjectHandler;
+        _sharedProjectHandler = sharedProjectHandler;
+        _officeProjectHandler = officeProjectHandler;
     }
 
     public void SetImportScanResult(ImportScanResult? importScanResult)
@@ -122,6 +156,9 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
             // Handle AssemblyInfo to prevent conflicts
             HandleAssemblyInfo(legacyProject, mainPropertyGroup, inheritedProperties);
+
+            // Apply special project type handling
+            await ApplySpecialProjectTypeHandling(legacyProject, projectElement, result, cancellationToken);
 
             // Migrate package references
             var migratedPackages = await MigratePackageReferencesAsync(legacyProject, projectElement, centrallyManagedPackages, result, sdkType, cancellationToken);
@@ -237,6 +274,85 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private string DetermineSdkType(Project project)
     {
         var targetFramework = ConvertTargetFramework(project);
+        var projectPath = project.FullPath;
+        var fileExtension = Path.GetExtension(projectPath).ToLowerInvariant();
+
+        // Special project types that need different SDKs or shouldn't be migrated
+        switch (fileExtension)
+        {
+            case ".sqlproj":
+                _logger.LogWarning("Database projects (.sqlproj) require special handling and may not migrate correctly");
+                return "Microsoft.NET.Sdk"; // Will need manual intervention
+                
+            case ".dcproj":
+                _logger.LogWarning("Docker orchestration projects (.dcproj) are not standard MSBuild projects and should be handled separately");
+                return "Microsoft.NET.Sdk"; // Will need manual intervention
+                
+            case ".shproj":
+                _logger.LogWarning("Shared projects (.shproj) have a different structure and require special migration approach");
+                return "Microsoft.NET.Sdk"; // Will need manual intervention
+                
+            case ".fsproj":
+                _logger.LogInformation("Detected F# project - using Microsoft.NET.Sdk with F# support");
+                return "Microsoft.NET.Sdk"; // F# uses the standard SDK with F# targets
+                
+            case ".vbproj":
+                _logger.LogInformation("Detected VB.NET project - using Microsoft.NET.Sdk with VB support");
+                return "Microsoft.NET.Sdk"; // VB.NET uses the standard SDK with VB targets
+        }
+
+        // Check for Azure Functions
+        if (HasPackageReference(project, "Microsoft.NET.Sdk.Functions") ||
+            HasPackageReference(project, "Microsoft.Azure.WebJobs") ||
+            HasPackageReference(project, "Microsoft.Azure.Functions"))
+        {
+            _logger.LogInformation("Detected Azure Functions project - using Microsoft.NET.Sdk.Functions");
+            return "Microsoft.NET.Sdk.Functions";
+        }
+
+        // Check for Worker Service
+        if (HasPackageReference(project, "Microsoft.Extensions.Hosting") ||
+            HasPackageReference(project, "Microsoft.Extensions.Hosting.WindowsServices") ||
+            HasPackageReference(project, "Microsoft.Extensions.Hosting.Systemd"))
+        {
+            _logger.LogInformation("Detected Worker Service project - using Microsoft.NET.Sdk.Worker");
+            return "Microsoft.NET.Sdk.Worker";
+        }
+
+        // Check for gRPC services - they use Web SDK but need special handling
+        if (HasPackageReference(project, "Grpc.AspNetCore") ||
+            HasPackageReference(project, "Google.Protobuf") ||
+            HasPackageReference(project, "Grpc.Tools"))
+        {
+            _logger.LogInformation("Detected gRPC service project - using Microsoft.NET.Sdk.Web");
+            // gRPC projects use the Web SDK but may need special proto file handling
+            return "Microsoft.NET.Sdk.Web";
+        }
+
+        // Check for MAUI/Xamarin
+        if (HasPackageReference(project, "Microsoft.Maui") ||
+            HasPackageReference(project, "Xamarin.Forms"))
+        {
+            var mauiProjectTypeGuids = project.Properties
+                .FirstOrDefault(p => p.Name == "ProjectTypeGuids")?.EvaluatedValue;
+            
+            // Xamarin.Android
+            if (!string.IsNullOrEmpty(mauiProjectTypeGuids) && 
+                mauiProjectTypeGuids.Contains("{EFBA0AD7-5A72-4C68-AF49-83D382785DCF}", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Xamarin.Android projects require special handling for migration to .NET MAUI");
+            }
+            
+            // Xamarin.iOS
+            if (!string.IsNullOrEmpty(mauiProjectTypeGuids) && 
+                mauiProjectTypeGuids.Contains("{6BC8ED88-2882-458C-8E55-DFD12B67127B}", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Xamarin.iOS projects require special handling for migration to .NET MAUI");
+            }
+            
+            _logger.LogInformation("Detected MAUI/Xamarin project - using Microsoft.NET.Sdk.Maui");
+            return "Microsoft.NET.Sdk.Maui";
+        }
 
         // CRITICAL: Check for web projects FIRST, before .NET Framework override
         var projectTypeGuids = project.Properties
@@ -244,9 +360,30 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
 
         if (!string.IsNullOrEmpty(projectTypeGuids))
         {
+            // Check for UWP
+            if (projectTypeGuids.Contains("{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A}", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("UWP projects have limited migration paths and may require manual conversion to WinUI 3");
+                return "Microsoft.NET.Sdk"; // UWP SDK is complex and may not migrate cleanly
+            }
+
+            // Check for Office/VSTO Add-ins
+            if (projectTypeGuids.Contains("{BAA0C2D2-18E2-41B9-852F-F413020CAA33}", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Office/VSTO Add-in projects require special COM references and manifest handling");
+                return "Microsoft.NET.Sdk"; // Will need manual intervention for manifest and COM references
+            }
+
             // Web Application Project
             if (projectTypeGuids.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase))
             {
+                // Check if it's a Blazor project
+                if (HasPackageReference(project, "Microsoft.AspNetCore.Components.WebAssembly"))
+                {
+                    _logger.LogInformation("Detected Blazor WebAssembly project - using Microsoft.NET.Sdk.BlazorWebAssembly");
+                    return "Microsoft.NET.Sdk.BlazorWebAssembly";
+                }
+                
                 if (targetFramework.StartsWith("net4", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation("Detected .NET Framework web project - using MSBuild.SDK.SystemWeb");
@@ -299,6 +436,27 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         }
 
         return "Microsoft.NET.Sdk";
+    }
+
+    private bool HasPackageReference(Project project, string packageId)
+    {
+        // Check in both Reference items with HintPath and PackageReference items
+        return project.Items
+            .Where(i => i.ItemType == "Reference" || i.ItemType == "PackageReference")
+            .Any(i => 
+            {
+                if (i.ItemType == "PackageReference")
+                {
+                    return i.EvaluatedInclude.Equals(packageId, StringComparison.OrdinalIgnoreCase);
+                }
+                else
+                {
+                    // For Reference items, check if the HintPath contains the package name
+                    var hintPath = i.GetMetadataValue("HintPath");
+                    return !string.IsNullOrEmpty(hintPath) && 
+                           hintPath.Contains(packageId, StringComparison.OrdinalIgnoreCase);
+                }
+            });
     }
 
     private bool HasExplicitItemsOfType(Project project, string[] itemTypes)
@@ -2745,5 +2903,179 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
         // By default, exclude unknown metadata to keep ProjectReferences clean
         // SDK-style projects work well with minimal metadata
         return false;
+    }
+
+    /// <summary>
+    /// Applies special project type-specific handling during migration
+    /// </summary>
+    private async Task ApplySpecialProjectTypeHandling(
+        Project legacyProject,
+        XElement projectElement,
+        MigrationResult result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var projectTypeDetected = false;
+            var packageReferences = new List<PackageReference>();
+
+            // Extract existing package references for handler use
+            ExtractExistingPackageReferences(legacyProject, packageReferences);
+
+            // Azure Functions projects
+            if (HasPackageReference(legacyProject, "Microsoft.NET.Sdk.Functions") ||
+                HasPackageReference(legacyProject, "Microsoft.Azure.WebJobs") ||
+                HasPackageReference(legacyProject, "Microsoft.Azure.Functions"))
+            {
+                var info = await _azureFunctionsHandler.DetectFunctionsConfigurationAsync(legacyProject, cancellationToken);
+                await _azureFunctionsHandler.MigrateFunctionsProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Azure Functions specific handling");
+            }
+
+            // MAUI/Xamarin projects
+            if (HasPackageReference(legacyProject, "Microsoft.Maui") ||
+                HasPackageReference(legacyProject, "Xamarin.Forms"))
+            {
+                var info = await _mauiProjectHandler.DetectMauiConfigurationAsync(legacyProject, cancellationToken);
+                await _mauiProjectHandler.MigrateMauiProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied MAUI/Xamarin specific handling");
+            }
+
+            // Blazor projects
+            if (HasPackageReference(legacyProject, "Microsoft.AspNetCore.Components.WebAssembly") ||
+                HasPackageReference(legacyProject, "Microsoft.AspNetCore.Components.Server"))
+            {
+                var info = await _blazorProjectHandler.DetectBlazorConfigurationAsync(legacyProject, cancellationToken);
+                await _blazorProjectHandler.MigrateBlazorProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Blazor specific handling");
+            }
+
+            // Worker Service projects
+            if (HasPackageReference(legacyProject, "Microsoft.Extensions.Hosting") ||
+                HasPackageReference(legacyProject, "Microsoft.Extensions.Hosting.WindowsServices") ||
+                HasPackageReference(legacyProject, "Microsoft.Extensions.Hosting.Systemd"))
+            {
+                var info = await _workerServiceHandler.DetectWorkerServiceConfigurationAsync(legacyProject, cancellationToken);
+                await _workerServiceHandler.MigrateWorkerServiceProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Worker Service specific handling");
+            }
+
+            // gRPC projects
+            if (HasPackageReference(legacyProject, "Grpc.AspNetCore") ||
+                HasPackageReference(legacyProject, "Grpc.Tools") ||
+                legacyProject.AllEvaluatedItems.Any(item => item.ItemType == "Protobuf"))
+            {
+                var info = await _grpcServiceHandler.DetectGrpcConfigurationAsync(legacyProject, cancellationToken);
+                await _grpcServiceHandler.MigrateGrpcProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied gRPC specific handling");
+            }
+
+            // UWP projects
+            var projectTypeGuids = legacyProject.GetPropertyValue("ProjectTypeGuids");
+            if (projectTypeGuids.Contains("A5A43C5B-DE2A-4C0C-9213-0A381AF9435A"))
+            {
+                var info = await _uwpProjectHandler.DetectUwpConfigurationAsync(legacyProject, cancellationToken);
+                await _uwpProjectHandler.MigrateUwpProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied UWP specific handling");
+            }
+
+            // Database projects (.sqlproj)
+            if (legacyProject.FullPath.EndsWith(".sqlproj", StringComparison.OrdinalIgnoreCase))
+            {
+                var info = await _databaseProjectHandler.DetectDatabaseConfigurationAsync(legacyProject, cancellationToken);
+                await _databaseProjectHandler.MigrateDatabaseProjectAsync(info, projectElement, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Database project specific handling");
+            }
+
+            // Docker projects (.dcproj)
+            if (legacyProject.FullPath.EndsWith(".dcproj", StringComparison.OrdinalIgnoreCase))
+            {
+                var info = await _dockerProjectHandler.DetectDockerConfigurationAsync(legacyProject, cancellationToken);
+                await _dockerProjectHandler.MigrateDockerProjectAsync(info, projectElement, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Docker project specific handling");
+            }
+
+            // Shared projects (.shproj)
+            if (legacyProject.FullPath.EndsWith(".shproj", StringComparison.OrdinalIgnoreCase))
+            {
+                var info = await _sharedProjectHandler.DetectSharedProjectConfigurationAsync(legacyProject, cancellationToken);
+                var guidance = await _sharedProjectHandler.GetMigrationGuidanceAsync(info, result, cancellationToken);
+                
+                if (guidance.ShouldConvertToClassLibrary)
+                {
+                    var convertedProject = await _sharedProjectHandler.ConvertToClassLibraryAsync(info, Path.GetDirectoryName(legacyProject.FullPath) ?? string.Empty, cancellationToken);
+                    if (convertedProject != null)
+                    {
+                        // Replace project element with converted class library
+                        projectElement.ReplaceWith(convertedProject);
+                        result.Warnings.Add("Shared project converted to class library - update referencing projects");
+                    }
+                }
+                
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Shared project specific handling");
+            }
+
+            // Office/VSTO projects
+            if (HasInteropReference(legacyProject, "Microsoft.Office.Interop") ||
+                HasPackageReference(legacyProject, "Microsoft.Office"))
+            {
+                var info = await _officeProjectHandler.DetectOfficeConfigurationAsync(legacyProject, cancellationToken);
+                await _officeProjectHandler.MigrateOfficeProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
+                projectTypeDetected = true;
+                _logger.LogInformation("Applied Office/VSTO specific handling");
+            }
+
+            if (!projectTypeDetected)
+            {
+                _logger.LogDebug("No special project type handling required for: {ProjectPath}", legacyProject.FullPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply special project type handling for {ProjectPath}", legacyProject.FullPath);
+            result.Warnings.Add($"Special project type handling failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Extracts existing package references from the legacy project
+    /// </summary>
+    private void ExtractExistingPackageReferences(Project legacyProject, List<PackageReference> packageReferences)
+    {
+        var packageItems = legacyProject.AllEvaluatedItems
+            .Where(item => item.ItemType == "PackageReference");
+
+        foreach (var item in packageItems)
+        {
+            var packageRef = new PackageReference
+            {
+                PackageId = item.EvaluatedInclude,
+                Version = item.GetMetadataValue("Version")
+            };
+
+            if (!string.IsNullOrEmpty(item.GetMetadataValue("PrivateAssets")))
+                packageRef.Metadata["PrivateAssets"] = item.GetMetadataValue("PrivateAssets");
+
+            packageReferences.Add(packageRef);
+        }
+    }
+
+    /// <summary>
+    /// Checks if a project has a specific interop reference
+    /// </summary>
+    private bool HasInteropReference(Project project, string interopName)
+    {
+        return project.AllEvaluatedItems
+            .Where(item => item.ItemType == "Reference" || item.ItemType == "COMReference")
+            .Any(item => item.EvaluatedInclude.Contains(interopName, StringComparison.OrdinalIgnoreCase));
     }
 }
