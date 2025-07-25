@@ -44,12 +44,38 @@ public class MigrationViewModel : ViewModelBase
     private ObservableCollection<string> _logMessages = new();
     
     // Project type filters
+    // Desktop
     private bool _includeWinForms = true;
     private bool _includeWpf = true;
+    
+    // Web
     private bool _includeWeb = true;
+    private bool _includeBlazor = true;
+    
+    // Cloud/Services
+    private bool _includeAzureFunctions = true;
+    private bool _includeWorkerService = true;
+    private bool _includeGrpc = true;
+    
+    // Mobile/Cross-platform
+    private bool _includeMaui = true;
+    private bool _includeUwp = true;
+    
+    // Standard project types
     private bool _includeTest = true;
     private bool _includeClassLibrary = true;
     private bool _includeConsole = true;
+    
+    // Language-specific
+    private bool _includeFSharp = true;
+    private bool _includeVbNet = true;
+    
+    // Special/Legacy
+    private bool _includeDatabase = true;
+    private bool _includeOfficeAddIn = true;
+    private bool _includeDocker = true;
+    private bool _includeShared = false;
+    private bool _includeLegacyUnsupported = false;
 
     public string DirectoryPath
     {
@@ -194,6 +220,84 @@ public class MigrationViewModel : ViewModelBase
     {
         get => _includeConsole;
         set => this.RaiseAndSetIfChanged(ref _includeConsole, value);
+    }
+
+    public bool IncludeBlazor
+    {
+        get => _includeBlazor;
+        set => this.RaiseAndSetIfChanged(ref _includeBlazor, value);
+    }
+
+    public bool IncludeAzureFunctions
+    {
+        get => _includeAzureFunctions;
+        set => this.RaiseAndSetIfChanged(ref _includeAzureFunctions, value);
+    }
+
+    public bool IncludeWorkerService
+    {
+        get => _includeWorkerService;
+        set => this.RaiseAndSetIfChanged(ref _includeWorkerService, value);
+    }
+
+    public bool IncludeGrpc
+    {
+        get => _includeGrpc;
+        set => this.RaiseAndSetIfChanged(ref _includeGrpc, value);
+    }
+
+    public bool IncludeMaui
+    {
+        get => _includeMaui;
+        set => this.RaiseAndSetIfChanged(ref _includeMaui, value);
+    }
+
+    public bool IncludeUwp
+    {
+        get => _includeUwp;
+        set => this.RaiseAndSetIfChanged(ref _includeUwp, value);
+    }
+
+    public bool IncludeFSharp
+    {
+        get => _includeFSharp;
+        set => this.RaiseAndSetIfChanged(ref _includeFSharp, value);
+    }
+
+    public bool IncludeVbNet
+    {
+        get => _includeVbNet;
+        set => this.RaiseAndSetIfChanged(ref _includeVbNet, value);
+    }
+
+    public bool IncludeDatabase
+    {
+        get => _includeDatabase;
+        set => this.RaiseAndSetIfChanged(ref _includeDatabase, value);
+    }
+
+    public bool IncludeOfficeAddIn
+    {
+        get => _includeOfficeAddIn;
+        set => this.RaiseAndSetIfChanged(ref _includeOfficeAddIn, value);
+    }
+
+    public bool IncludeDocker
+    {
+        get => _includeDocker;
+        set => this.RaiseAndSetIfChanged(ref _includeDocker, value);
+    }
+
+    public bool IncludeShared
+    {
+        get => _includeShared;
+        set => this.RaiseAndSetIfChanged(ref _includeShared, value);
+    }
+
+    public bool IncludeLegacyUnsupported
+    {
+        get => _includeLegacyUnsupported;
+        set => this.RaiseAndSetIfChanged(ref _includeLegacyUnsupported, value);
     }
 
     public bool IsRunning
@@ -430,12 +534,38 @@ public class MigrationViewModel : ViewModelBase
                 },
                 ProjectTypeFilters = new ProjectTypeFilters
                 {
+                    // Desktop
                     IncludeWinForms = IncludeWinForms,
                     IncludeWpf = IncludeWpf,
+                    
+                    // Web
                     IncludeWeb = IncludeWeb,
+                    IncludeBlazor = IncludeBlazor,
+                    
+                    // Cloud/Services
+                    IncludeAzureFunctions = IncludeAzureFunctions,
+                    IncludeWorkerService = IncludeWorkerService,
+                    IncludeGrpc = IncludeGrpc,
+                    
+                    // Mobile/Cross-platform
+                    IncludeMaui = IncludeMaui,
+                    IncludeUwp = IncludeUwp,
+                    
+                    // Standard
                     IncludeTest = IncludeTest,
                     IncludeClassLibrary = IncludeClassLibrary,
-                    IncludeConsole = IncludeConsole
+                    IncludeConsole = IncludeConsole,
+                    
+                    // Language-specific
+                    IncludeFSharp = IncludeFSharp,
+                    IncludeVbNet = IncludeVbNet,
+                    
+                    // Special/Legacy
+                    IncludeDatabase = IncludeDatabase,
+                    IncludeOfficeAddIn = IncludeOfficeAddIn,
+                    IncludeDocker = IncludeDocker,
+                    IncludeShared = IncludeShared,
+                    IncludeLegacyUnsupported = IncludeLegacyUnsupported
                 }
             };
 

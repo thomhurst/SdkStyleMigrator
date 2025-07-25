@@ -1523,6 +1523,19 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     ProjectType.Test => filters.IncludeTest,
                     ProjectType.Console => filters.IncludeConsole,
                     ProjectType.ClassLibrary => filters.IncludeClassLibrary,
+                    ProjectType.Blazor => filters.IncludeBlazor,
+                    ProjectType.AzureFunctions => filters.IncludeAzureFunctions,
+                    ProjectType.WorkerService => filters.IncludeWorkerService,
+                    ProjectType.Grpc => filters.IncludeGrpc,
+                    ProjectType.Maui => filters.IncludeMaui,
+                    ProjectType.Uwp => filters.IncludeUwp,
+                    ProjectType.FSharp => filters.IncludeFSharp,
+                    ProjectType.VbNet => filters.IncludeVbNet,
+                    ProjectType.Database => filters.IncludeDatabase,
+                    ProjectType.OfficeAddIn => filters.IncludeOfficeAddIn,
+                    ProjectType.Docker => filters.IncludeDocker,
+                    ProjectType.Shared => filters.IncludeShared,
+                    ProjectType.LegacyUnsupported => filters.IncludeLegacyUnsupported,
                     _ => true // Include unknown project types by default
                 };
                 
@@ -1551,6 +1564,99 @@ public class MigrationOrchestrator : IMigrationOrchestrator
     {
         var content = await File.ReadAllTextAsync(projectFile, cancellationToken);
         var projectName = Path.GetFileNameWithoutExtension(projectFile).ToLowerInvariant();
+        var fileExtension = Path.GetExtension(projectFile).ToLowerInvariant();
+        
+        // Language-specific checks first
+        if (fileExtension == ".fsproj")
+        {
+            return ProjectType.FSharp;
+        }
+        
+        if (fileExtension == ".vbproj")
+        {
+            return ProjectType.VbNet;
+        }
+        
+        if (fileExtension == ".sqlproj")
+        {
+            return ProjectType.Database;
+        }
+        
+        if (fileExtension == ".dcproj")
+        {
+            return ProjectType.Docker;
+        }
+        
+        if (fileExtension == ".shproj")
+        {
+            return ProjectType.Shared;
+        }
+        
+        // Check for legacy/unsupported project types
+        if (content.Contains("Silverlight", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("WindowsPhone", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("{A1591282-1198-4647-A2B1-27E5FF5F6F3B}", StringComparison.OrdinalIgnoreCase) || // Silverlight GUID
+            content.Contains("{C089C8C0-30E0-4E22-80C0-CE093F111A43}", StringComparison.OrdinalIgnoreCase) || // Windows Phone GUID
+            content.Contains("{76F1466A-8B6D-4E39-A767-685A06062A39}", StringComparison.OrdinalIgnoreCase))  // Windows Phone 8.1 GUID
+        {
+            return ProjectType.LegacyUnsupported;
+        }
+        
+        // Check for Azure Functions
+        if (content.Contains("Microsoft.NET.Sdk.Functions", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("AzureFunctionsVersion", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.AzureFunctions;
+        }
+        
+        // Check for Worker Service
+        if (content.Contains("Microsoft.NET.Sdk.Worker", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Microsoft.Extensions.Hosting.WindowsServices", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.WorkerService;
+        }
+        
+        // Check for Blazor
+        if (content.Contains("Microsoft.NET.Sdk.BlazorWebAssembly", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Microsoft.AspNetCore.Components.WebAssembly", StringComparison.OrdinalIgnoreCase) ||
+            (content.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) && 
+             content.Contains("Microsoft.AspNetCore.Components", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ProjectType.Blazor;
+        }
+        
+        // Check for gRPC
+        if (content.Contains("Grpc.AspNetCore", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Google.Protobuf", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Grpc.Tools", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.Grpc;
+        }
+        
+        // Check for MAUI/Xamarin
+        if (content.Contains("Microsoft.NET.Sdk.Maui", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Xamarin.Forms", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("{EFBA0AD7-5A72-4C68-AF49-83D382785DCF}", StringComparison.OrdinalIgnoreCase) || // Xamarin.Android GUID
+            content.Contains("{6BC8ED88-2882-458C-8E55-DFD12B67127B}", StringComparison.OrdinalIgnoreCase))  // Xamarin.iOS GUID
+        {
+            return ProjectType.Maui;
+        }
+        
+        // Check for UWP
+        if (content.Contains("{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A}", StringComparison.OrdinalIgnoreCase) || // UWP GUID
+            content.Contains("Microsoft.NET.Core.UniversalWindowsPlatform", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("<TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.Uwp;
+        }
+        
+        // Check for Office/VSTO Add-ins
+        if (content.Contains("{BAA0C2D2-18E2-41B9-852F-F413020CAA33}", StringComparison.OrdinalIgnoreCase) || // VSTO GUID
+            content.Contains("Microsoft.Office.Tools", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Microsoft.VSTO", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.OfficeAddIn;
+        }
         
         // Check for test projects
         if (projectName.Contains("test") || projectName.Contains("spec") || 
@@ -1578,7 +1684,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             return ProjectType.Wpf;
         }
         
-        // Check for Web projects
+        // Check for Web projects (keep this after Blazor/gRPC to be more specific)
         if (content.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase) || // Web Application GUID
             content.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) ||
             content.Contains("System.Web", StringComparison.OrdinalIgnoreCase) ||
@@ -1605,6 +1711,19 @@ public class MigrationOrchestrator : IMigrationOrchestrator
         WinForms,
         Wpf,
         Web,
-        Test
+        Test,
+        Blazor,
+        AzureFunctions,
+        WorkerService,
+        Grpc,
+        Maui,
+        Uwp,
+        FSharp,
+        VbNet,
+        Database,
+        OfficeAddIn,
+        Docker,
+        Shared,
+        LegacyUnsupported
     }
 }

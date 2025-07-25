@@ -149,38 +149,125 @@
                                    FontSize="13"
                                    Margin="0,0,0,8"/>
                         
+                        <!-- Standard Project Types -->
+                        <TextBlock Text="Standard Project Types" FontSize="14" FontWeight="Medium" Foreground="#374151"/>
                         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*,*">
-                            <!-- Row 1 -->
                             <CheckBox Grid.Row="0" Grid.Column="0"
-                                      IsChecked="{Binding IncludeWinForms}"
-                                      Content="WinForms Projects"
+                                      IsChecked="{Binding IncludeClassLibrary}"
+                                      Content="Class Libraries"
                                       Margin="0,0,8,8"/>
                             
                             <CheckBox Grid.Row="0" Grid.Column="1"
-                                      IsChecked="{Binding IncludeWpf}"
-                                      Content="WPF Projects"
+                                      IsChecked="{Binding IncludeConsole}"
+                                      Content="Console Applications"
                                       Margin="0,0,8,8"/>
                             
                             <CheckBox Grid.Row="0" Grid.Column="2"
-                                      IsChecked="{Binding IncludeWeb}"
-                                      Content="Web Projects (ASP.NET)"
-                                      Margin="0,0,0,8"/>
-                            
-                            <!-- Row 2 -->
-                            <CheckBox Grid.Row="1" Grid.Column="0"
                                       IsChecked="{Binding IncludeTest}"
                                       Content="Test Projects"
+                                      Margin="0,0,0,8"/>
+                        </Grid>
+                        
+                        <!-- Desktop Applications -->
+                        <TextBlock Text="Desktop Applications" FontSize="14" FontWeight="Medium" Foreground="#374151" Margin="0,8,0,0"/>
+                        <Grid RowDefinitions="Auto" ColumnDefinitions="*,*,*">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding IncludeWinForms}"
+                                      Content="WinForms"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding IncludeWpf}"
+                                      Content="WPF"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="2"
+                                      IsChecked="{Binding IncludeUwp}"
+                                      Content="UWP"
+                                      Margin="0,0,0,0"/>
+                        </Grid>
+                        
+                        <!-- Web Applications -->
+                        <TextBlock Text="Web Applications" FontSize="14" FontWeight="Medium" Foreground="#374151" Margin="0,8,0,0"/>
+                        <Grid RowDefinitions="Auto" ColumnDefinitions="*,*,*">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding IncludeWeb}"
+                                      Content="ASP.NET Web"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding IncludeBlazor}"
+                                      Content="Blazor"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="2"
+                                      IsChecked="{Binding IncludeGrpc}"
+                                      Content="gRPC Services"
+                                      Margin="0,0,0,0"/>
+                        </Grid>
+                        
+                        <!-- Cloud/Services -->
+                        <TextBlock Text="Cloud &amp; Services" FontSize="14" FontWeight="Medium" Foreground="#374151" Margin="0,8,0,0"/>
+                        <Grid RowDefinitions="Auto" ColumnDefinitions="*,*,*">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding IncludeAzureFunctions}"
+                                      Content="Azure Functions"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding IncludeWorkerService}"
+                                      Content="Worker Services"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="2"
+                                      IsChecked="{Binding IncludeMaui}"
+                                      Content="MAUI/Xamarin"
+                                      Margin="0,0,0,0"/>
+                        </Grid>
+                        
+                        <!-- Language-Specific -->
+                        <TextBlock Text="Language-Specific" FontSize="14" FontWeight="Medium" Foreground="#374151" Margin="0,8,0,0"/>
+                        <Grid RowDefinitions="Auto" ColumnDefinitions="*,*,*">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding IncludeFSharp}"
+                                      Content="F# Projects (.fsproj)"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding IncludeVbNet}"
+                                      Content="VB.NET Projects (.vbproj)"
+                                      Margin="0,0,8,0"/>
+                        </Grid>
+                        
+                        <!-- Special/Legacy -->
+                        <TextBlock Text="Special Project Types" FontSize="14" FontWeight="Medium" Foreground="#374151" Margin="0,8,0,0"/>
+                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*,*">
+                            <CheckBox Grid.Row="0" Grid.Column="0"
+                                      IsChecked="{Binding IncludeDatabase}"
+                                      Content="Database (.sqlproj)"
+                                      Margin="0,0,8,8"/>
+                            
+                            <CheckBox Grid.Row="0" Grid.Column="1"
+                                      IsChecked="{Binding IncludeOfficeAddIn}"
+                                      Content="Office/VSTO Add-ins"
+                                      Margin="0,0,8,8"/>
+                            
+                            <CheckBox Grid.Row="0" Grid.Column="2"
+                                      IsChecked="{Binding IncludeDocker}"
+                                      Content="Docker (.dcproj)"
+                                      Margin="0,0,0,8"/>
+                            
+                            <CheckBox Grid.Row="1" Grid.Column="0"
+                                      IsChecked="{Binding IncludeShared}"
+                                      Content="Shared Projects (.shproj)"
+                                      ToolTip.Tip="Shared projects require special handling"
                                       Margin="0,0,8,0"/>
                             
                             <CheckBox Grid.Row="1" Grid.Column="1"
-                                      IsChecked="{Binding IncludeClassLibrary}"
-                                      Content="Class Libraries"
+                                      IsChecked="{Binding IncludeLegacyUnsupported}"
+                                      Content="Legacy/Unsupported"
+                                      ToolTip.Tip="Silverlight, Windows Phone, etc."
                                       Margin="0,0,8,0"/>
-                            
-                            <CheckBox Grid.Row="1" Grid.Column="2"
-                                      IsChecked="{Binding IncludeConsole}"
-                                      Content="Console Applications"
-                                      Margin="0,0,0,0"/>
                         </Grid>
                     </StackPanel>
                 </Border>
