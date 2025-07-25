@@ -1,5 +1,15 @@
 namespace SdkMigrator.Models;
 
+public class ProjectTypeFilters
+{
+    public bool IncludeWinForms { get; set; } = true;
+    public bool IncludeWpf { get; set; } = true;
+    public bool IncludeWeb { get; set; } = true;
+    public bool IncludeTest { get; set; } = true;
+    public bool IncludeClassLibrary { get; set; } = true;
+    public bool IncludeConsole { get; set; } = true;
+}
+
 public class MigrationOptions
 {
     public static MigrationOptions Default => new();
@@ -23,4 +33,5 @@ public class MigrationOptions
     public ImportSelectionOptions ImportOptions { get; set; } = new();
     public bool InteractiveTargetSelection { get; set; }
     public TargetSelectionOptions TargetOptions { get; set; } = new();
+    public ProjectTypeFilters ProjectTypeFilters { get; set; } = new();
 }

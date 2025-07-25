@@ -149,6 +149,20 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             report.TotalProjectsFound = projectFilesList.Count;
 
             _logger.LogInformation("Found {Count} project files to process", projectFilesList.Count);
+            
+            // Apply project type filters
+            if (options.ProjectTypeFilters != null)
+            {
+                var filteredProjects = await FilterProjectsByTypeAsync(projectFilesList, options.ProjectTypeFilters, cancellationToken);
+                var excludedCount = projectFilesList.Count - filteredProjects.Count;
+                
+                if (excludedCount > 0)
+                {
+                    _logger.LogInformation("Excluded {Count} projects based on type filters", excludedCount);
+                    projectFilesList = filteredProjects;
+                    report.TotalProjectsFound = projectFilesList.Count;
+                }
+            }
 
             // Scan imports if interactive mode is enabled
             _logger.LogInformation("Checking interactive import selection - Enabled: {InteractiveImportSelection}, ProjectCount: {ProjectCount}", 
@@ -1489,5 +1503,108 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                 }
             }
         }
+    }
+
+    private async Task<List<string>> FilterProjectsByTypeAsync(List<string> projectFiles, ProjectTypeFilters filters, CancellationToken cancellationToken)
+    {
+        var filteredProjects = new List<string>();
+        
+        foreach (var projectFile in projectFiles)
+        {
+            try
+            {
+                var projectType = await DetermineProjectTypeAsync(projectFile, cancellationToken);
+                
+                bool includeProject = projectType switch
+                {
+                    ProjectType.WinForms => filters.IncludeWinForms,
+                    ProjectType.Wpf => filters.IncludeWpf,
+                    ProjectType.Web => filters.IncludeWeb,
+                    ProjectType.Test => filters.IncludeTest,
+                    ProjectType.Console => filters.IncludeConsole,
+                    ProjectType.ClassLibrary => filters.IncludeClassLibrary,
+                    _ => true // Include unknown project types by default
+                };
+                
+                if (includeProject)
+                {
+                    filteredProjects.Add(projectFile);
+                }
+                else
+                {
+                    _logger.LogDebug("Excluding project {Project} of type {Type} based on filters", 
+                        Path.GetFileName(projectFile), projectType);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to determine project type for {Project}, including by default", 
+                    Path.GetFileName(projectFile));
+                filteredProjects.Add(projectFile);
+            }
+        }
+        
+        return filteredProjects;
+    }
+    
+    private async Task<ProjectType> DetermineProjectTypeAsync(string projectFile, CancellationToken cancellationToken)
+    {
+        var content = await File.ReadAllTextAsync(projectFile, cancellationToken);
+        var projectName = Path.GetFileNameWithoutExtension(projectFile).ToLowerInvariant();
+        
+        // Check for test projects
+        if (projectName.Contains("test") || projectName.Contains("spec") || 
+            content.Contains("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("xunit", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("nunit", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("mstest", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.Test;
+        }
+        
+        // Check for WinForms
+        if (content.Contains("System.Windows.Forms", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("<UseWindowsForms>true</UseWindowsForms>", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.WinForms;
+        }
+        
+        // Check for WPF
+        if (content.Contains("PresentationCore", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("PresentationFramework", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("<UseWPF>true</UseWPF>", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Microsoft.NET.Sdk.WindowsDesktop", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.Wpf;
+        }
+        
+        // Check for Web projects
+        if (content.Contains("{349c5851-65df-11da-9384-00065b846f21}", StringComparison.OrdinalIgnoreCase) || // Web Application GUID
+            content.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("System.Web", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.Web;
+        }
+        
+        // Check for Console applications
+        if (content.Contains("<OutputType>Exe</OutputType>", StringComparison.OrdinalIgnoreCase) ||
+            content.Contains("<OutputType>WinExe</OutputType>", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectType.Console;
+        }
+        
+        // Default to class library
+        return ProjectType.ClassLibrary;
+    }
+    
+    private enum ProjectType
+    {
+        ClassLibrary,
+        Console,
+        WinForms,
+        Wpf,
+        Web,
+        Test
     }
 }

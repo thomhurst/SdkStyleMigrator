@@ -42,6 +42,14 @@ public class MigrationViewModel : ViewModelBase
     private double _progress;
     private string _statusMessage = "Ready to migrate";
     private ObservableCollection<string> _logMessages = new();
+    
+    // Project type filters
+    private bool _includeWinForms = true;
+    private bool _includeWpf = true;
+    private bool _includeWeb = true;
+    private bool _includeTest = true;
+    private bool _includeClassLibrary = true;
+    private bool _includeConsole = true;
 
     public string DirectoryPath
     {
@@ -149,6 +157,43 @@ public class MigrationViewModel : ViewModelBase
     {
         get => _interactiveTargets;
         set => this.RaiseAndSetIfChanged(ref _interactiveTargets, value);
+    }
+
+    // Project type filters
+    public bool IncludeWinForms
+    {
+        get => _includeWinForms;
+        set => this.RaiseAndSetIfChanged(ref _includeWinForms, value);
+    }
+
+    public bool IncludeWpf
+    {
+        get => _includeWpf;
+        set => this.RaiseAndSetIfChanged(ref _includeWpf, value);
+    }
+
+    public bool IncludeWeb
+    {
+        get => _includeWeb;
+        set => this.RaiseAndSetIfChanged(ref _includeWeb, value);
+    }
+
+    public bool IncludeTest
+    {
+        get => _includeTest;
+        set => this.RaiseAndSetIfChanged(ref _includeTest, value);
+    }
+
+    public bool IncludeClassLibrary
+    {
+        get => _includeClassLibrary;
+        set => this.RaiseAndSetIfChanged(ref _includeClassLibrary, value);
+    }
+
+    public bool IncludeConsole
+    {
+        get => _includeConsole;
+        set => this.RaiseAndSetIfChanged(ref _includeConsole, value);
     }
 
     public bool IsRunning
@@ -382,6 +427,15 @@ public class MigrationViewModel : ViewModelBase
                 {
                     InteractiveMode = InteractiveTargets,
                     DefaultKeepAll = true
+                },
+                ProjectTypeFilters = new ProjectTypeFilters
+                {
+                    IncludeWinForms = IncludeWinForms,
+                    IncludeWpf = IncludeWpf,
+                    IncludeWeb = IncludeWeb,
+                    IncludeTest = IncludeTest,
+                    IncludeClassLibrary = IncludeClassLibrary,
+                    IncludeConsole = IncludeConsole
                 }
             };
 

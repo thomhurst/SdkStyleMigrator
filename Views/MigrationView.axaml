@@ -140,6 +140,51 @@
                     </StackPanel>
                 </Border>
                 
+                <!-- Project Type Filters -->
+                <Border Classes="Card">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Project Type Filters" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Text="Select which project types to include in the migration" 
+                                   Foreground="#64748B" 
+                                   FontSize="13"
+                                   Margin="0,0,0,8"/>
+                        
+                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*,*">
+                            <!-- Row 1 -->
+                            <CheckBox Grid.Row="0" Grid.Column="0"
+                                      IsChecked="{Binding IncludeWinForms}"
+                                      Content="WinForms Projects"
+                                      Margin="0,0,8,8"/>
+                            
+                            <CheckBox Grid.Row="0" Grid.Column="1"
+                                      IsChecked="{Binding IncludeWpf}"
+                                      Content="WPF Projects"
+                                      Margin="0,0,8,8"/>
+                            
+                            <CheckBox Grid.Row="0" Grid.Column="2"
+                                      IsChecked="{Binding IncludeWeb}"
+                                      Content="Web Projects (ASP.NET)"
+                                      Margin="0,0,0,8"/>
+                            
+                            <!-- Row 2 -->
+                            <CheckBox Grid.Row="1" Grid.Column="0"
+                                      IsChecked="{Binding IncludeTest}"
+                                      Content="Test Projects"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Row="1" Grid.Column="1"
+                                      IsChecked="{Binding IncludeClassLibrary}"
+                                      Content="Class Libraries"
+                                      Margin="0,0,8,0"/>
+                            
+                            <CheckBox Grid.Row="1" Grid.Column="2"
+                                      IsChecked="{Binding IncludeConsole}"
+                                      Content="Console Applications"
+                                      Margin="0,0,0,0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
                 <!-- Advanced Options -->
                 <Border Classes="Card">
                     <StackPanel Spacing="12">
