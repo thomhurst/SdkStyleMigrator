@@ -12,6 +12,7 @@ namespace SdkMigrator.Services;
 public class AzureFunctionsHandler : IAzureFunctionsHandler
 {
     private readonly ILogger<AzureFunctionsHandler> _logger;
+    private bool _generateModernProgramCs = false;
 
     public AzureFunctionsHandler(ILogger<AzureFunctionsHandler> logger)
     {
@@ -545,6 +546,12 @@ public class AzureFunctionsHandler : IAzureFunctionsHandler
 
     private async Task CreateProgramCsForIsolatedWorker(FunctionsProjectInfo info, MigrationResult result, CancellationToken cancellationToken)
     {
+        if (!_generateModernProgramCs)
+        {
+            _logger.LogInformation("Skipping Program.cs generation as GenerateModernProgramCs is disabled");
+            return;
+        }
+        
         var programCsPath = Path.Combine(info.ProjectDirectory, "Program.cs");
         
         if (!File.Exists(programCsPath))
@@ -1183,5 +1190,11 @@ host.Run();
         {
             result.Warnings.Add("IMPORTANT: .NET 8 in-process support is limited. Set FUNCTIONS_INPROC_NET8_ENABLED='1' in Azure. Isolated model strongly recommended.");
         }
+    }
+    
+    public void SetGenerateModernProgramCs(bool enabled)
+    {
+        _generateModernProgramCs = enabled;
+        _logger.LogInformation("GenerateModernProgramCs set to: {Enabled}", enabled);
     }
 }

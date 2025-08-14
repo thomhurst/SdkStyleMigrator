@@ -11,6 +11,7 @@ namespace SdkMigrator.Services;
 public class BlazorProjectHandler : IBlazorProjectHandler
 {
     private readonly ILogger<BlazorProjectHandler> _logger;
+    private bool _generateModernProgramCs = false;
 
     public BlazorProjectHandler(ILogger<BlazorProjectHandler> logger)
     {
@@ -766,6 +767,12 @@ public class BlazorProjectHandler : IBlazorProjectHandler
 
     private async Task CreateModernProgramCs(BlazorProjectInfo info, MigrationResult result, CancellationToken cancellationToken)
     {
+        if (!_generateModernProgramCs)
+        {
+            _logger.LogInformation("Skipping Program.cs generation as GenerateModernProgramCs is disabled");
+            return;
+        }
+        
         var programCsPath = Path.Combine(info.ProjectDirectory, "Program.cs");
         
         if (!File.Exists(programCsPath))
@@ -1580,5 +1587,11 @@ app.Run();
         public bool HasExports { get; set; }
         public bool UsesTypeScript { get; set; }
         public bool HasBlazorInterop { get; set; }
+    }
+    
+    public void SetGenerateModernProgramCs(bool enabled)
+    {
+        _generateModernProgramCs = enabled;
+        _logger.LogInformation("GenerateModernProgramCs set to: {Enabled}", enabled);
     }
 }

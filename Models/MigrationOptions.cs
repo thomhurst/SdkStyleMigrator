@@ -61,4 +61,5 @@ public class MigrationOptions
     public TargetSelectionOptions TargetOptions { get; set; } = new();
     public ProjectTypeFilters ProjectTypeFilters { get; set; } = new();
     public bool MigrateConfiguration { get; set; } = false; // Default to false - preserve App.config
+    public bool GenerateModernProgramCs { get; set; } = false; // Default to false - don't create Program.cs files
 }

@@ -43,6 +43,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     private ImportScanResult? _importScanResult;
     private TargetScanResult? _targetScanResult;
     private bool _centralPackageManagementEnabled;
+    private bool _generateModernProgramCs;
 
     public CleanSdkStyleProjectGenerator(
         ILogger<CleanSdkStyleProjectGenerator> logger,
@@ -110,6 +111,12 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
     {
         _centralPackageManagementEnabled = enabled;
         _logger.LogInformation("CPM Debug: SetCentralPackageManagementEnabled called with value: {Enabled}", enabled);
+    }
+    
+    public void SetGenerateModernProgramCs(bool enabled)
+    {
+        _generateModernProgramCs = enabled;
+        _logger.LogInformation("GenerateModernProgramCs set to: {Enabled}", enabled);
     }
 
     public async Task<MigrationResult> GenerateSdkStyleProjectAsync(
@@ -2927,6 +2934,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 HasPackageReference(legacyProject, "Microsoft.Azure.WebJobs") ||
                 HasPackageReference(legacyProject, "Microsoft.Azure.Functions"))
             {
+                _azureFunctionsHandler.SetGenerateModernProgramCs(_generateModernProgramCs);
                 var info = await _azureFunctionsHandler.DetectFunctionsConfigurationAsync(legacyProject, cancellationToken);
                 await _azureFunctionsHandler.MigrateFunctionsProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
                 projectTypeDetected = true;
@@ -2937,6 +2945,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             if (HasPackageReference(legacyProject, "Microsoft.Maui") ||
                 HasPackageReference(legacyProject, "Xamarin.Forms"))
             {
+                _mauiProjectHandler.SetGenerateModernProgramCs(_generateModernProgramCs);
                 var info = await _mauiProjectHandler.DetectMauiConfigurationAsync(legacyProject, cancellationToken);
                 await _mauiProjectHandler.MigrateMauiProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
                 projectTypeDetected = true;
@@ -2947,6 +2956,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
             if (HasPackageReference(legacyProject, "Microsoft.AspNetCore.Components.WebAssembly") ||
                 HasPackageReference(legacyProject, "Microsoft.AspNetCore.Components.Server"))
             {
+                _blazorProjectHandler.SetGenerateModernProgramCs(_generateModernProgramCs);
                 var info = await _blazorProjectHandler.DetectBlazorConfigurationAsync(legacyProject, cancellationToken);
                 await _blazorProjectHandler.MigrateBlazorProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
                 projectTypeDetected = true;
@@ -2958,6 +2968,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 HasPackageReference(legacyProject, "Microsoft.Extensions.Hosting.WindowsServices") ||
                 HasPackageReference(legacyProject, "Microsoft.Extensions.Hosting.Systemd"))
             {
+                _workerServiceHandler.SetGenerateModernProgramCs(_generateModernProgramCs);
                 var info = await _workerServiceHandler.DetectWorkerServiceConfigurationAsync(legacyProject, cancellationToken);
                 await _workerServiceHandler.MigrateWorkerServiceProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
                 projectTypeDetected = true;
@@ -2969,6 +2980,7 @@ public class CleanSdkStyleProjectGenerator : ISdkStyleProjectGenerator
                 HasPackageReference(legacyProject, "Grpc.Tools") ||
                 legacyProject.AllEvaluatedItems.Any(item => item.ItemType == "Protobuf"))
             {
+                _grpcServiceHandler.SetGenerateModernProgramCs(_generateModernProgramCs);
                 var info = await _grpcServiceHandler.DetectGrpcConfigurationAsync(legacyProject, cancellationToken);
                 await _grpcServiceHandler.MigrateGrpcProjectAsync(info, projectElement, packageReferences, result, cancellationToken);
                 projectTypeDetected = true;

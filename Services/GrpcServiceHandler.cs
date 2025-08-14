@@ -11,6 +11,7 @@ namespace SdkMigrator.Services;
 public class GrpcServiceHandler : IGrpcServiceHandler
 {
     private readonly ILogger<GrpcServiceHandler> _logger;
+    private bool _generateModernProgramCs = false;
 
     public GrpcServiceHandler(ILogger<GrpcServiceHandler> logger)
     {
@@ -826,6 +827,12 @@ public class GrpcServiceHandler : IGrpcServiceHandler
 
     private async Task CreateModernProgramCs(GrpcProjectInfo info, MigrationResult result, CancellationToken cancellationToken)
     {
+        if (!_generateModernProgramCs)
+        {
+            _logger.LogInformation("Skipping Program.cs generation as GenerateModernProgramCs is disabled");
+            return;
+        }
+        
         var programCsPath = Path.Combine(info.ProjectDirectory, "Program.cs");
         
         if (!File.Exists(programCsPath))
@@ -962,5 +969,11 @@ var app = builder.Build();
         {
             propertyGroup.Add(new XElement(name, value));
         }
+    }
+    
+    public void SetGenerateModernProgramCs(bool enabled)
+    {
+        _generateModernProgramCs = enabled;
+        _logger.LogInformation("GenerateModernProgramCs set to: {Enabled}", enabled);
     }
 }

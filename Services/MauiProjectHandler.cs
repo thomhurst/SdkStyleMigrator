@@ -11,6 +11,7 @@ namespace SdkMigrator.Services;
 public class MauiProjectHandler : IMauiProjectHandler
 {
     private readonly ILogger<MauiProjectHandler> _logger;
+    private bool _generateModernProgramCs = false;
 
     public MauiProjectHandler(ILogger<MauiProjectHandler> logger)
     {
@@ -822,6 +823,12 @@ public class MauiProjectHandler : IMauiProjectHandler
 
     private async Task CreateMauiProgramCs(MauiProjectInfo info, MigrationResult result, CancellationToken cancellationToken)
     {
+        if (!_generateModernProgramCs)
+        {
+            _logger.LogInformation("Skipping MauiProgram.cs generation as GenerateModernProgramCs is disabled");
+            return;
+        }
+        
         var mauiProgramPath = Path.Combine(info.ProjectDirectory, "MauiProgram.cs");
         
         if (!File.Exists(mauiProgramPath))
@@ -1588,5 +1595,11 @@ public static class MauiProgram
         public string SourceFile { get; set; } = string.Empty;
         public string Platform { get; set; } = string.Empty;
         public bool IsLibraryImport { get; set; }
+    }
+    
+    public void SetGenerateModernProgramCs(bool enabled)
+    {
+        _generateModernProgramCs = enabled;
+        _logger.LogInformation("GenerateModernProgramCs set to: {Enabled}", enabled);
     }
 }

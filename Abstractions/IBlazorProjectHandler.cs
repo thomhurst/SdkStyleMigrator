@@ -38,4 +38,9 @@ public interface IBlazorProjectHandler
     /// Configures Blazor WebAssembly specific build properties
     /// </summary>
     void ConfigureBlazorProperties(XElement projectElement, BlazorProjectInfo info);
+    
+    /// <summary>
+    /// Sets whether to generate modern Program.cs files during migration
+    /// </summary>
+    void SetGenerateModernProgramCs(bool enabled);
 }

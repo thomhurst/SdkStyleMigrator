@@ -33,4 +33,9 @@ public interface IGrpcServiceHandler
     /// Sets up gRPC specific build properties and tooling
     /// </summary>
     void ConfigureGrpcProperties(XElement projectElement, GrpcProjectInfo info);
+    
+    /// <summary>
+    /// Sets whether to generate modern Program.cs files during migration
+    /// </summary>
+    void SetGenerateModernProgramCs(bool enabled);
 }

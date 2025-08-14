@@ -38,4 +38,9 @@ public interface IMauiProjectHandler
     /// Migrates app icons, splash screens, and resources
     /// </summary>
     void MigrateAppResources(string projectDirectory, XElement projectElement);
+    
+    /// <summary>
+    /// Sets whether to generate modern Program.cs files during migration
+    /// </summary>
+    void SetGenerateModernProgramCs(bool enabled);
 }

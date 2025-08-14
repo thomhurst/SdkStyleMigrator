@@ -33,4 +33,9 @@ public interface IAzureFunctionsHandler
     /// Migrates Functions runtime and extension bundle configuration
     /// </summary>
     void MigrateFunctionsRuntime(XElement projectElement, FunctionsProjectInfo info);
+    
+    /// <summary>
+    /// Sets whether to generate modern Program.cs files during migration
+    /// </summary>
+    void SetGenerateModernProgramCs(bool enabled);
 }

@@ -33,4 +33,9 @@ public interface IWorkerServiceHandler
     /// Sets up Worker Service specific build properties
     /// </summary>
     void ConfigureWorkerServiceProperties(XElement projectElement, WorkerServiceInfo info);
+    
+    /// <summary>
+    /// Sets whether to generate modern Program.cs files during migration
+    /// </summary>
+    void SetGenerateModernProgramCs(bool enabled);
 }

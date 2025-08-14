@@ -247,6 +247,11 @@ class Program
             aliases: new[] { "--migrate-config", "-mc" },
             getDefaultValue: () => false,
             description: "Migrate App.config to appsettings.json (disabled by default - preserves App.config)");
+            
+        var generateProgramCsOption = new Option<bool>(
+            aliases: new[] { "--generate-program-cs", "-gp" },
+            getDefaultValue: () => false,
+            description: "Generate modern Program.cs files for applicable project types (disabled by default)");
 
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
@@ -268,6 +273,7 @@ class Program
         rootCommand.AddOption(interactiveImportsOption);
         rootCommand.AddOption(interactiveTargetsOption);
         rootCommand.AddOption(migrateConfigOption);
+        rootCommand.AddOption(generateProgramCsOption);
 
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
@@ -525,7 +531,8 @@ class Program
                 CacheTTLMinutes = context.ParseResult.GetValueForOption(cacheTTLOption),
                 InteractiveImportSelection = context.ParseResult.GetValueForOption(interactiveImportsOption),
                 InteractiveTargetSelection = context.ParseResult.GetValueForOption(interactiveTargetsOption),
-                MigrateConfiguration = context.ParseResult.GetValueForOption(migrateConfigOption)
+                MigrateConfiguration = context.ParseResult.GetValueForOption(migrateConfigOption),
+                GenerateModernProgramCs = context.ParseResult.GetValueForOption(generateProgramCsOption)
             };
 
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);

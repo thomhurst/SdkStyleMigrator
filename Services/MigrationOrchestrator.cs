@@ -677,6 +677,7 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             _sdkStyleProjectGenerator.SetImportScanResult(_importScanResult);
             _sdkStyleProjectGenerator.SetTargetScanResult(_targetScanResult);
             _sdkStyleProjectGenerator.SetCentralPackageManagementEnabled(options.EnableCentralPackageManagement);
+            _sdkStyleProjectGenerator.SetGenerateModernProgramCs(options.GenerateModernProgramCs);
             
             var result = await _sdkStyleProjectGenerator.GenerateSdkStyleProjectAsync(
                 project, outputPath, cancellationToken);

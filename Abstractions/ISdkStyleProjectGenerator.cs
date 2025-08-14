@@ -21,4 +21,9 @@ public interface ISdkStyleProjectGenerator
     /// Sets whether Central Package Management is enabled for this migration
     /// </summary>
     void SetCentralPackageManagementEnabled(bool enabled);
+    
+    /// <summary>
+    /// Sets whether to generate modern Program.cs files for applicable project types
+    /// </summary>
+    void SetGenerateModernProgramCs(bool enabled);
 }

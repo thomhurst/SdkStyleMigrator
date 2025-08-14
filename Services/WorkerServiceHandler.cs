@@ -11,6 +11,7 @@ namespace SdkMigrator.Services;
 public class WorkerServiceHandler : IWorkerServiceHandler
 {
     private readonly ILogger<WorkerServiceHandler> _logger;
+    private bool _generateModernProgramCs = false;
 
     public WorkerServiceHandler(ILogger<WorkerServiceHandler> logger)
     {
@@ -744,6 +745,12 @@ public class WorkerServiceHandler : IWorkerServiceHandler
 
     private async Task CreateModernProgramCs(WorkerServiceInfo info, MigrationResult result, CancellationToken cancellationToken)
     {
+        if (!_generateModernProgramCs)
+        {
+            _logger.LogInformation("Skipping Program.cs generation as GenerateModernProgramCs is disabled");
+            return;
+        }
+        
         var programCsPath = Path.Combine(info.ProjectDirectory, "Program.cs");
         
         if (!File.Exists(programCsPath))
@@ -908,5 +915,11 @@ builder.Services.AddLogging();
             
             itemGroup.Add(item);
         }
+    }
+    
+    public void SetGenerateModernProgramCs(bool enabled)
+    {
+        _generateModernProgramCs = enabled;
+        _logger.LogInformation("GenerateModernProgramCs set to: {Enabled}", enabled);
     }
 }
