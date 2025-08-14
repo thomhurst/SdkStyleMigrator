@@ -60,4 +60,5 @@ public class MigrationOptions
     public bool InteractiveTargetSelection { get; set; }
     public TargetSelectionOptions TargetOptions { get; set; } = new();
     public ProjectTypeFilters ProjectTypeFilters { get; set; } = new();
+    public bool MigrateConfiguration { get; set; } = false; // Default to false - preserve App.config
 }

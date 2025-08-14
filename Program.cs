@@ -242,6 +242,11 @@ class Program
         var interactiveTargetsOption = new Option<bool>(
             aliases: new[] { "--interactive-targets", "-it" },
             description: "Enable interactive target selection during migration");
+            
+        var migrateConfigOption = new Option<bool>(
+            aliases: new[] { "--migrate-config", "-mc" },
+            getDefaultValue: () => false,
+            description: "Migrate App.config to appsettings.json (disabled by default - preserves App.config)");
 
         // Add migrate command as the default behavior
         rootCommand.AddArgument(directoryArgument);
@@ -262,6 +267,7 @@ class Program
         rootCommand.AddOption(cacheTTLOption);
         rootCommand.AddOption(interactiveImportsOption);
         rootCommand.AddOption(interactiveTargetsOption);
+        rootCommand.AddOption(migrateConfigOption);
 
         // Rollback command
         var rollbackCommand = new Command("rollback", "Rollback a previous migration using backup session");
@@ -518,7 +524,8 @@ class Program
                 DisableCache = context.ParseResult.GetValueForOption(disableCacheOption),
                 CacheTTLMinutes = context.ParseResult.GetValueForOption(cacheTTLOption),
                 InteractiveImportSelection = context.ParseResult.GetValueForOption(interactiveImportsOption),
-                InteractiveTargetSelection = context.ParseResult.GetValueForOption(interactiveTargetsOption)
+                InteractiveTargetSelection = context.ParseResult.GetValueForOption(interactiveTargetsOption),
+                MigrateConfiguration = context.ParseResult.GetValueForOption(migrateConfigOption)
             };
 
             options.DirectoryPath = Path.GetFullPath(options.DirectoryPath);

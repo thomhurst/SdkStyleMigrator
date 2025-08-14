@@ -1122,8 +1122,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
             bool generatedAppSettings = false;
             bool generatedMigrationCode = false;
 
-            if (hasOtherContent)
+            if (hasOtherContent && options.MigrateConfiguration)
             {
+                // Only migrate configuration if explicitly enabled
+                _logger.LogInformation("Configuration migration is enabled. Converting App.config to appsettings.json...");
+                
                 // Try to generate appsettings.json from the configuration
                 generatedAppSettings = await _configurationFileGenerator.GenerateAppSettingsFromConfigAsync(
                     appConfigPath, projectDirectory, cancellationToken);
@@ -1143,6 +1146,11 @@ public class MigrationOrchestrator : IMigrationOrchestrator
                     result.GeneratedFiles.Add("ConfigurationMigration.cs");
                     result.Warnings.Add("Generated configuration migration code. Review ConfigurationMigration.cs for integration steps.");
                 }
+            }
+            else if (hasOtherContent && !options.MigrateConfiguration)
+            {
+                _logger.LogInformation("Configuration migration is disabled. Preserving App.config settings.");
+                result.Warnings.Add("App.config contains settings that were preserved. Enable --migrate-config to convert to appsettings.json.");
             }
 
             if (!hasOtherContent)
