@@ -38,6 +38,7 @@ public class MigrationViewModel : ViewModelBase
     private int? _cacheTtl;
     private bool _interactiveImports = true;
     private bool _interactiveTargets = true;
+    private bool _migrateConfiguration = false;
     private bool _isRunning;
     private double _progress;
     private string _statusMessage = "Ready to migrate";
@@ -183,6 +184,12 @@ public class MigrationViewModel : ViewModelBase
     {
         get => _interactiveTargets;
         set => this.RaiseAndSetIfChanged(ref _interactiveTargets, value);
+    }
+    
+    public bool MigrateConfiguration
+    {
+        get => _migrateConfiguration;
+        set => this.RaiseAndSetIfChanged(ref _migrateConfiguration, value);
     }
 
     // Project type filters
@@ -522,6 +529,7 @@ public class MigrationViewModel : ViewModelBase
                 CacheTTLMinutes = CacheTtl,
                 InteractiveImportSelection = InteractiveImports,
                 InteractiveTargetSelection = InteractiveTargets,
+                MigrateConfiguration = MigrateConfiguration,
                 ImportOptions = new ImportSelectionOptions
                 {
                     InteractiveMode = InteractiveImports,

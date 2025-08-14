@@ -277,7 +277,7 @@
                     <StackPanel Spacing="12">
                         <TextBlock Text="Advanced Options" FontSize="16" FontWeight="SemiBold"/>
                         
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,*">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="*,*">
                             
                             <!-- Row 1 -->
                             <CheckBox Grid.Row="0" Grid.Column="0"
@@ -308,10 +308,16 @@
                             
                             <!-- Row 4 -->
                             <CheckBox Grid.Row="3" Grid.Column="0"
+                                      IsChecked="{Binding MigrateConfiguration}"
+                                      Content="Migrate App.config to appsettings.json"
+                                      ToolTip.Tip="When enabled, converts App.config settings to appsettings.json format. When disabled (default), preserves existing App.config."/>
+                            
+                            <CheckBox Grid.Row="3" Grid.Column="1"
                                       IsChecked="{Binding DisableCache}"
                                       Content="Disable cache"/>
                             
-                            <StackPanel Grid.Row="3" Grid.Column="1">
+                            <!-- Row 5 -->
+                            <StackPanel Grid.Row="4" Grid.Column="1">
                                 <TextBlock Text="Cache TTL (minutes)" Classes="Label"/>
                                 <NumericUpDown Value="{Binding CacheTtl}"
                                                Minimum="1"
