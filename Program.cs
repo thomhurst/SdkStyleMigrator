@@ -103,13 +103,41 @@ class Program
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Failed to start UI mode: {ex.Message}");
-                Console.Error.WriteLine($"Exception type: {ex.GetType().FullName}");
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("========================================");
+                Console.Error.WriteLine("UI MODE STARTUP FAILED");
+                Console.Error.WriteLine("========================================");
+                
+                // Always show the full exception details for debugging
+                Console.Error.WriteLine($"Exception Type: {ex.GetType().FullName}");
+                Console.Error.WriteLine($"Message: {ex.Message}");
+                
+                // Show inner exceptions
+                var innerEx = ex.InnerException;
+                int depth = 1;
+                while (innerEx != null)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine($"Inner Exception #{depth}:");
+                    Console.Error.WriteLine($"  Type: {innerEx.GetType().FullName}");
+                    Console.Error.WriteLine($"  Message: {innerEx.Message}");
+                    innerEx = innerEx.InnerException;
+                    depth++;
+                }
+                
+                // Always show stack trace for debugging
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Stack Trace:");
+                Console.Error.WriteLine(ex.StackTrace);
                 
                 // Provide helpful fallback information
                 Console.WriteLine();
                 Console.WriteLine("========================================");
-                Console.WriteLine("UI mode failed to start. This can happen if:");
+                Console.WriteLine("FALLBACK: Use Command-Line Interface");
+                Console.WriteLine("========================================");
+                Console.WriteLine();
+                Console.WriteLine("Possible causes:");
+                Console.WriteLine("  - Missing service registration in DI container");
                 Console.WriteLine("  - Required GUI libraries are not available");
                 Console.WriteLine("  - Running in a headless environment");
                 Console.WriteLine("  - Display server is not accessible");
@@ -130,13 +158,6 @@ class Program
                 Console.WriteLine("  dotnet run -- C:\\MyProject --dry-run");
                 Console.WriteLine("  dotnet run -- C:\\MyProject --target-framework net8.0");
                 Console.WriteLine("========================================");
-                
-                if (Environment.GetEnvironmentVariable("SDKMIGRATOR_DEBUG") == "1")
-                {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Debug stack trace:");
-                    Console.Error.WriteLine(ex.StackTrace);
-                }
                 
                 return 1;
             }
