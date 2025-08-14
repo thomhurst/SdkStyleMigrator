@@ -103,9 +103,41 @@ class Program
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Failed to start Avalonia app: {ex.Message}");
+                Console.Error.WriteLine($"Failed to start UI mode: {ex.Message}");
                 Console.Error.WriteLine($"Exception type: {ex.GetType().FullName}");
-                Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+                
+                // Provide helpful fallback information
+                Console.WriteLine();
+                Console.WriteLine("========================================");
+                Console.WriteLine("UI mode failed to start. This can happen if:");
+                Console.WriteLine("  - Required GUI libraries are not available");
+                Console.WriteLine("  - Running in a headless environment");
+                Console.WriteLine("  - Display server is not accessible");
+                Console.WriteLine();
+                Console.WriteLine("You can use the command-line interface instead:");
+                Console.WriteLine();
+                Console.WriteLine("Usage:");
+                Console.WriteLine("  dotnet run -- <directory> [options]");
+                Console.WriteLine();
+                Console.WriteLine("Common commands:");
+                Console.WriteLine("  dotnet run -- --help                    # Show help");
+                Console.WriteLine("  dotnet run -- analyze <path>            # Analyze projects");
+                Console.WriteLine("  dotnet run -- <path> --dry-run          # Preview migration");
+                Console.WriteLine("  dotnet run -- <path>                    # Perform migration");
+                Console.WriteLine();
+                Console.WriteLine("Examples:");
+                Console.WriteLine("  dotnet run -- analyze C:\\MyProject");
+                Console.WriteLine("  dotnet run -- C:\\MyProject --dry-run");
+                Console.WriteLine("  dotnet run -- C:\\MyProject --target-framework net8.0");
+                Console.WriteLine("========================================");
+                
+                if (Environment.GetEnvironmentVariable("SDKMIGRATOR_DEBUG") == "1")
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("Debug stack trace:");
+                    Console.Error.WriteLine(ex.StackTrace);
+                }
+                
                 return 1;
             }
         }
