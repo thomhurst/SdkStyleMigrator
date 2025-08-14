@@ -132,11 +132,26 @@ public partial class App : Application
         services.AddSingleton<INativeDependencyHandler, NativeDependencyHandler>();
         services.AddSingleton<ServiceReferenceDetector>();
         services.AddSingleton<IWebProjectHandler, WebProjectHandler>();
+        
+        // Special project type handlers
+        services.AddSingleton<IAzureFunctionsHandler, AzureFunctionsHandler>();
+        services.AddSingleton<IMauiProjectHandler, MauiProjectHandler>();
+        services.AddSingleton<IBlazorProjectHandler, BlazorProjectHandler>();
+        services.AddSingleton<IWorkerServiceHandler, WorkerServiceHandler>();
+        services.AddSingleton<IGrpcServiceHandler, GrpcServiceHandler>();
+        services.AddSingleton<IUwpProjectHandler, UwpProjectHandler>();
+        services.AddSingleton<IDatabaseProjectHandler, DatabaseProjectHandler>();
+        services.AddSingleton<IDockerProjectHandler, DockerProjectHandler>();
+        services.AddSingleton<ISharedProjectHandler, SharedProjectHandler>();
+        services.AddSingleton<IOfficeProjectHandler, OfficeProjectHandler>();
 
         // Analysis and migration services
         services.AddSingleton<CustomTargetAnalyzer>();
+        services.AddSingleton<EntityFrameworkMigrationHandler>();
+        services.AddSingleton<T4TemplateHandler>();
         services.AddSingleton<IMigrationAnalyzer, MigrationAnalyzer>();
         services.AddSingleton<IConfigurationFileGenerator, ConfigurationFileGenerator>();
+        services.AddSingleton<NuGetAssetsResolver>();
 
         // NuGet services
         services.AddSingleton<INuGetPackageResolver, NuGetPackageResolver>();
